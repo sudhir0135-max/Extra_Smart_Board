@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ArrowLeft, CheckCircle2, DownloadCloud, AlertCircle, HardDrive, Wifi, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, DownloadCloud, AlertCircle, HardDrive, Loader2, FolderOpen } from 'lucide-react';
 import { AcademicClass, AcademicSubject, Book } from '../types';
-import { downloadAndCachePdf, isPdfCached } from '../lib/pdfCache';
+import { downloadAndCachePdf, isPdfCached, isNative } from '../lib/pdfCache';
 
 interface ExtraSmartboardDownloadProps {
   globalLogo?: string | null;
@@ -37,6 +37,7 @@ export default function ExtraSmartboardDownload({
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
   const [overallProgress, setOverallProgress] = useState(0);
+  const [storageDir, setStorageDir] = useState<string | null>(null);
 
   const handleNext = () => {
     if (step === 1 && selectedGrade !== null) {
@@ -100,6 +101,29 @@ export default function ExtraSmartboardDownload({
       return;
     }
 
+    // ── Persist class + subjects selection via Capacitor Preferences (native)
+    // or localStorage (web) so it survives app restarts and reinstalls ──
+    if (isNative()) {
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        await Preferences.set({ key: 'device_setup_class_v3', value: selectedGrade.toString() });
+        await Preferences.set({ key: 'device_setup_subjects_v3', value: JSON.stringify(selectedSubjects) });
+        console.log('[Setup] Saved class/subjects to Capacitor Preferences');
+      } catch (e) {
+        console.warn('[Setup] Preferences save failed, falling back to localStorage:', e);
+        localStorage.setItem('device_setup_class_v3', selectedGrade.toString());
+        localStorage.setItem('device_setup_subjects_v3', JSON.stringify(selectedSubjects));
+      }
+    } else {
+      localStorage.setItem('device_setup_class_v3', selectedGrade.toString());
+      localStorage.setItem('device_setup_subjects_v3', JSON.stringify(selectedSubjects));
+    }
+
+    // Show native storage directory info
+    if (isNative()) {
+      setStorageDir('Android/data/com.extrapadhai.app/files/extrapadhai/pdfs');
+    }
+
     const items = collectPdfItems();
 
     // Check which are already cached
@@ -113,9 +137,8 @@ export default function ExtraSmartboardDownload({
     setPdfItems(itemsWithCacheStatus);
     setStep(3);
 
-    // Start downloading
+    // No PDFs in selected books — proceed immediately
     if (itemsWithCacheStatus.length === 0) {
-      // No PDFs to download — proceed immediately
       setDownloadDone(true);
       setOverallProgress(100);
       return;
@@ -129,12 +152,9 @@ export default function ExtraSmartboardDownload({
 
     for (let idx = 0; idx < itemsWithCacheStatus.length; idx++) {
       const item = itemsWithCacheStatus[idx];
-      if (item.status === 'cached') {
-        // Already cached — skip
-        continue;
-      }
+      if (item.status === 'cached') continue; // already on device
 
-      // Mark as downloading
+      // Mark as actively downloading
       setPdfItems(prev =>
         prev.map((p, i) => (i === idx ? { ...p, status: 'downloading', progress: 0 } : p))
       );
@@ -152,9 +172,7 @@ export default function ExtraSmartboardDownload({
       completed += 1;
       setPdfItems(prev =>
         prev.map((p, i) =>
-          i === idx
-            ? { ...p, status: blob ? 'done' : 'error', progress: 100 }
-            : p
+          i === idx ? { ...p, status: blob ? 'done' : 'error', progress: 100 } : p
         )
       );
       setOverallProgress(Math.round((completed / total) * 100));
@@ -393,14 +411,25 @@ export default function ExtraSmartboardDownload({
 
               {/* Download complete message */}
               {downloadDone && (
-                <div className="mt-4 p-4 rounded-xl bg-emerald-900/30 border border-emerald-600/30 flex items-center gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                  <div>
-                    <p className="text-emerald-300 font-bold text-sm">Download Complete!</p>
-                    <p className="text-emerald-500/80 text-xs font-serif italic mt-0.5">
-                      Your PDFs are saved locally. They will load instantly even without internet.
-                    </p>
+                <div className="mt-4 space-y-3">
+                  <div className="p-4 rounded-xl bg-emerald-900/30 border border-emerald-600/30 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                    <div>
+                      <p className="text-emerald-300 font-bold text-sm">Download Complete!</p>
+                      <p className="text-emerald-500/80 text-xs font-serif italic mt-0.5">
+                        PDFs saved to device. They will load instantly — even without internet.
+                      </p>
+                    </div>
                   </div>
+                  {storageDir && (
+                    <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700 flex items-start gap-2.5">
+                      <FolderOpen className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Storage Directory</p>
+                        <p className="text-[10px] font-mono text-slate-400 mt-0.5 break-all">{storageDir}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

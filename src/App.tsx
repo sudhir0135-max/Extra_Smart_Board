@@ -156,24 +156,72 @@ export default function App() {
   }, [editors]);
 
 
-  const [activeScreen, setActiveScreen] = useState<'landing' | 'admin' | 'grade-selector' | 'workspace' | 'book-editor' | 'extra-download'>(() => {
-    if (Capacitor.isNativePlatform()) {
-      const savedClass = localStorage.getItem('device_setup_class_v3');
-      return (savedClass && savedClass !== 'null' && savedClass !== 'NaN') ? 'grade-selector' : 'extra-download';
-    }
-    return 'landing';
-  });
+  const [activeScreen, setActiveScreen] = useState<'landing' | 'admin' | 'grade-selector' | 'workspace' | 'book-editor' | 'extra-download'>(
+    Capacitor.isNativePlatform()
+      ? 'extra-download'   // will be updated by Preferences check below
+      : 'landing'
+  );
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
   // Download Extra Smartboard State
-  const [downloadedClass, setDownloadedClass] = useState<number | null>(() => {
-    const saved = localStorage.getItem('device_setup_class_v3');
-    return (saved && saved !== 'null' && saved !== 'NaN') ? parseInt(saved, 10) : null;
-  });
-  const [downloadedSubjects, setDownloadedSubjects] = useState<string[]>(() => {
-    const saved = localStorage.getItem('device_setup_subjects_v3');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [downloadedClass, setDownloadedClass] = useState<number | null>(null);
+  const [downloadedSubjects, setDownloadedSubjects] = useState<string[]>([]);
+  const [setupLoaded, setSetupLoaded] = useState(!Capacitor.isNativePlatform()); // web is instant
+
+  // On native: read class+subjects from Capacitor Preferences (survives reinstall)
+  // On web   : read from localStorage synchronously
+  useEffect(() => {
+    const loadSetup = async () => {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const { Preferences } = await import('@capacitor/preferences');
+          const classResult  = await Preferences.get({ key: 'device_setup_class_v3' });
+          const subjResult   = await Preferences.get({ key: 'device_setup_subjects_v3' });
+
+          const classVal = classResult.value;
+          const subjVal  = subjResult.value;
+
+          if (classVal && classVal !== 'null' && classVal !== 'NaN' && classVal !== '') {
+            const parsedClass = parseInt(classVal, 10);
+            const parsedSubjects: string[] = subjVal ? JSON.parse(subjVal) : [];
+            setDownloadedClass(parsedClass);
+            setDownloadedSubjects(parsedSubjects);
+            // Also mirror to localStorage for web-view reads
+            localStorage.setItem('device_setup_class_v3', classVal);
+            localStorage.setItem('device_setup_subjects_v3', subjVal ?? '[]');
+            setActiveScreen('grade-selector');
+            console.log('[App] Loaded setup from Preferences — class:', parsedClass, 'subjects:', parsedSubjects);
+          } else {
+            // First install — go to setup screen
+            setActiveScreen('extra-download');
+            console.log('[App] No saved setup found — showing download screen');
+          }
+        } catch (e) {
+          console.warn('[App] Preferences read failed, trying localStorage:', e);
+          // Fallback to localStorage
+          const saved = localStorage.getItem('device_setup_class_v3');
+          if (saved && saved !== 'null' && saved !== 'NaN') {
+            setDownloadedClass(parseInt(saved, 10));
+            const subj = localStorage.getItem('device_setup_subjects_v3');
+            setDownloadedSubjects(subj ? JSON.parse(subj) : []);
+            setActiveScreen('grade-selector');
+          } else {
+            setActiveScreen('extra-download');
+          }
+        }
+      } else {
+        // Web — use localStorage synchronously
+        const saved = localStorage.getItem('device_setup_class_v3');
+        if (saved && saved !== 'null' && saved !== 'NaN') {
+          setDownloadedClass(parseInt(saved, 10));
+          const subj = localStorage.getItem('device_setup_subjects_v3');
+          setDownloadedSubjects(subj ? JSON.parse(subj) : []);
+        }
+      }
+      setSetupLoaded(true);
+    };
+    loadSetup();
+  }, []);
 
   // Accessible visibility parameters
   const [themeMode, setThemeMode] = useState<ThemeMode>('parchment');
