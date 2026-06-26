@@ -2,240 +2,325 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * PDF Viewer — cache-first strategy using IndexedDB.
+ * PDF Viewer — cache-first, Android Capacitor-safe.
  *
- * Load strategy:
- *   1. IndexedDB local cache (instant, no network)  ← NEW
- *   2. Direct fetch of the Firebase Storage download URL (CORS enabled)
- *   3. Firebase Storage SDK getBlob() — secondary attempt
- *   4. Iframe fallback               — guaranteed display if all else fails
+ * Load order:
+ *   1. Capacitor Filesystem (native) / IndexedDB (web) — instant offline
+ *   2. Firebase SDK getBlob() — bypasses CORS on Android
+ *   3. Direct fetch() — web fallback
+ *
+ * Render order:
+ *   1. PDF.js canvas — best quality
+ *   2. <iframe> with data: URL — Capacitor fallback if PDF.js worker fails
+ *   3. <iframe> with remote URL — last resort on web
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { ref, getBlob } from 'firebase/storage';
-import { storage } from '../lib/firebase';
-import { getCachedPdf, cachePdf } from '../lib/pdfCache';
-import { HardDrive, Wifi } from 'lucide-react';
+import { getCachedPdf, cachePdf, downloadAndCachePdf, isNative } from '../lib/pdfCache';
+import { HardDrive, Wifi, AlertTriangle, RefreshCw } from 'lucide-react';
 
-// ── PDF.js worker setup ──
-// On Capacitor Android the WebView uses the "capacitor://localhost" scheme,
-// which makes import.meta.url resolve to a capacitor:// URL that the browser
-// cannot load as a dedicated Worker. We therefore fall back to the CDN worker
-// for native builds and use the bundled worker only for web.
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+// ─── Worker setup ────────────────────────────────────────────────────────────
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-if (typeof window !== 'undefined') {
-  // Check if running inside Capacitor native shell
-  const isCapacitorNative =
+function setupWorker() {
+  const isCapacitor =
     typeof (window as any).Capacitor !== 'undefined' &&
-    (window as any).Capacitor?.isNativePlatform?.();
+    !!(window as any).Capacitor?.isNativePlatform?.();
 
-  if (isCapacitorNative) {
-    // Use CDN worker — always reachable from native because the WebView
-    // uses the device's Chrome engine which supports HTTPS fetches.
+  if (isCapacitor) {
+    // On Android the bundled worker has a capacitor:// URL which can't be used
+    // as a dedicated Worker. Use CDN instead.
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
   } else {
-    // Standard web path via Vite's bundled worker URL
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
   }
 }
 
+if (typeof window !== 'undefined') setupWorker();
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 interface PdfViewerProps {
   url: string;
   viewMode: 'single' | 'double';
 }
 
-function getStoragePath(url: string): string | null {
-  try {
-    const u = new URL(url);
-    if (u.hostname !== 'firebasestorage.googleapis.com') return null;
-    const match = u.pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)/);
-    return match ? decodeURIComponent(match[1]) : null;
-  } catch { return null; }
+type LoadSource = 'cache' | 'network' | null;
+type RenderMode = 'pdfjs' | 'iframe-data' | 'iframe-url' | 'error';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Promise that rejects after `ms` milliseconds */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout: ${label} after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
-type LoadSource = 'cache' | 'network' | null;
-
-async function loadPdfBytes(url: string): Promise<{ data: ArrayBuffer; source: LoadSource }> {
-  // ── Strategy 1: IndexedDB local cache ──
+/** Load PDF bytes from cache or network. Returns Uint8Array. */
+async function loadPdfBytes(url: string): Promise<{ data: Uint8Array; source: LoadSource }> {
+  // ── 1. Local cache (Capacitor Filesystem on native, IndexedDB on web) ──
   try {
-    const cachedBlob = await getCachedPdf(url);
-    if (cachedBlob) {
-      console.log('[PdfViewer] serving from local cache ✓');
-      const data = await cachedBlob.arrayBuffer();
-      return { data, source: 'cache' };
+    const cached = await getCachedPdf(url);
+    if (cached && cached.size > 0) {
+      console.log('[PdfViewer] ✓ Serving from local cache, size:', cached.size);
+      const buf = await cached.arrayBuffer();
+      return { data: new Uint8Array(buf), source: 'cache' };
     }
   } catch (e) {
-    console.warn('[PdfViewer] cache read failed:', e);
+    console.warn('[PdfViewer] Cache read failed:', e);
   }
 
-  // ── Strategy 2: Direct fetch (CORS configured on bucket) ──
-  try {
-    console.log('[PdfViewer] fetching via URL...');
-    const resp = await fetch(url, { mode: 'cors' });
-    const ct = resp.headers.get('content-type') || '';
-    if (resp.ok && !ct.includes('text/html')) {
-      const buf = await resp.arrayBuffer();
-      console.log('[PdfViewer] fetch success, bytes:', buf.byteLength);
-      // Cache the fetched PDF for next time
-      const blob = new Blob([buf], { type: 'application/pdf' });
-      cachePdf(url, blob).catch(() => {}); // fire-and-forget
-      return { data: buf.slice(0), source: 'network' };
-    }
-    throw new Error(`Bad response: ${resp.status} ${ct}`);
-  } catch (e1) {
-    console.warn('[PdfViewer] direct fetch failed:', e1);
-  }
+  // ── 2. Firebase SDK getBlob() — no CORS issues ──
+  const isFirebase =
+    url.includes('firebasestorage.googleapis.com') ||
+    url.includes('firebasestorage.app');
 
-  // ── Strategy 3: Firebase Storage SDK getBlob() ──
-  const storagePath = getStoragePath(url);
-  if (storagePath) {
+  if (isFirebase) {
     try {
-      console.log('[PdfViewer] trying SDK getBlob:', storagePath);
-      const blob = await getBlob(ref(storage, storagePath));
-      const data = await blob.arrayBuffer();
-      // Cache it for next time
-      cachePdf(url, blob).catch(() => {});
-      return { data, source: 'network' };
-    } catch (e2) {
-      console.warn('[PdfViewer] SDK getBlob failed:', e2);
+      console.log('[PdfViewer] Downloading via Firebase SDK...');
+      const blob = await downloadAndCachePdf(url);
+      if (blob && blob.size > 0) {
+        const buf = await blob.arrayBuffer();
+        return { data: new Uint8Array(buf), source: 'network' };
+      }
+    } catch (e) {
+      console.warn('[PdfViewer] Firebase SDK failed:', e);
     }
   }
 
-  throw new Error('ALL_FAILED');
+  // ── 3. Direct fetch ──
+  try {
+    console.log('[PdfViewer] Downloading via fetch()...');
+    const resp = await fetch(url, { mode: 'cors' });
+    const ct = resp.headers.get('content-type') ?? '';
+    if (!resp.ok || ct.includes('text/html')) throw new Error(`Bad resp: ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    const blob = new Blob([buf], { type: 'application/pdf' });
+    cachePdf(url, blob).catch(() => {});
+    return { data: new Uint8Array(buf), source: 'network' };
+  } catch (e) {
+    console.warn('[PdfViewer] fetch() failed:', e);
+  }
+
+  throw new Error('ALL_SOURCES_FAILED');
 }
 
+/** Convert Uint8Array to a base64 data: URL for iframe fallback */
+function uint8ToDataUrl(data: Uint8Array): string {
+  let binary = '';
+  const chunk = 8192;
+  for (let i = 0; i < data.length; i += chunk) {
+    binary += String.fromCharCode(...data.subarray(i, i + chunk));
+  }
+  return `data:application/pdf;base64,${btoa(binary)}`;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [numPages, setNumPages] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [useFallbackIframe, setUseFallbackIframe] = useState(false);
-  const [loadSource, setLoadSource] = useState<LoadSource>(null);
+  const [numPages, setNumPages]       = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [renderMode, setRenderMode]   = useState<RenderMode>('pdfjs');
+  const [loadSource, setLoadSource]   = useState<LoadSource>(null);
+  const [errorMsg, setErrorMsg]       = useState('');
+  const [dataUrl, setDataUrl]         = useState('');   // for iframe-data fallback
+  const [retryKey, setRetryKey]       = useState(0);
 
-  const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
-  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
-  const renderTaskRefs = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
+  const pdfDocRef     = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const canvasRefs    = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const renderTaskRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
 
-  // ── Load PDF ──
+  // ── Load PDF ────────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
+
     setLoading(true);
     setNumPages(0);
-    setUseFallbackIframe(false);
+    setRenderMode('pdfjs');
     setLoadSource(null);
+    setErrorMsg('');
+    setDataUrl('');
     canvasRefs.current.clear();
+    renderTaskRef.current.forEach(t => { try { t.cancel(); } catch {} });
+    renderTaskRef.current.clear();
     if (pdfDocRef.current) { pdfDocRef.current.destroy(); pdfDocRef.current = null; }
 
-    loadPdfBytes(url)
-      .then(({ data, source }) => {
+    const run = async () => {
+      let pdfData: Uint8Array;
+      let source: LoadSource;
+
+      // ── Step 1: Get bytes ──
+      try {
+        const result = await loadPdfBytes(url);
+        pdfData = result.data;
+        source  = result.source;
+      } catch (e) {
         if (cancelled) return;
-        setLoadSource(source);
-        return pdfjsLib.getDocument({ data: data.slice(0) }).promise;
-      })
-      .then((doc) => {
-        if (!doc || cancelled) return;
+        console.error('[PdfViewer] Cannot load PDF:', e);
+        setErrorMsg('Could not download PDF. Check your internet connection.');
+        setRenderMode('error');
+        setLoading(false);
+        return;
+      }
+
+      if (cancelled) return;
+      setLoadSource(source);
+
+      // ── Step 2: Try PDF.js with 15s timeout ──
+      try {
+        const doc = await withTimeout(
+          pdfjsLib.getDocument({ data: pdfData }).promise,
+          15000,
+          'PDF.js getDocument'
+        );
+        if (cancelled) { doc.destroy(); return; }
         pdfDocRef.current = doc;
         setNumPages(doc.numPages);
+        setRenderMode('pdfjs');
         setLoading(false);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn('[PdfViewer] falling back to iframe:', err);
-        setUseFallbackIframe(true);
+        console.log('[PdfViewer] ✓ PDF.js loaded, pages:', doc.numPages);
+        return;
+      } catch (e) {
+        console.warn('[PdfViewer] PDF.js failed/timed-out:', e);
+      }
+
+      if (cancelled) return;
+
+      // ── Step 3: iframe with data: URL (works on Android without network) ──
+      try {
+        console.log('[PdfViewer] Falling back to iframe with data: URL...');
+        const dUrl = uint8ToDataUrl(pdfData);
+        setDataUrl(dUrl);
+        setRenderMode('iframe-data');
         setLoading(false);
-      });
+        return;
+      } catch (e) {
+        console.warn('[PdfViewer] data: URL fallback failed:', e);
+      }
+
+      if (cancelled) return;
+
+      // ── Step 4: iframe with remote URL ──
+      console.log('[PdfViewer] Final fallback: iframe with remote URL');
+      setRenderMode('iframe-url');
+      setLoading(false);
+    };
+
+    run();
 
     return () => {
       cancelled = true;
-      renderTaskRefs.current.forEach((t) => { try { t.cancel(); } catch (_) {} });
-      renderTaskRefs.current.clear();
+      renderTaskRef.current.forEach(t => { try { t.cancel(); } catch {} });
+      renderTaskRef.current.clear();
     };
-  }, [url]);
+  }, [url, retryKey]);
 
-  // ── Render pages ──
+  // ── Render pages via PDF.js ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!pdfDocRef.current || numPages === 0) return;
+    if (renderMode !== 'pdfjs' || !pdfDocRef.current || numPages === 0) return;
 
     const renderPage = async (pageNum: number) => {
-      await new Promise((r) => setTimeout(r, 10));
+      // Small delay so canvases are mounted
+      await new Promise(r => setTimeout(r, 20));
       const canvas = canvasRefs.current.get(pageNum);
       if (!canvas || !pdfDocRef.current) return;
 
-      const prev = renderTaskRefs.current.get(pageNum);
-      if (prev) { try { prev.cancel(); } catch (_) {} }
+      const prev = renderTaskRef.current.get(pageNum);
+      if (prev) { try { prev.cancel(); } catch {} }
 
-      const page = await pdfDocRef.current.getPage(pageNum);
-      const containerWidth = containerRef.current?.clientWidth ?? 800;
-      const targetWidth = viewMode === 'double'
-        ? Math.floor(containerWidth / 2) - 4
-        : containerWidth - 16;
-      const base = page.getViewport({ scale: 1 });
-      const scale = Math.max(0.5, targetWidth / base.width);
-      const viewport = page.getViewport({ scale });
+      try {
+        const page = await pdfDocRef.current.getPage(pageNum);
+        const containerWidth = containerRef.current?.clientWidth ?? 800;
+        const targetWidth = viewMode === 'double'
+          ? Math.floor(containerWidth / 2) - 4
+          : containerWidth - 16;
 
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(viewport.width * dpr);
-      canvas.height = Math.floor(viewport.height * dpr);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
+        const base     = page.getViewport({ scale: 1 });
+        const scale    = Math.max(0.5, targetWidth / base.width);
+        const viewport = page.getViewport({ scale });
+        const dpr      = window.devicePixelRatio || 1;
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        canvas.width        = Math.floor(viewport.width  * dpr);
+        canvas.height       = Math.floor(viewport.height * dpr);
+        canvas.style.width  = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
 
-      const task = page.render({ canvasContext: ctx, viewport });
-      renderTaskRefs.current.set(pageNum, task);
-      try { await task.promise; }
-      catch (e: any) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const task = page.render({ canvasContext: ctx, viewport });
+        renderTaskRef.current.set(pageNum, task);
+        await task.promise;
+      } catch (e: any) {
+        if (e?.name !== 'RenderingCancelledException') {
+          console.warn('[PdfViewer] Page render error:', e);
+        }
+      }
     };
 
     Array.from({ length: numPages }, (_, i) => i + 1).forEach(renderPage);
-  }, [numPages, viewMode]);
+  }, [numPages, viewMode, renderMode]);
 
   const registerCanvas = (n: number) => (el: HTMLCanvasElement | null) => {
     if (el) canvasRefs.current.set(n, el);
   };
 
-  // ── Source badge ──
+  // ── Source badge ────────────────────────────────────────────────────────────
   const SourceBadge = () => {
     if (!loadSource) return null;
     return loadSource === 'cache' ? (
-      <div
-        className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-emerald-900/80 text-emerald-300 text-[10px] font-bold font-mono uppercase tracking-widest px-2.5 py-1 rounded-full border border-emerald-500/30 backdrop-blur-sm shadow-md"
-        title="Served from local device cache"
-      >
-        <HardDrive className="w-3 h-3" />
-        Offline Cache
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-emerald-900/80 text-emerald-300 text-[10px] font-bold font-mono uppercase tracking-widest px-2.5 py-1 rounded-full border border-emerald-500/30 backdrop-blur-sm shadow-md">
+        <HardDrive className="w-3 h-3" /> Offline · Cache
       </div>
     ) : (
-      <div
-        className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-sky-900/80 text-sky-300 text-[10px] font-bold font-mono uppercase tracking-widest px-2.5 py-1 rounded-full border border-sky-500/30 backdrop-blur-sm shadow-md"
-        title="Fetched from network and saved to local cache"
-      >
-        <Wifi className="w-3 h-3" />
-        Network · Saved
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-sky-900/80 text-sky-300 text-[10px] font-bold font-mono uppercase tracking-widest px-2.5 py-1 rounded-full border border-sky-500/30 backdrop-blur-sm shadow-md">
+        <Wifi className="w-3 h-3" /> Network · Saved
       </div>
     );
   };
 
-  // ── Loading ──
+  // ── Loading screen ──────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-neutral-950">
         <div className="w-10 h-10 rounded-full border-4 border-violet-500 border-t-transparent animate-spin" />
         <p className="text-slate-400 text-sm font-mono tracking-wide">Loading PDF…</p>
+        {isNative() && (
+          <p className="text-slate-600 text-xs font-mono">Reading from device storage…</p>
+        )}
       </div>
     );
   }
 
-  // ── Iframe fallback ──
-  if (useFallbackIframe) {
+  // ── Error screen ────────────────────────────────────────────────────────────
+  if (renderMode === 'error') {
     return (
-      <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden bg-neutral-900">
+      <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-neutral-950 p-8">
+        <AlertTriangle className="w-12 h-12 text-amber-400" />
+        <p className="text-slate-300 text-sm text-center">{errorMsg || 'Failed to load PDF.'}</p>
+        <button
+          onClick={() => setRetryKey(k => k + 1)}
+          className="flex items-center gap-2 px-5 py-2.5 bg-violet-700 hover:bg-violet-600 text-white rounded-lg text-sm font-semibold transition-all active:scale-95"
+        >
+          <RefreshCw className="w-4 h-4" /> Retry
+        </button>
+      </div>
+    );
+  }
+
+  // ── iframe with data: URL (Android PDF.js fallback) ─────────────────────────
+  if (renderMode === 'iframe-data' && dataUrl) {
+    return (
+      <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden bg-neutral-900 relative">
+        <SourceBadge />
         <iframe
-          src={`${url}#toolbar=0&navpanes=0&scrollbar=0`}
+          src={dataUrl}
           className="flex-1 w-full border-0"
           title="PDF Viewer"
           allow="fullscreen"
@@ -244,7 +329,22 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
     );
   }
 
-  // ── PDF.js canvas ──
+  // ── iframe with remote URL (last resort) ─────────────────────────────────────
+  if (renderMode === 'iframe-url') {
+    return (
+      <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden bg-neutral-900 relative">
+        <SourceBadge />
+        <iframe
+          src={`${url}#toolbar=0&navpanes=0`}
+          className="flex-1 w-full border-0"
+          title="PDF Viewer"
+          allow="fullscreen"
+        />
+      </div>
+    );
+  }
+
+  // ── PDF.js canvas rendering ──────────────────────────────────────────────────
   const pages = Array.from({ length: numPages }, (_, i) => i + 1);
 
   if (viewMode === 'single') {
@@ -255,7 +355,7 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
         id="pdf-single-scroll"
       >
         <SourceBadge />
-        {pages.map((n) => (
+        {pages.map(n => (
           <div key={n} className="shadow-2xl bg-white" style={{ lineHeight: 0 }}>
             <canvas ref={registerCanvas(n)} className="block" />
           </div>
@@ -264,7 +364,7 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
     );
   }
 
-  /* ── DOUBLE PAGE BOOK SPREAD ── */
+  /* ── Double page book spread ── */
   const pairs: Array<[number, number | null]> = [];
   for (let i = 0; i < pages.length; i += 2) pairs.push([pages[i], pages[i + 1] ?? null]);
 
