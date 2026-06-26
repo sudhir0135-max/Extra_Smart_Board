@@ -588,6 +588,7 @@ export default function App() {
         globalLogo={globalLogo}
         academicClasses={academicClasses}
         academicSubjects={academicSubjects}
+        books={books}
         onCancel={() => setActiveScreen('landing')}
         onDownload={(grade, subjects) => {
           setDownloadedClass(grade);
@@ -595,7 +596,7 @@ export default function App() {
           localStorage.setItem('device_setup_class_v3', grade.toString());
           localStorage.setItem('device_setup_subjects_v3', JSON.stringify(subjects));
           setActiveScreen('grade-selector');
-          addToast(`Successfully downloaded Extra Smartboard data for Class ${grade}.`, 'success');
+          addToast(`PDFs downloaded & saved offline for Class ${grade}. Loading smartboard…`, 'success');
         }}
       />
     );

@@ -2,18 +2,21 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * PDF Viewer — uses direct fetch now that Firebase Storage CORS is configured.
+ * PDF Viewer — cache-first strategy using IndexedDB.
  *
  * Load strategy:
- *   1. Direct fetch of the Firebase Storage download URL (CORS now enabled)
- *   2. Firebase Storage SDK getBlob() — secondary attempt
- *   3. Iframe fallback               — guaranteed display if both fail
+ *   1. IndexedDB local cache (instant, no network)  ← NEW
+ *   2. Direct fetch of the Firebase Storage download URL (CORS enabled)
+ *   3. Firebase Storage SDK getBlob() — secondary attempt
+ *   4. Iframe fallback               — guaranteed display if all else fails
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { ref, getBlob } from 'firebase/storage';
 import { storage } from '../lib/firebase';
+import { getCachedPdf, cachePdf } from '../lib/pdfCache';
+import { HardDrive, Wifi } from 'lucide-react';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -34,8 +37,22 @@ function getStoragePath(url: string): string | null {
   } catch { return null; }
 }
 
-async function tryFetchBytes(url: string): Promise<ArrayBuffer> {
-  // Strategy 1: Direct fetch — works now that CORS is configured on the bucket
+type LoadSource = 'cache' | 'network' | null;
+
+async function loadPdfBytes(url: string): Promise<{ data: ArrayBuffer; source: LoadSource }> {
+  // ── Strategy 1: IndexedDB local cache ──
+  try {
+    const cachedBlob = await getCachedPdf(url);
+    if (cachedBlob) {
+      console.log('[PdfViewer] serving from local cache ✓');
+      const data = await cachedBlob.arrayBuffer();
+      return { data, source: 'cache' };
+    }
+  } catch (e) {
+    console.warn('[PdfViewer] cache read failed:', e);
+  }
+
+  // ── Strategy 2: Direct fetch (CORS configured on bucket) ──
   try {
     console.log('[PdfViewer] fetching via URL...');
     const resp = await fetch(url, { mode: 'cors' });
@@ -43,20 +60,26 @@ async function tryFetchBytes(url: string): Promise<ArrayBuffer> {
     if (resp.ok && !ct.includes('text/html')) {
       const buf = await resp.arrayBuffer();
       console.log('[PdfViewer] fetch success, bytes:', buf.byteLength);
-      return buf;
+      // Cache the fetched PDF for next time
+      const blob = new Blob([buf], { type: 'application/pdf' });
+      cachePdf(url, blob).catch(() => {}); // fire-and-forget
+      return { data: buf.slice(0), source: 'network' };
     }
     throw new Error(`Bad response: ${resp.status} ${ct}`);
   } catch (e1) {
     console.warn('[PdfViewer] direct fetch failed:', e1);
   }
 
-  // Strategy 2: Firebase Storage SDK getBlob()
+  // ── Strategy 3: Firebase Storage SDK getBlob() ──
   const storagePath = getStoragePath(url);
   if (storagePath) {
     try {
       console.log('[PdfViewer] trying SDK getBlob:', storagePath);
       const blob = await getBlob(ref(storage, storagePath));
-      return blob.arrayBuffer();
+      const data = await blob.arrayBuffer();
+      // Cache it for next time
+      cachePdf(url, blob).catch(() => {});
+      return { data, source: 'network' };
     } catch (e2) {
       console.warn('[PdfViewer] SDK getBlob failed:', e2);
     }
@@ -70,6 +93,7 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
   const [numPages, setNumPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [useFallbackIframe, setUseFallbackIframe] = useState(false);
+  const [loadSource, setLoadSource] = useState<LoadSource>(null);
 
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
@@ -81,12 +105,14 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
     setLoading(true);
     setNumPages(0);
     setUseFallbackIframe(false);
+    setLoadSource(null);
     canvasRefs.current.clear();
     if (pdfDocRef.current) { pdfDocRef.current.destroy(); pdfDocRef.current = null; }
 
-    tryFetchBytes(url)
-      .then((data) => {
+    loadPdfBytes(url)
+      .then(({ data, source }) => {
         if (cancelled) return;
+        setLoadSource(source);
         return pdfjsLib.getDocument({ data: data.slice(0) }).promise;
       })
       .then((doc) => {
@@ -153,6 +179,28 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
     if (el) canvasRefs.current.set(n, el);
   };
 
+  // ── Source badge ──
+  const SourceBadge = () => {
+    if (!loadSource) return null;
+    return loadSource === 'cache' ? (
+      <div
+        className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-emerald-900/80 text-emerald-300 text-[10px] font-bold font-mono uppercase tracking-widest px-2.5 py-1 rounded-full border border-emerald-500/30 backdrop-blur-sm shadow-md"
+        title="Served from local device cache"
+      >
+        <HardDrive className="w-3 h-3" />
+        Offline Cache
+      </div>
+    ) : (
+      <div
+        className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-sky-900/80 text-sky-300 text-[10px] font-bold font-mono uppercase tracking-widest px-2.5 py-1 rounded-full border border-sky-500/30 backdrop-blur-sm shadow-md"
+        title="Fetched from network and saved to local cache"
+      >
+        <Wifi className="w-3 h-3" />
+        Network · Saved
+      </div>
+    );
+  };
+
   // ── Loading ──
   if (loading) {
     return (
@@ -184,9 +232,10 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
     return (
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto bg-neutral-800 flex flex-col items-center py-6 gap-5"
+        className="flex-1 overflow-y-auto bg-neutral-800 flex flex-col items-center py-6 gap-5 relative"
         id="pdf-single-scroll"
       >
+        <SourceBadge />
         {pages.map((n) => (
           <div key={n} className="shadow-2xl bg-white" style={{ lineHeight: 0 }}>
             <canvas ref={registerCanvas(n)} className="block" />
@@ -203,9 +252,10 @@ export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto bg-neutral-800 flex flex-col items-center py-6 gap-5"
+      className="flex-1 overflow-y-auto bg-neutral-800 flex flex-col items-center py-6 gap-5 relative"
       id="pdf-double-scroll"
     >
+      <SourceBadge />
       {pairs.map(([left, right], idx) => (
         <div key={idx} className="flex shadow-2xl w-[98%]" style={{ lineHeight: 0 }}>
           <div className="flex-1 bg-white flex justify-end overflow-hidden">
