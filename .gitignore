@@ -13,3 +13,9 @@ dist/
 *.log
 PortableGit/
 serviceAccountKey.json
+
+*.zip
+jdk*/
+node*/
+node22*/
+build/
