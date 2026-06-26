@@ -18,10 +18,29 @@ import { storage } from '../lib/firebase';
 import { getCachedPdf, cachePdf } from '../lib/pdfCache';
 import { HardDrive, Wifi } from 'lucide-react';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
+// ── PDF.js worker setup ──
+// On Capacitor Android the WebView uses the "capacitor://localhost" scheme,
+// which makes import.meta.url resolve to a capacitor:// URL that the browser
+// cannot load as a dedicated Worker. We therefore fall back to the CDN worker
+// for native builds and use the bundled worker only for web.
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+if (typeof window !== 'undefined') {
+  // Check if running inside Capacitor native shell
+  const isCapacitorNative =
+    typeof (window as any).Capacitor !== 'undefined' &&
+    (window as any).Capacitor?.isNativePlatform?.();
+
+  if (isCapacitorNative) {
+    // Use CDN worker — always reachable from native because the WebView
+    // uses the device's Chrome engine which supports HTTPS fetches.
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  } else {
+    // Standard web path via Vite's bundled worker URL
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+  }
+}
 
 interface PdfViewerProps {
   url: string;

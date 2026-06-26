@@ -96,26 +96,51 @@ export async function isPdfCached(url: string): Promise<boolean> {
 
 /**
  * Download a PDF from a URL and cache it.
+ * On Capacitor Android we prefer Firebase SDK getBlob() because it bypasses
+ * CORS entirely — the SDK authenticates through its own native channel.
+ * On web, direct fetch() is used with streaming progress.
  * Returns the blob on success, null on failure.
  */
 export async function downloadAndCachePdf(
   url: string,
   onProgress?: (loaded: number, total: number) => void
 ): Promise<Blob | null> {
+
+  const isCapacitorNative =
+    typeof (window as any).Capacitor !== 'undefined' &&
+    (window as any).Capacitor?.isNativePlatform?.();
+
+  // ── Strategy A: Firebase SDK getBlob() — works on both native & web, no CORS ──
+  if (url.includes('firebasestorage.googleapis.com') || url.includes('firebasestorage.app')) {
+    try {
+      console.log('[pdfCache] Trying Firebase SDK getBlob():', url);
+      const { getStorage, ref, getBlob } = await import('firebase/storage');
+      const storage = getStorage();
+
+      // Extract the storage path from the download URL
+      const storagePathMatch = new URL(url).pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)/);
+      if (storagePathMatch) {
+        const storagePath = decodeURIComponent(storagePathMatch[1].split('?')[0]);
+        const blob = await getBlob(ref(storage, storagePath));
+        onProgress?.(blob.size, blob.size); // signal 100%
+        const pdfBlob = new Blob([await blob.arrayBuffer()], { type: 'application/pdf' });
+        await cachePdf(url, pdfBlob);
+        return pdfBlob;
+      }
+    } catch (sdkErr) {
+      console.warn('[pdfCache] Firebase SDK getBlob failed, falling back to fetch:', sdkErr);
+    }
+  }
+
+  // ── Strategy B: Direct fetch (works on web, may hit CORS on native) ──
   try {
-    console.log('[pdfCache] Downloading PDF:', url);
+    console.log('[pdfCache] Fetching via URL:', url);
     const response = await fetch(url, { mode: 'cors' });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      throw new Error('Got HTML instead of PDF');
-    }
+    if (contentType.includes('text/html')) throw new Error('Got HTML instead of PDF');
 
-    // Stream with progress if supported
     const contentLength = response.headers.get('content-length');
     const total = contentLength ? parseInt(contentLength, 10) : 0;
 
@@ -123,7 +148,6 @@ export async function downloadAndCachePdf(
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
       let loaded = 0;
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -131,25 +155,20 @@ export async function downloadAndCachePdf(
         loaded += value.length;
         onProgress(loaded, total);
       }
-
       const combined = new Uint8Array(loaded);
       let offset = 0;
-      for (const chunk of chunks) {
-        combined.set(chunk, offset);
-        offset += chunk.length;
-      }
+      for (const chunk of chunks) { combined.set(chunk, offset); offset += chunk.length; }
       const blob = new Blob([combined], { type: 'application/pdf' });
       await cachePdf(url, blob);
       return blob;
     }
 
-    // Simple path without progress tracking
     const arrayBuffer = await response.arrayBuffer();
     const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
     await cachePdf(url, blob);
     return blob;
-  } catch (err) {
-    console.warn('[pdfCache] downloadAndCachePdf failed:', err);
+  } catch (fetchErr) {
+    console.warn('[pdfCache] fetch failed:', fetchErr);
     return null;
   }
 }
