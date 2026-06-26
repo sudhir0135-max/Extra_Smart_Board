@@ -8,6 +8,8 @@ import { Book, Lesson, FlashQuestion, BookEditor } from '../types';
 import { uploadImageToStorage, uploadWebpPage, writeMetaJson, deleteFileFromStorage, buildLessonStoragePath } from '../lib/firebaseHelper';
 import { auth, db, storage } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+// Local bundled PDF.js worker (Vite resolves the correct hashed URL at build time)
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import {
   Shield,
   Key,
