@@ -5,8 +5,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Book, Lesson, FlashQuestion, BookEditor } from '../types';
-import { uploadImageToStorage, uploadPdfToStorage } from '../lib/firebaseHelper';
-import { auth, db } from '../lib/firebase';
+import { uploadImageToStorage, uploadWebpPage, writeMetaJson, deleteFileFromStorage, buildLessonStoragePath } from '../lib/firebaseHelper';
+import { auth, db, storage } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import {
   Shield,
@@ -122,6 +122,8 @@ export default function BookEditorPanel({
   const [activeLessonVideoDraft, setActiveLessonVideoDraft] = useState('');
   const [activeLessonPdfDraft, setActiveLessonPdfDraft] = useState<string | null>(null);
   const [pdfUploading, setPdfUploading] = useState(false);
+  // WebP conversion state
+  const [convertProgress, setConvertProgress] = useState<{ phase: 'idle' | 'converting' | 'uploading' | 'done' | 'error'; current: number; total: number; error?: string }>({ phase: 'idle', current: 0, total: 0 });
 
 
 
@@ -412,7 +414,179 @@ export default function BookEditorPanel({
     }
   };
 
+  // ── PDF → WebP Conversion Engine ────────────────────────────────────────────
+  const runPdfToWebpConversion = async (
+    localFile: File | null,                 // null if converting from existing Firebase URL
+    book: typeof assignedBook,
+    lesson: NonNullable<typeof activeLesson>,
+    existingPdfUrl: string | null           // null if using localFile
+  ) => {
+    if (!book) return;
+
+    const classId  = book.classId  || 'unknown_class';
+    const subjectId = book.subjectId || 'unknown_subject';
+    const storagePath = buildLessonStoragePath(classId, subjectId, book.id, lesson.id);
+
+    setConvertProgress({ phase: 'converting', current: 0, total: 0 });
+
+    try {
+      // ── Step 1: Get PDF ArrayBuffer ──────────────────────────────────────
+      let pdfBuffer: ArrayBuffer;
+
+      if (localFile) {
+        pdfBuffer = await localFile.arrayBuffer();
+      } else if (existingPdfUrl) {
+        // Download from Firebase Storage
+        const { getBlob } = await import('firebase/storage');
+        const { ref: storageRef } = await import('firebase/storage');
+        const match = existingPdfUrl.match(/\/o\/(.+?)(\?|$)/);
+        const path = match ? decodeURIComponent(match[1]) : null;
+        if (!path) throw new Error('Cannot parse existing PDF URL');
+        const blob = await getBlob(storageRef(storage, path));
+        pdfBuffer = await blob.arrayBuffer();
+      } else {
+        throw new Error('No PDF source provided');
+      }
+
+      // ── Step 2: Load PDF.js ──────────────────────────────────────────────
+      const pdfjsLib = await import('pdfjs-dist');
+      // Use CDN worker for the admin panel (running in desktop Chrome)
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+      const total = pdf.numPages;
+      setConvertProgress({ phase: 'converting', current: 0, total });
+
+      // ── Step 3: Render each page → WebP → Upload ────────────────────────
+      const DPI = 200;
+      const SCALE = DPI / 72; // PDF user units are 72 DPI
+
+      for (let pageNum = 1; pageNum <= total; pageNum++) {
+        setConvertProgress({ phase: 'converting', current: pageNum, total });
+
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: SCALE });
+
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        const ctx = canvas.getContext('2d')!;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        // Convert canvas to WebP blob
+        const webpBlob: Blob = await new Promise((resolve, reject) => {
+          canvas.toBlob(
+            (b) => b ? resolve(b) : reject(new Error(`Page ${pageNum}: toBlob returned null`)),
+            'image/webp',
+            0.85
+          );
+        });
+
+        // Upload to Firebase Storage
+        setConvertProgress({ phase: 'uploading', current: pageNum, total });
+        await uploadWebpPage(classId, subjectId, book.id, lesson.id, pageNum, webpBlob);
+
+        // Free memory
+        canvas.width = 0; canvas.height = 0;
+      }
+
+      // ── Step 4: Write meta.json ──────────────────────────────────────────
+      await writeMetaJson(classId, subjectId, book.id, lesson.id, {
+        bookId: book.id,
+        lessonId: lesson.id,
+        title: lesson.title,
+        classId,
+        subjectId,
+        lessonOrder: book.lessons.findIndex(l => l.id === lesson.id) + 1,
+        pageCount: total,
+      });
+
+      // ── Step 5: Update Firestore lesson ──────────────────────────────────
+      const updatedBook = {
+        ...book,
+        lessons: book.lessons.map(l => l.id === lesson.id
+          ? { ...l, storagePath, pageCount: total, pagesReady: true, pdfUrl: null }
+          : l
+        )
+      };
+      await saveBookToFirebase(updatedBook);
+
+      // ── Step 6: Delete original PDF from Firebase (if it was there) ──────
+      if (existingPdfUrl) {
+        await deleteFileFromStorage(existingPdfUrl);
+      }
+
+      setActiveLessonPdfDraft(null);
+      setConvertProgress({ phase: 'done', current: total, total });
+      flashMessage(`✅ ${total} pages converted and ready for students!`);
+
+      // Reset progress after 4 seconds
+      setTimeout(() => setConvertProgress({ phase: 'idle', current: 0, total: 0 }), 4000);
+
+    } catch (err: any) {
+      console.error('[PDF→WebP] Conversion failed:', err);
+      setConvertProgress({ phase: 'error', current: 0, total: 0, error: err.message || 'Unknown error' });
+    }
+  };
+
+  // ── Conversion Progress UI ────────────────────────────────────────────────
+  const ConversionProgress = ({ progress }: { progress: typeof convertProgress }) => {
+    if (progress.phase === 'idle') return null;
+
+    if (progress.phase === 'error') {
+      return (
+        <div className="bg-rose-950/40 border border-rose-500/30 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-bold text-rose-300">❌ Conversion failed</p>
+          <p className="text-[9px] font-mono text-rose-400">{progress.error}</p>
+          <button
+            onClick={() => setConvertProgress({ phase: 'idle', current: 0, total: 0 })}
+            className="text-[9px] font-mono text-slate-400 hover:text-white underline cursor-pointer"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    if (progress.phase === 'done') {
+      return (
+        <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-4">
+          <p className="text-xs font-bold text-emerald-300">
+            ✅ Done! {progress.total} pages ready for students.
+          </p>
+        </div>
+      );
+    }
+
+    const pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+    const label = progress.phase === 'converting' ? '🖼️  Converting page' : '☁️  Uploading page';
+
+    return (
+      <div className="bg-[#0d1020] border border-violet-500/30 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[9px] font-mono text-violet-300">
+            {label} {progress.current} / {progress.total}
+          </p>
+          <span className="text-[9px] font-mono text-slate-400">{pct}%</span>
+        </div>
+        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-violet-500 rounded-full transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="text-[8px] font-mono text-slate-500">
+          {progress.phase === 'converting'
+            ? 'Reading PDF locally — not uploading the original file'
+            : 'Storing image in Firebase Storage'}
+        </p>
+      </div>
+    );
+  };
+
   if (authLoading) {
+
     return (
       <div className="h-screen w-full bg-[#070a13] flex items-center justify-center">
         <div className="text-emerald-500 animate-pulse">Loading Editor Credentials...</div>
@@ -658,89 +832,106 @@ export default function BookEditorPanel({
                     </div>
                   </div>
 
-                  {/* PDF Upload Section */}
+                  {/* PDF → WebP Conversion Section */}
                   <div className="border-t border-slate-800/60 pt-4">
                     <span className="text-[8.5px] uppercase font-mono text-slate-400 block mb-2 flex items-center gap-1.5">
                       <FileText className="w-3 h-3 text-violet-400" />
-                      Lesson PDF Resource
+                      Lesson Pages (WebP Images)
                     </span>
-                    {activeLessonPdfDraft ? (
-                      <div className="flex items-center gap-3 bg-[#0d1020] border border-violet-500/30 rounded-xl p-3">
-                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-                          <FileText className="w-5 h-5 text-violet-400" />
+
+                    {/* Already converted — show status */}
+                    {activeLesson?.pagesReady && activeLesson?.pageCount ? (
+                      <div className="flex items-center gap-3 bg-[#0a1a10] border border-emerald-500/30 rounded-xl p-3">
+                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                          <CheckCircle className="w-5 h-5 text-emerald-400" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-violet-300 truncate">
-                            {decodeURIComponent(activeLessonPdfDraft.split('/').pop()?.split('?')[0]?.replace(/^\d+_/, '') || 'lesson.pdf')}
+                          <p className="text-xs font-bold text-emerald-300">
+                            ✅ {activeLesson.pageCount} pages ready for students
                           </p>
-                          <p className="text-[9px] font-mono text-slate-500 mt-0.5">PDF attached to this lesson</p>
+                          <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
+                            {activeLesson.storagePath}
+                          </p>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <a
-                            href={activeLessonPdfDraft}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[9px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 hover:border-violet-400/50 px-2 py-1 rounded transition-colors"
-                          >
+                        {/* Allow re-upload to replace pages */}
+                        <label className="text-[9px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 hover:border-violet-400/50 px-2 py-1 rounded transition-colors cursor-pointer flex-shrink-0">
+                          Re-upload PDF
+                          <input type="file" className="hidden" accept="application/pdf"
+                            onChange={async (e) => {
+                              if (!e.target.files?.[0] || !assignedBook || !activeLesson) return;
+                              await runPdfToWebpConversion(e.target.files[0], assignedBook, activeLesson, null);
+                            }}
+                          />
+                        </label>
+                      </div>
+                    ) : activeLessonPdfDraft && !activeLesson?.pagesReady ? (
+                      /* Has old PDF — offer Convert + Delete */
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 bg-[#0d1020] border border-amber-500/30 rounded-xl p-3">
+                          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                            <FileText className="w-5 h-5 text-amber-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-amber-300 truncate">
+                              {decodeURIComponent(activeLessonPdfDraft.split('/').pop()?.split('?')[0]?.replace(/^\d+_/, '') || 'lesson.pdf')}
+                            </p>
+                            <p className="text-[9px] font-mono text-slate-500 mt-0.5">
+                              ⚠️ Old PDF — students cannot view it. Convert to images.
+                            </p>
+                          </div>
+                          <a href={activeLessonPdfDraft} target="_blank" rel="noopener noreferrer"
+                            className="text-[9px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 px-2 py-1 rounded transition-colors flex-shrink-0">
                             Open PDF
                           </a>
-                          <button
-                            type="button"
-                            onClick={() => setActiveLessonPdfDraft(null)}
-                            className="p-1.5 bg-rose-950/60 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg border border-rose-800/50 transition-colors cursor-pointer"
-                            title="Remove PDF"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
                         </div>
+                        {convertProgress.phase === 'idle' ? (
+                          <button
+                            onClick={async () => {
+                              if (!assignedBook || !activeLesson || !activeLessonPdfDraft) return;
+                              await runPdfToWebpConversion(null, assignedBook, activeLesson, activeLessonPdfDraft);
+                            }}
+                            className="w-full py-2.5 bg-violet-700 hover:bg-violet-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            Convert to WebP Images — Delete Original PDF
+                          </button>
+                        ) : (
+                          <ConversionProgress progress={convertProgress} />
+                        )}
                       </div>
+                    ) : convertProgress.phase !== 'idle' ? (
+                      <ConversionProgress progress={convertProgress} />
                     ) : (
+                      /* No PDF at all — pick from local PC */
                       <label className={`flex items-center gap-3 border border-dashed rounded-xl p-4 cursor-pointer transition-all group ${
-                        pdfUploading
-                          ? 'border-violet-500/50 bg-violet-500/5 cursor-wait'
+                        pdfUploading ? 'border-violet-500/50 bg-violet-500/5 cursor-wait'
                           : 'border-slate-700 hover:border-violet-500/50 bg-slate-950/40 hover:bg-violet-500/5'
                       }`}>
                         <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-800 group-hover:bg-violet-500/10 border border-slate-700 group-hover:border-violet-500/30 flex items-center justify-center transition-all">
-                          {pdfUploading ? (
-                            <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Upload className="w-4 h-4 text-slate-500 group-hover:text-violet-400 transition-colors" />
-                          )}
+                          {pdfUploading
+                            ? <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                            : <Upload className="w-4 h-4 text-slate-500 group-hover:text-violet-400 transition-colors" />
+                          }
                         </div>
                         <div>
                           <p className="text-xs font-bold text-slate-300 group-hover:text-violet-300 transition-colors">
-                            {pdfUploading ? 'Uploading PDF...' : 'Upload Lesson PDF'}
+                            {pdfUploading ? 'Processing...' : 'Upload PDF → Auto-converts to images'}
                           </p>
-                          <p className="text-[9px] font-mono text-slate-500 mt-0.5">Click to browse — PDF files only</p>
+                          <p className="text-[9px] font-mono text-slate-500 mt-0.5">
+                            PDF is read locally — only images are stored in Firebase
+                          </p>
                         </div>
                         <input
                           type="file"
                           className="hidden"
                           accept="application/pdf"
-                          disabled={pdfUploading}
+                          disabled={pdfUploading || convertProgress.phase !== 'idle'}
                           onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              setPdfUploading(true);
-                              try {
-                                const url = await uploadPdfToStorage(e.target.files[0]);
-                                setActiveLessonPdfDraft(url);
-                                flashMessage('PDF uploaded! Click "Save Meta" to link it to this lesson.');
-                              } catch (err: any) {
-                                alert('PDF upload failed: ' + err.message);
-                                console.error('PDF upload failed', err);
-                              } finally {
-                                setPdfUploading(false);
-                              }
-                            }
+                            if (!e.target.files?.[0] || !assignedBook || !activeLesson) return;
+                            await runPdfToWebpConversion(e.target.files[0], assignedBook, activeLesson, null);
                           }}
                         />
                       </label>
-                    )}
-                    {activeLessonPdfDraft && (
-                      <p className="text-[9px] font-mono text-amber-500/70 mt-1.5 flex items-center gap-1">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Remember to click "Save Meta" above to persist the PDF link.
-                      </p>
                     )}
                   </div>
                 </div>
