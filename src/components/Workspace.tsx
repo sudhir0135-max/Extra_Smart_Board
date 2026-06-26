@@ -8,6 +8,7 @@ import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import PdfViewer from './PdfViewer';
+import ImageViewer from './ImageViewer';
 import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText } from 'lucide-react';
 import { BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
@@ -221,8 +222,17 @@ export default function Workspace({
             className="hidden"
           />
 
-          {activeLesson.pdfUrl ? (
-            /* ── PDF MODE: delegate to PdfViewer component ── */
+          {activeLesson.pagesReady && activeLesson.storagePath && selectedBook ? (
+            /* ── WEBP MODE: new image-based viewer ── */
+            <ImageViewer
+              lessons={selectedBook.lessons.filter(l => l.pagesReady && l.storagePath)}
+              initialLessonId={activeLesson.id}
+              classId={selectedBook.classId || 'unknown'}
+              subjectId={selectedBook.subjectId || 'unknown'}
+              bookId={selectedBook.id}
+            />
+          ) : activeLesson.pdfUrl ? (
+            /* ── PDF MODE: legacy fallback ── */
             <PdfViewer url={activeLesson.pdfUrl} viewMode={pdfViewMode} />
           ) : (
             /* ── PAGE MODE: render lesson pages as before ── */
