@@ -105,8 +105,8 @@ export default function LandingPage({
           </button>
 
           <a
-            href="/ExtraPadhai_v4.apk?v=4.0"
-            download="ExtraPadhai_v4.apk"
+            href="/ExtraPadhai.apk"
+            download="ExtraPadhai.apk"
             className="group relative px-8 py-5 bg-gradient-to-r from-slate-900/40 to-slate-800/40 hover:from-slate-800/60 hover:to-slate-700/60 border-2 border-slate-600/50 hover:border-slate-400 rounded-2xl text-slate-300 hover:text-white font-extrabold tracking-widest transition-all duration-300 shadow-2xl shadow-slate-900/20 hover:shadow-slate-500/40 flex items-center justify-center gap-4 w-full sm:w-auto uppercase text-sm md:text-lg hover:scale-105 transform"
           >
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-slate-400/0 via-slate-400/10 to-slate-400/0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />

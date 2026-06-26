@@ -6,9 +6,24 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "headers": [
+      {
+        "source": "**/*.apk",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/vnd.android.package-archive"
+          },
+          {
+            "key": "Content-Disposition",
+            "value": "attachment"
+          }
+        ]
+      }
+    ],
     "rewrites": [
       {
-        "source": "**",
+        "source": "!**/*.apk",
         "destination": "/index.html"
       }
     ]
