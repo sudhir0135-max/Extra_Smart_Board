@@ -222,10 +222,10 @@ export default function Workspace({
             className="hidden"
           />
 
-          {activeLesson.pagesReady && activeLesson.storagePath && selectedBook ? (
+          {activeLesson.pagesReady && activeLesson.pageCount && selectedBook ? (
             /* ── WEBP MODE: new image-based viewer ── */
             <ImageViewer
-              lessons={selectedBook.lessons.filter(l => l.pagesReady && l.storagePath)}
+              lessons={selectedBook.lessons.filter(l => l.pagesReady && l.pageCount)}
               initialLessonId={activeLesson.id}
               classId={selectedBook.classId || 'unknown'}
               subjectId={selectedBook.subjectId || 'unknown'}

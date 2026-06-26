@@ -125,7 +125,34 @@ export default function BookEditorPanel({
   const [activeLessonPdfDraft, setActiveLessonPdfDraft] = useState<string | null>(null);
   const [pdfUploading, setPdfUploading] = useState(false);
   // WebP conversion state
-  const [convertProgress, setConvertProgress] = useState<{ phase: 'idle' | 'converting' | 'uploading' | 'done' | 'error'; current: number; total: number; error?: string }>({ phase: 'idle', current: 0, total: 0 });
+  const [convertProgress, setConvertProgress] = useState<{
+    phase: 'idle' | 'converting' | 'uploading' | 'done' | 'error';
+    current: number;
+    total: number;
+    error?: string;
+  }>({ phase: 'idle', current: 0, total: 0 });
+
+  // ── Conversion confirmation dialog ────────────────────────────────────────
+  const [convertConfirm, setConvertConfirm] = useState<{
+    open: boolean;
+    localFile: File | null;
+    existingPdfUrl: string | null;
+  }>({ open: false, localFile: null, existingPdfUrl: null });
+
+  const requestConversion = (localFile: File | null, existingPdfUrl: string | null) => {
+    setConvertConfirm({ open: true, localFile, existingPdfUrl });
+  };
+
+  const confirmConversion = async () => {
+    if (!assignedBook || !activeLesson) return;
+    setConvertConfirm({ open: false, localFile: null, existingPdfUrl: null });
+    await runPdfToWebpConversion(
+      convertConfirm.localFile,
+      assignedBook,
+      activeLesson,
+      convertConfirm.existingPdfUrl
+    );
+  };
 
 
 
@@ -452,16 +479,17 @@ export default function BookEditorPanel({
 
       // ── Step 2: Load PDF.js ──────────────────────────────────────────────
       const pdfjsLib = await import('pdfjs-dist');
-      // Use CDN worker for the admin panel (running in desktop Chrome)
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      // Use the locally bundled worker (Vite resolves this at build time — no CDN needed)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
       const total = pdf.numPages;
       setConvertProgress({ phase: 'converting', current: 0, total });
 
       // ── Step 3: Render each page → WebP → Upload ────────────────────────
-      const DPI = 200;
+      // 120 DPI: sharp enough for any tablet/smartboard screen, ~60% smaller than 200 DPI.
+      // WebP quality 0.72: excellent compression for text-heavy PDFs, much smaller than raw raster.
+      const DPI = 120;
       const SCALE = DPI / 72; // PDF user units are 72 DPI
 
       for (let pageNum = 1; pageNum <= total; pageNum++) {
@@ -474,14 +502,17 @@ export default function BookEditorPanel({
         canvas.width  = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
         const ctx = canvas.getContext('2d')!;
+        // White background so transparent PDFs don't render as black
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // Convert canvas to WebP blob
+        // Convert canvas to WebP blob — quality 0.72 gives good compression on text pages
         const webpBlob: Blob = await new Promise((resolve, reject) => {
           canvas.toBlob(
             (b) => b ? resolve(b) : reject(new Error(`Page ${pageNum}: toBlob returned null`)),
             'image/webp',
-            0.85
+            0.72
           );
         });
 
@@ -505,10 +536,13 @@ export default function BookEditorPanel({
       });
 
       // ── Step 5: Update Firestore lesson ──────────────────────────────────
+      // NOTE: storagePath is NOT stored in Firestore — it is computed dynamically from
+      // classId + subjectId + bookId + lessonId (via buildLessonStoragePath).
+      // This keeps the book document well under Firestore's 1 MB limit.
       const updatedBook = {
         ...book,
         lessons: book.lessons.map(l => l.id === lesson.id
-          ? { ...l, storagePath, pageCount: total, pagesReady: true, pdfUrl: null }
+          ? { ...l, storagePath: null, pageCount: total, pagesReady: true, pdfUrl: null }
           : l
         )
       };
@@ -619,6 +653,43 @@ export default function BookEditorPanel({
 
   return (
     <div className="h-screen w-full bg-[#070a13] text-slate-200 font-sans flex flex-col overflow-hidden" id="editor-workspace">
+      {/* CONVERSION CONFIRM DIALOG */}
+      {convertConfirm.open && (
+        <div className="fixed inset-0 z-[999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0d1020] border border-violet-500/40 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                <Upload className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">Start Conversion?</p>
+                <p className="text-[10px] font-mono text-slate-400 mt-0.5">{activeLesson?.title}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              This will convert the PDF to WebP images and upload them to Firebase Storage.
+              <span className="text-rose-400 font-bold"> The original PDF will be permanently deleted</span> after conversion.
+            </p>
+            <p className="text-[9px] font-mono text-slate-500">
+              This may take several minutes for large PDFs. Do not close the browser tab during conversion.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setConvertConfirm({ open: false, localFile: null, existingPdfUrl: null })}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmConversion}
+                className="flex-1 py-2.5 bg-violet-700 hover:bg-violet-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Yes, Convert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* HEADER BAR */}
       <header className="h-14 bg-[#0a0f1d] border-b border-slate-900 flex items-center justify-between px-4 lg:px-6 z-40 shrink-0">
         <div className="flex items-center gap-3">
@@ -859,9 +930,10 @@ export default function BookEditorPanel({
                         <label className="text-[9px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 hover:border-violet-400/50 px-2 py-1 rounded transition-colors cursor-pointer flex-shrink-0">
                           Re-upload PDF
                           <input type="file" className="hidden" accept="application/pdf"
-                            onChange={async (e) => {
+                            onChange={(e) => {
                               if (!e.target.files?.[0] || !assignedBook || !activeLesson) return;
-                              await runPdfToWebpConversion(e.target.files[0], assignedBook, activeLesson, null);
+                              requestConversion(e.target.files[0], null);
+                              e.target.value = '';
                             }}
                           />
                         </label>
@@ -888,9 +960,9 @@ export default function BookEditorPanel({
                         </div>
                         {convertProgress.phase === 'idle' ? (
                           <button
-                            onClick={async () => {
+                            onClick={() => {
                               if (!assignedBook || !activeLesson || !activeLessonPdfDraft) return;
-                              await runPdfToWebpConversion(null, assignedBook, activeLesson, activeLessonPdfDraft);
+                              requestConversion(null, activeLessonPdfDraft);
                             }}
                             className="w-full py-2.5 bg-violet-700 hover:bg-violet-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
                           >
@@ -928,9 +1000,10 @@ export default function BookEditorPanel({
                           className="hidden"
                           accept="application/pdf"
                           disabled={pdfUploading || convertProgress.phase !== 'idle'}
-                          onChange={async (e) => {
+                          onChange={(e) => {
                             if (!e.target.files?.[0] || !assignedBook || !activeLesson) return;
-                            await runPdfToWebpConversion(e.target.files[0], assignedBook, activeLesson, null);
+                            requestConversion(e.target.files[0], null);
+                            e.target.value = '';
                           }}
                         />
                       </label>
@@ -1034,17 +1107,20 @@ export default function BookEditorPanel({
                         <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
                           <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Left Column Graphic illustration</span>
                           {pageLeftImageDraft ? (
-                            <div className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center">
+                            <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
                               <img src={pageLeftImageDraft} alt="Left Draft representation" className="h-28 object-contain rounded" />
                               <button
                                 type="button"
-                                onClick={() => setPageLeftImageDraft('')}
-                                className="absolute top-2 right-2 p-1 bg-rose-950/80 hover:bg-rose-600 text-rose-300 hover:text-white rounded border border-rose-800 transition-colors cursor-pointer"
-                                title="Remove Left Image"
+                                onClick={async () => {
+                                  setPageLeftImageDraft('');
+                                  if (assignedBook && activeLesson && selectedPageIndex !== null) {
+                                    await handleUpdatePage(selectedPageIndex);
+                                  }
+                                }}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" /> Remove Left Image
                               </button>
-                              <span className="text-[9px] font-mono text-emerald-400 mt-2">Active Left Asset loaded</span>
                             </div>
                           ) : (
                             <label className="flex flex-col items-center justify-center h-28 border border-dashed border-slate-800 hover:border-amber-500 rounded-lg cursor-pointer transition-colors p-4 text-center bg-slate-950/40 hover:bg-slate-950/80">
@@ -1075,17 +1151,20 @@ export default function BookEditorPanel({
                         <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
                           <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Center Top Graphic illustration</span>
                           {pageCenterImageDraft ? (
-                            <div className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center">
+                            <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
                               <img src={pageCenterImageDraft} alt="Center Draft representation" className="h-28 object-contain rounded" />
                               <button
                                 type="button"
-                                onClick={() => setPageCenterImageDraft('')}
-                                className="absolute top-2 right-2 p-1 bg-rose-950/80 hover:bg-rose-600 text-rose-300 hover:text-white rounded border border-rose-800 transition-colors cursor-pointer"
-                                title="Remove Center Image"
+                                onClick={async () => {
+                                  setPageCenterImageDraft('');
+                                  if (assignedBook && activeLesson && selectedPageIndex !== null) {
+                                    await handleUpdatePage(selectedPageIndex);
+                                  }
+                                }}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" /> Remove Center Image
                               </button>
-                              <span className="text-[9px] font-mono text-emerald-400 mt-2">Active Center Asset loaded</span>
                             </div>
                           ) : (
                             <label className="flex flex-col items-center justify-center h-28 border border-dashed border-slate-800 hover:border-amber-500 rounded-lg cursor-pointer transition-colors p-4 text-center bg-slate-950/40 hover:bg-slate-950/80">
@@ -1116,17 +1195,20 @@ export default function BookEditorPanel({
                         <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
                           <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Right Column Graphic illustration</span>
                           {pageRightImageDraft ? (
-                            <div className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center">
+                            <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
                               <img src={pageRightImageDraft} alt="Right Draft representation" className="h-28 object-contain rounded" />
                               <button
                                 type="button"
-                                onClick={() => setPageRightImageDraft('')}
-                                className="absolute top-2 right-2 p-1 bg-rose-950/80 hover:bg-rose-600 text-rose-300 hover:text-white rounded border border-rose-800 transition-colors cursor-pointer"
-                                title="Remove Right Image"
+                                onClick={async () => {
+                                  setPageRightImageDraft('');
+                                  if (assignedBook && activeLesson && selectedPageIndex !== null) {
+                                    await handleUpdatePage(selectedPageIndex);
+                                  }
+                                }}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" /> Remove Right Image
                               </button>
-                              <span className="text-[9px] font-mono text-emerald-400 mt-2">Active Right Asset loaded</span>
                             </div>
                           ) : (
                             <label className="flex flex-col items-center justify-center h-28 border border-dashed border-slate-800 hover:border-amber-500 rounded-lg cursor-pointer transition-colors p-4 text-center bg-slate-950/40 hover:bg-slate-950/80">
