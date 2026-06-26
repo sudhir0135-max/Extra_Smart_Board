@@ -1,0 +1,230 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * PDF Viewer — uses direct fetch now that Firebase Storage CORS is configured.
+ *
+ * Load strategy:
+ *   1. Direct fetch of the Firebase Storage download URL (CORS now enabled)
+ *   2. Firebase Storage SDK getBlob() — secondary attempt
+ *   3. Iframe fallback               — guaranteed display if both fail
+ */
+
+import React, { useEffect, useRef, useState } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+import { ref, getBlob } from 'firebase/storage';
+import { storage } from '../lib/firebase';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.mjs',
+  import.meta.url
+).toString();
+
+interface PdfViewerProps {
+  url: string;
+  viewMode: 'single' | 'double';
+}
+
+function getStoragePath(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname !== 'firebasestorage.googleapis.com') return null;
+    const match = u.pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch { return null; }
+}
+
+async function tryFetchBytes(url: string): Promise<ArrayBuffer> {
+  // Strategy 1: Direct fetch — works now that CORS is configured on the bucket
+  try {
+    console.log('[PdfViewer] fetching via URL...');
+    const resp = await fetch(url, { mode: 'cors' });
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.ok && !ct.includes('text/html')) {
+      const buf = await resp.arrayBuffer();
+      console.log('[PdfViewer] fetch success, bytes:', buf.byteLength);
+      return buf;
+    }
+    throw new Error(`Bad response: ${resp.status} ${ct}`);
+  } catch (e1) {
+    console.warn('[PdfViewer] direct fetch failed:', e1);
+  }
+
+  // Strategy 2: Firebase Storage SDK getBlob()
+  const storagePath = getStoragePath(url);
+  if (storagePath) {
+    try {
+      console.log('[PdfViewer] trying SDK getBlob:', storagePath);
+      const blob = await getBlob(ref(storage, storagePath));
+      return blob.arrayBuffer();
+    } catch (e2) {
+      console.warn('[PdfViewer] SDK getBlob failed:', e2);
+    }
+  }
+
+  throw new Error('ALL_FAILED');
+}
+
+export default function PdfViewer({ url, viewMode }: PdfViewerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [useFallbackIframe, setUseFallbackIframe] = useState(false);
+
+  const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const renderTaskRefs = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
+
+  // ── Load PDF ──
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setNumPages(0);
+    setUseFallbackIframe(false);
+    canvasRefs.current.clear();
+    if (pdfDocRef.current) { pdfDocRef.current.destroy(); pdfDocRef.current = null; }
+
+    tryFetchBytes(url)
+      .then((data) => {
+        if (cancelled) return;
+        return pdfjsLib.getDocument({ data: data.slice(0) }).promise;
+      })
+      .then((doc) => {
+        if (!doc || cancelled) return;
+        pdfDocRef.current = doc;
+        setNumPages(doc.numPages);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn('[PdfViewer] falling back to iframe:', err);
+        setUseFallbackIframe(true);
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      renderTaskRefs.current.forEach((t) => { try { t.cancel(); } catch (_) {} });
+      renderTaskRefs.current.clear();
+    };
+  }, [url]);
+
+  // ── Render pages ──
+  useEffect(() => {
+    if (!pdfDocRef.current || numPages === 0) return;
+
+    const renderPage = async (pageNum: number) => {
+      await new Promise((r) => setTimeout(r, 10));
+      const canvas = canvasRefs.current.get(pageNum);
+      if (!canvas || !pdfDocRef.current) return;
+
+      const prev = renderTaskRefs.current.get(pageNum);
+      if (prev) { try { prev.cancel(); } catch (_) {} }
+
+      const page = await pdfDocRef.current.getPage(pageNum);
+      const containerWidth = containerRef.current?.clientWidth ?? 800;
+      const targetWidth = viewMode === 'double'
+        ? Math.floor(containerWidth / 2) - 4
+        : containerWidth - 16;
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.max(0.5, targetWidth / base.width);
+      const viewport = page.getViewport({ scale });
+
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(viewport.width * dpr);
+      canvas.height = Math.floor(viewport.height * dpr);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const task = page.render({ canvasContext: ctx, viewport });
+      renderTaskRefs.current.set(pageNum, task);
+      try { await task.promise; }
+      catch (e: any) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
+    };
+
+    Array.from({ length: numPages }, (_, i) => i + 1).forEach(renderPage);
+  }, [numPages, viewMode]);
+
+  const registerCanvas = (n: number) => (el: HTMLCanvasElement | null) => {
+    if (el) canvasRefs.current.set(n, el);
+  };
+
+  // ── Loading ──
+  if (loading) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-neutral-950">
+        <div className="w-10 h-10 rounded-full border-4 border-violet-500 border-t-transparent animate-spin" />
+        <p className="text-slate-400 text-sm font-mono tracking-wide">Loading PDF…</p>
+      </div>
+    );
+  }
+
+  // ── Iframe fallback ──
+  if (useFallbackIframe) {
+    return (
+      <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden bg-neutral-900">
+        <iframe
+          src={`${url}#toolbar=0&navpanes=0&scrollbar=0`}
+          className="flex-1 w-full border-0"
+          title="PDF Viewer"
+          allow="fullscreen"
+        />
+      </div>
+    );
+  }
+
+  // ── PDF.js canvas ──
+  const pages = Array.from({ length: numPages }, (_, i) => i + 1);
+
+  if (viewMode === 'single') {
+    return (
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-y-auto bg-neutral-800 flex flex-col items-center py-6 gap-5"
+        id="pdf-single-scroll"
+      >
+        {pages.map((n) => (
+          <div key={n} className="shadow-2xl bg-white" style={{ lineHeight: 0 }}>
+            <canvas ref={registerCanvas(n)} className="block" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  /* ── DOUBLE PAGE BOOK SPREAD ── */
+  const pairs: Array<[number, number | null]> = [];
+  for (let i = 0; i < pages.length; i += 2) pairs.push([pages[i], pages[i + 1] ?? null]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto bg-neutral-800 flex flex-col items-center py-6 gap-5"
+      id="pdf-double-scroll"
+    >
+      {pairs.map(([left, right], idx) => (
+        <div key={idx} className="flex shadow-2xl w-[98%]" style={{ lineHeight: 0 }}>
+          <div className="flex-1 bg-white flex justify-end overflow-hidden">
+            <canvas ref={registerCanvas(left)} className="block max-w-full" />
+          </div>
+          <div className="w-[2px] bg-neutral-500 flex-shrink-0 self-stretch" />
+          <div className="flex-1 bg-white flex justify-start overflow-hidden">
+            {right !== null ? (
+              <canvas ref={registerCanvas(right)} className="block max-w-full" />
+            ) : (
+              <div className="flex-1 min-h-[60vh] flex flex-col items-center justify-center gap-4 p-10 bg-[#faf7f2]">
+                <div className="w-16 h-16 rounded-full bg-amber-500/10 border-2 border-amber-400/40 flex items-center justify-center text-3xl">📖</div>
+                <p className="text-[#b8860b] font-serif text-xl font-bold text-center">Thanks for choosing</p>
+                <p className="text-[#c8860a] font-black text-2xl tracking-tight text-center">ExtraPadhai.com</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

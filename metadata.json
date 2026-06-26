@@ -1,0 +1,8 @@
+{
+  "name": "single screen easypadhai Book Reader",
+  "description": "An offline-accessible touch-gesture optimized classroom reading and active learning smartboard application with high-contrast accessibility.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
