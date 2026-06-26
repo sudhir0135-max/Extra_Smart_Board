@@ -585,7 +585,10 @@ export default function App() {
             setAuthModalOpen(true);
           }}
           onEnterDownloadExtra={() => {
-            setActiveScreen('extra-download');
+            // Web: skip setup — go straight into the app content
+            // Native APK: setup (class/subject + PDF download) is handled automatically
+            //             on first launch via the useEffect Preferences check above
+            setActiveScreen('grade-selector');
           }}
           onSignIn={() => {
             setAuthTargetScreen(null);
@@ -630,24 +633,39 @@ export default function App() {
     );
   }
 
-  if (activeScreen === 'extra-download') {
+  // ExtraSmartboardDownload is ONLY for the native APK (first-launch setup).
+  // Web users never see this screen — they go directly to grade-selector.
+  if (activeScreen === 'extra-download' && Capacitor.isNativePlatform()) {
     return (
       <ExtraSmartboardDownload
         globalLogo={globalLogo}
         academicClasses={academicClasses}
         academicSubjects={academicSubjects}
         books={books}
-        onCancel={() => setActiveScreen('landing')}
-        onDownload={(grade, subjects) => {
+        onCancel={() => setActiveScreen('grade-selector')} // no 'back' on native first launch
+        onDownload={async (grade, subjects) => {
           setDownloadedClass(grade);
           setDownloadedSubjects(subjects);
-          localStorage.setItem('device_setup_class_v3', grade.toString());
-          localStorage.setItem('device_setup_subjects_v3', JSON.stringify(subjects));
+          // Persist via Capacitor Preferences (survives reinstall)
+          try {
+            const { Preferences } = await import('@capacitor/preferences');
+            await Preferences.set({ key: 'device_setup_class_v3', value: grade.toString() });
+            await Preferences.set({ key: 'device_setup_subjects_v3', value: JSON.stringify(subjects) });
+          } catch {
+            localStorage.setItem('device_setup_class_v3', grade.toString());
+            localStorage.setItem('device_setup_subjects_v3', JSON.stringify(subjects));
+          }
           setActiveScreen('grade-selector');
-          addToast(`PDFs downloaded & saved offline for Class ${grade}. Loading smartboard…`, 'success');
+          addToast(`Class ${grade} set up! PDFs saved for offline use.`, 'success');
         }}
       />
     );
+  }
+
+  // Fallback: if somehow extra-download is set on web, redirect to grade-selector
+  if (activeScreen === 'extra-download' && !Capacitor.isNativePlatform()) {
+    setActiveScreen('grade-selector');
+    return null;
   }
 
   if (activeScreen === 'book-editor') {
