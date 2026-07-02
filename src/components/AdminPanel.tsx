@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Book, Lesson, FlashQuestion, BookEditor, AcademicClass, AcademicSubject } from '../types';
+import { Book, Lesson, FlashQuestion, BookEditor, AcademicClass, AcademicSubject, EditorSubmission } from '../types';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
 import { auth, db } from '../lib/firebase';
 import { collection, onSnapshot, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc } from 'firebase/firestore';
@@ -32,11 +32,13 @@ import {
   CheckCircle,
   Sliders,
   HelpCircle,
-  ShieldAlert
+  ShieldAlert,
+  Cloud
 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
 import InquiryQuestionManager from './InquiryQuestionManager';
+import SyncManager from './SyncManager';
 
 export interface AdminPanelProps {
   books: Book[];
@@ -49,6 +51,8 @@ export interface AdminPanelProps {
   editors: BookEditor[];
   setEditors: React.Dispatch<React.SetStateAction<BookEditor[]>>;
   globalLogo?: string | null;
+  editorSubmissions?: EditorSubmission[];
+  onReviewSubmission?: (bookId: number) => void;
 }
 
 export default function AdminPanel({
@@ -62,6 +66,8 @@ export default function AdminPanel({
   editors,
   setEditors,
   globalLogo,
+  editorSubmissions,
+  onReviewSubmission,
 }: AdminPanelProps) {
   // Security locks
   // Internal states
@@ -822,7 +828,7 @@ export default function AdminPanel({
         <main className="flex-1 bg-[#05070e] flex flex-col overflow-hidden">
           {/* TAB 1: SUMMARY STATS VIEW */}
           {activeTab === 'stats' && (
-            <div className="flex-1 overflow-y-auto p-6 space-y-6" id="stats-dashboard">
+            <div className="flex-1 overflow-y-auto p-6" id="stats-dashboard">
               <div className="max-w-4xl space-y-6">
                 <div>
                   <h2 className="text-lg font-bold text-white tracking-tight">Database Administration Summary</h2>
@@ -1163,7 +1169,8 @@ export default function AdminPanel({
             </div>
           )}
 
-          {/* TAB 4: TEXTBOOK CRUD & DEEP EDITING ENGINE */}
+
+          {/* TAB 5: TEXTBOOK CRUD & DEEP EDITING ENGINE */}
           {activeTab === 'books' && (
             <div className="flex-1 flex overflow-hidden">
               {/* PRIMARY MASTER TWO-PANE LAYOUT */}
@@ -1959,6 +1966,15 @@ export default function AdminPanel({
                                   <option key={b.id} value={b.id}>[{b.id}] {b.title}</option>
                                 ))}
                               </select>
+
+                              {u.assignedBookId && editorSubmissions?.find(s => s.bookId === u.assignedBookId) && (
+                                <button
+                                  onClick={() => onReviewSubmission?.(u.assignedBookId)}
+                                  className="ml-auto bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 font-bold px-2 py-1 rounded text-[10px] uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                >
+                                  Review Submission
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>

@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Database, Upload } from 'lucide-react';
 import { FlashQuestion } from '../types';
+import { Editor } from '@tinymce/tinymce-react';
+import { hasTextContent } from '../lib/contentUtils';
+import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
+import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
 
 export interface FlashQuestionManagerProps {
   questions: FlashQuestion[];
@@ -13,8 +17,14 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
   const [newQDiff, setNewQDiff] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
   const [editingQId, setEditingQId] = useState<string | null>(null);
 
+  const qTextEditorRef = useRef<any>(null);
+  const qAnsEditorRef = useRef<any>(null);
+
   const handleAddQuestion = () => {
-    if (!newQText.trim() || !newQAns.trim()) {
+    const currentQText = qTextEditorRef.current ? qTextEditorRef.current.getContent() : newQText;
+    const currentQAns = qAnsEditorRef.current ? qAnsEditorRef.current.getContent() : newQAns;
+
+    if (!hasTextContent(currentQText) || !hasTextContent(currentQAns)) {
       alert("Both Question Text and Answer are required");
       return;
     }
@@ -22,8 +32,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
     if (editingQId) {
       const updated = questions.map(q => q.id === editingQId ? {
         ...q,
-        question: newQText.trim(),
-        answer: newQAns.trim(),
+        question: currentQText.trim(),
+        answer: currentQAns.trim(),
         difficulty: newQDiff
       } : q);
       onQuestionsUpdate(updated);
@@ -31,8 +41,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
     } else {
       const newQuestion: FlashQuestion = {
         id: `q-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        question: newQText.trim(),
-        answer: newQAns.trim(),
+        question: currentQText.trim(),
+        answer: currentQAns.trim(),
         difficulty: newQDiff
       };
       onQuestionsUpdate([...questions, newQuestion]);
@@ -41,6 +51,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
     setNewQText('');
     setNewQAns('');
     setNewQDiff('Medium');
+    if (qTextEditorRef.current) qTextEditorRef.current.setContent('');
+    if (qAnsEditorRef.current) qAnsEditorRef.current.setContent('');
   };
 
   const handleEditQuestion = (q: FlashQuestion) => {
@@ -48,6 +60,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
     setNewQText(q.question);
     setNewQAns(q.answer);
     setNewQDiff(q.difficulty);
+    if (qTextEditorRef.current) qTextEditorRef.current.setContent(q.question);
+    if (qAnsEditorRef.current) qAnsEditorRef.current.setContent(q.answer);
   };
 
   const handleDeleteQuestion = (id: string) => {
@@ -65,22 +79,54 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
         <div className="md:col-span-5 bg-slate-950/50 border border-slate-850 p-4 rounded-xl space-y-3">
           <span className="text-[8.5px] uppercase font-mono tracking-widest text-[#a855f7] block font-extrabold">New Flashcard Draft</span>
           
-          <div className="space-y-2.5">
-            <input
-              type="text"
-              value={newQText}
-              onChange={e => setNewQText(e.target.value)}
-              placeholder="Diagnostic review question text..."
-              className="w-full bg-[#03060c] border border-slate-850 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none"
-            />
-            <input
-              type="text"
-              value={newQAns}
-              onChange={e => setNewQAns(e.target.value)}
-              placeholder="Answer key description details..."
-              className="w-full bg-[#03060c] border border-slate-850 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none"
-            />
-            <div className="flex items-center justify-between">
+          <div className="space-y-4">
+            <div>
+              <span className="text-[10px] text-slate-400 mb-1 block">Question Text:</span>
+              <Editor
+                tinymceScriptSrc="/tinymce/tinymce.min.js"
+                onInit={(evt, editor) => qTextEditorRef.current = editor}
+                initialValue={newQText}
+                init={{
+                  license_key: 'gpl',
+                  height: 200,
+                  menubar: false,
+                  skin: 'oxide-dark',
+                  content_css: 'dark',
+                  plugins: ['lists', 'link', 'image', 'charmap', 'table', 'code'],
+                  setup: (editor) => {
+                    setupTinyMceMath(editor);
+                    setupTinyMceAnnotation(editor);
+                  },
+                  toolbar: 'undo redo | bold italic | alignleft aligncenter alignright | bullist numlist | link image latex annotation',
+                  content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:13px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle}`
+                }}
+              />
+            </div>
+            
+            <div>
+              <span className="text-[10px] text-slate-400 mb-1 block">Answer Details:</span>
+              <Editor
+                tinymceScriptSrc="/tinymce/tinymce.min.js"
+                onInit={(evt, editor) => qAnsEditorRef.current = editor}
+                initialValue={newQAns}
+                init={{
+                  license_key: 'gpl',
+                  height: 200,
+                  menubar: false,
+                  skin: 'oxide-dark',
+                  content_css: 'dark',
+                  plugins: ['lists', 'link', 'image', 'charmap', 'table', 'code'],
+                  setup: (editor) => {
+                    setupTinyMceMath(editor);
+                    setupTinyMceAnnotation(editor);
+                  },
+                  toolbar: 'undo redo | bold italic | alignleft aligncenter alignright | bullist numlist | link image latex annotation',
+                  content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:13px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle}`
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
               <span className="text-[8.5px] uppercase font-mono text-slate-400 block">Difficulty:</span>
               <div className="flex gap-1.5">
                 {(['Easy', 'Medium', 'Hard'] as const).map(diff => (
@@ -113,6 +159,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
                   setNewQText('');
                   setNewQAns('');
                   setNewQDiff('Medium');
+                  if (qTextEditorRef.current) qTextEditorRef.current.setContent('');
+                  if (qAnsEditorRef.current) qAnsEditorRef.current.setContent('');
                 }}
                 className="w-full mt-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer"
               >
@@ -199,9 +247,15 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
             ) : (
               questions.map((q, qIdx) => (
                 <div key={q.id} className="p-3 text-xs flex justify-between gap-3 bg-slate-950/30">
-                  <div className="space-y-1">
-                    <span className="font-bold text-indigo-400 block">Q{qIdx + 1}. {q.question}</span>
-                    <span className="text-slate-400 block font-serif">Ans: {q.answer}</span>
+                  <div className="space-y-2 flex-1 min-w-0 pr-4">
+                    <div className="font-bold text-indigo-400">
+                      <span className="text-[10px] uppercase text-indigo-500/50 block mb-0.5">Q{qIdx + 1}.</span>
+                      <div className="prose prose-invert prose-sm max-w-none text-xs" dangerouslySetInnerHTML={{ __html: q.question }} />
+                    </div>
+                    <div className="text-slate-400 font-serif border-l-2 border-slate-700 pl-2">
+                      <span className="text-[10px] uppercase text-slate-500 block mb-0.5 font-mono">Ans:</span>
+                      <div className="prose prose-invert prose-sm max-w-none text-xs" dangerouslySetInnerHTML={{ __html: q.answer }} />
+                    </div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                     <span className="text-[7.5px] font-mono font-black uppercase text-slate-400 bg-slate-900 border border-slate-800 rounded px-1">

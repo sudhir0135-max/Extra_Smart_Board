@@ -3,6 +3,8 @@ import { HelpCircle, Upload, X, Save, ArrowLeft, ArrowRight, Image as ImageIcon,
 import { InquiryQuestionObj } from '../types';
 import { Editor } from '@tinymce/tinymce-react';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
+import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
+import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
 
 export interface InquiryQuestionManagerProps {
   questions: (string | InquiryQuestionObj)[];
@@ -332,8 +334,12 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                         height: '100%',
                         menubar: true,
                         plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
-                        toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table | removeformat | help',
-                        content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; }',
+                        setup: (editor) => {
+                          setupTinyMceMath(editor);
+                          setupTinyMceAnnotation(editor);
+                        },
+                        toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | latex annotation | table | removeformat | help',
+                        content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; } ${tinymceMathContentStyle}`,
                         skin: 'oxide',
                         content_css: 'default'
                       }}

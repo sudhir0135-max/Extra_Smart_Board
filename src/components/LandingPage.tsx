@@ -85,7 +85,7 @@ export default function LandingPage({
            {/* Decorative glow behind image */}
            <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full scale-75 pointer-events-none" />
            <img 
-             src="/teacher_smartboard.png" 
+             src="/smartboard1img.webp" 
              alt="Teacher with Smartboard" 
              className="w-[500px] h-auto object-contain drop-shadow-2xl z-10"
            />
@@ -101,7 +101,7 @@ export default function LandingPage({
             className="group relative px-8 py-5 bg-gradient-to-r from-emerald-900/40 to-indigo-900/40 hover:from-emerald-800/60 hover:to-indigo-800/60 border-2 border-emerald-500/50 hover:border-emerald-400 rounded-2xl text-emerald-300 hover:text-white font-extrabold tracking-widest transition-all duration-300 shadow-2xl shadow-emerald-900/20 hover:shadow-emerald-500/40 flex items-center justify-center gap-4 w-full sm:w-auto uppercase text-sm md:text-lg hover:scale-105 transform"
           >
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-400/0 via-emerald-400/10 to-emerald-400/0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-            Let's learn on ExtraPadhai Smartboard
+            Start Learning
           </button>
 
           <a

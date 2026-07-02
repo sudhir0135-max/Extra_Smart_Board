@@ -7,11 +7,10 @@ import React, { useRef, useState } from 'react';
 import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
-import PdfViewer from './PdfViewer';
-import ImageViewer from './ImageViewer';
-import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText } from 'lucide-react';
+import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X } from 'lucide-react';
 import { BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
+import renderMathInElement from 'katex/contrib/auto-render';
 
 interface WorkspaceProps {
   selectedBook: Book | null;
@@ -29,7 +28,8 @@ interface WorkspaceProps {
   academicSubjects: AcademicSubject[];
   editors: BookEditor[];
   globalLogo?: string | null;
-  pdfViewMode?: 'single' | 'double';
+  imageViewMode?: 'single' | 'two';
+  isLessonContentLess?: boolean;
 }
 
 export default function Workspace({
@@ -48,11 +48,77 @@ export default function Workspace({
   academicSubjects,
   editors,
   globalLogo,
-  pdfViewMode = 'single',
+  imageViewMode,
+  isLessonContentLess,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+
+  const [activeAnnotation, setActiveAnnotation] = useState<{
+    text: string;
+    mediaType: string;
+    mediaUrl: string;
+    rect: DOMRect;
+    fontSize: string;
+  } | null>(null);
+  const annotationBubbleRef = useRef<HTMLDivElement>(null);
+  const annotationSheetRef = useRef<HTMLDivElement>(null);
+
+  // Auto-render math inside annotation popups when activeAnnotation changes
+  React.useEffect(() => {
+    if (activeAnnotation) {
+      if (annotationBubbleRef.current) {
+        renderMathInElement(annotationBubbleRef.current, {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '\\[', right: '\\]', display: true}
+          ],
+          throwOnError: false
+        });
+      }
+      if (annotationSheetRef.current) {
+        renderMathInElement(annotationSheetRef.current, {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '\\[', right: '\\]', display: true}
+          ],
+          throwOnError: false
+        });
+      }
+    }
+  }, [activeAnnotation]);
+
+  const handleContentClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const annotationSpan = target.closest('.lesson-annotation');
+    if (annotationSpan) {
+      const text = decodeURIComponent(annotationSpan.getAttribute('data-annotation-text') || '');
+      const mediaType = annotationSpan.getAttribute('data-annotation-media-type') || 'none';
+      let mediaUrl = annotationSpan.getAttribute('data-annotation-media-url') || '';
+      
+      // Fix YouTube URLs for iframe embedding
+      if (mediaUrl.includes('youtube.com/watch?v=')) {
+        mediaUrl = mediaUrl.replace('watch?v=', 'embed/');
+        const ampersandIndex = mediaUrl.indexOf('&');
+        if (ampersandIndex !== -1) mediaUrl = mediaUrl.substring(0, ampersandIndex);
+      } else if (mediaUrl.includes('youtu.be/')) {
+        mediaUrl = mediaUrl.replace('youtu.be/', 'youtube.com/embed/');
+        const queryIndex = mediaUrl.indexOf('?');
+        if (queryIndex !== -1) mediaUrl = mediaUrl.substring(0, queryIndex);
+      }
+      
+      const rect = annotationSpan.getBoundingClientRect();
+      const fontSize = window.getComputedStyle(annotationSpan).fontSize || '16px';
+      setActiveAnnotation({ text, mediaType, mediaUrl, rect, fontSize });
+    } else {
+      setActiveAnnotation(null);
+    }
+  };
 
   // Styling maps representing Accessible colors for bright classrooms
   const themeStyles = {
@@ -222,20 +288,7 @@ export default function Workspace({
             className="hidden"
           />
 
-          {activeLesson.pagesReady && activeLesson.pageCount && selectedBook ? (
-            /* ── WEBP MODE: new image-based viewer ── */
-            <ImageViewer
-              lessons={selectedBook.lessons.filter(l => l.pagesReady && l.pageCount)}
-              initialLessonId={activeLesson.id}
-              classId={selectedBook.classId || 'unknown'}
-              subjectId={selectedBook.subjectId || 'unknown'}
-              bookId={selectedBook.id}
-            />
-          ) : activeLesson.pdfUrl ? (
-            /* ── PDF MODE: legacy fallback ── */
-            <PdfViewer url={activeLesson.pdfUrl} viewMode={pdfViewMode} />
-          ) : (
-            /* ── PAGE MODE: render lesson pages as before ── */
+            {/* ── PAGE MODE: render lesson pages as before ── */}
             <div
               id="content-scroll"
               className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text"
@@ -264,47 +317,102 @@ export default function Workspace({
                       {page.pageNumber}
                     </div>
 
-                    <div className="flex flex-col lg:flex-row gap-6 items-start w-full mt-4">
-                      {(page as any).leftImage && (
-                        <div className="w-full lg:w-[30%] flex-shrink-0">
-                          <img 
-                            src={(page as any).leftImage} 
-                            alt="Left Side Column Illustration" 
-                            className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                            referrerPolicy="no-referrer" 
-                          />
+                    {isLessonContentLess ? (
+                      imageViewMode === 'two' ? (
+                        <div className="flex flex-row w-full gap-6 mt-4">
+                          {((page as any).leftImage || (page as any).rightImage) && (
+                            <div className="w-1/2 flex-shrink-0">
+                              {(page as any).leftImage && (
+                                <img 
+                                  src={(page as any).leftImage} 
+                                  alt="Left Side Column Illustration" 
+                                  className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
+                                  referrerPolicy="no-referrer" 
+                                />
+                              )}
+                            </div>
+                          )}
+                          {((page as any).leftImage || (page as any).rightImage) && (
+                            <div className="w-1/2 flex-shrink-0">
+                              {(page as any).rightImage && (
+                                <img 
+                                  src={(page as any).rightImage} 
+                                  alt="Right Column Graphic Illustration" 
+                                  className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
+                                  referrerPolicy="no-referrer" 
+                                />
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
-                      
-                      <div className="flex-1 lg:w-[70%] min-w-0">
-                        {(page as any).centerImage && (
-                          <div className="w-full mb-6">
+                      ) : (
+                        <div className="flex flex-col w-full gap-6 mt-4 items-center">
+                          {(page as any).leftImage && (
+                            <div className="w-full">
+                              <img 
+                                src={(page as any).leftImage} 
+                                alt="Left Side Column Illustration" 
+                                className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
+                                referrerPolicy="no-referrer" 
+                              />
+                            </div>
+                          )}
+                          {(page as any).rightImage && (
+                            <div className="w-full">
+                              <img 
+                                src={(page as any).rightImage} 
+                                alt="Right Column Graphic Illustration" 
+                                className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
+                                referrerPolicy="no-referrer" 
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      <div className="flex flex-col lg:flex-row gap-6 items-start w-full mt-4">
+                        {(page as any).leftImage && (
+                          <div className="w-full lg:w-[30%] flex-shrink-0">
                             <img 
-                              src={(page as any).centerImage} 
-                              alt="Central Block Illustration" 
-                              className="w-full h-auto rounded-xl shadow-lg shadow-black/5" 
+                              src={(page as any).leftImage} 
+                              alt="Left Side Column Illustration" 
+                              className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
                               referrerPolicy="no-referrer" 
                             />
                           </div>
                         )}
-                        <div
-                          className="font-serif leading-loose space-y-6 text-[16px] lg:text-[17px] min-[3840px]:text-[34px] min-[3840px]:leading-loose tracking-wide reader-content"
-                          id={`page-paragraph-content-${page.pageNumber}`}
-                          dangerouslySetInnerHTML={{ __html: page.content }}
-                        />
-                      </div>
-
-                      {(page as any).rightImage && (
-                        <div className="w-full lg:w-[30%] flex-shrink-0">
-                          <img 
-                            src={(page as any).rightImage} 
-                            alt="Right Side Column Illustration" 
-                            className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                            referrerPolicy="no-referrer" 
+                        
+                        <div className="flex-1 min-w-0">
+                          {(page as any).centerImage && (
+                            <div className="w-full mb-6">
+                              <img 
+                                src={(page as any).centerImage} 
+                                alt="Central Block Illustration" 
+                                className="w-full h-auto rounded-xl shadow-lg shadow-black/5" 
+                                referrerPolicy="no-referrer" 
+                              />
+                            </div>
+                          )}
+                          <div
+                            className="font-serif leading-loose space-y-6 text-[16px] lg:text-[17px] min-[3840px]:text-[34px] min-[3840px]:leading-loose tracking-wide reader-content relative"
+                            id={`page-paragraph-content-${page.pageNumber}`}
+                            dangerouslySetInnerHTML={{ __html: page.content }}
+                            onClick={handleContentClick}
                           />
                         </div>
-                      )}
-                    </div>
+
+                        {(page as any).rightImage && (
+                          <div className="w-full lg:w-[30%] flex-shrink-0">
+                            <img 
+                              src={(page as any).rightImage} 
+                              alt="Right Column Graphic Illustration" 
+                              className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
+                              referrerPolicy="no-referrer" 
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {page.equations && page.equations.length > 0 && (
                       <div
@@ -331,7 +439,6 @@ export default function Workspace({
                 ))}
               </div>
             </div>
-          )}
         </>
       ) : (
         /* Empty Welcome state with quick instructions and mock folder loading drag zone */
@@ -381,6 +488,65 @@ export default function Workspace({
                 <span>{uploadFeedback}</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ANNOTATION UI: Speech Bubble (Popover) */}
+      {activeAnnotation && activeAnnotation.mediaType === 'none' && (
+        <>
+          <div className="fixed inset-0 z-40 bg-transparent cursor-pointer" onClick={() => setActiveAnnotation(null)} />
+          <div 
+            ref={annotationBubbleRef}
+            className="fixed z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl p-5 min-w-[200px] max-w-[90vw] md:max-w-md transition-opacity duration-200"
+            style={{
+              top: Math.max(10, activeAnnotation.rect.bottom + 10),
+              left: Math.max(10, Math.min(window.innerWidth - 300, activeAnnotation.rect.left + activeAnnotation.rect.width / 2 - 150))
+            }}
+          >
+            <div className="absolute -top-2 left-1/2 -ml-2 w-4 h-4 bg-slate-900 border-l border-t border-slate-700 transform rotate-45"></div>
+            <div 
+              className="relative text-slate-200 font-serif leading-loose"
+              style={{ fontSize: activeAnnotation.fontSize }}
+            >
+              {activeAnnotation.text}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ANNOTATION UI: Bottom Sheet */}
+      {activeAnnotation && activeAnnotation.mediaType !== 'none' && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm transition-all" onClick={() => setActiveAnnotation(null)}>
+          <div 
+            ref={annotationSheetRef}
+            className="bg-slate-900 w-full max-w-3xl rounded-t-3xl border-t border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-full duration-300"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: '85vh' }}
+          >
+            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/50 sticky top-0 z-10">
+              <h3 className="font-sans font-bold text-slate-200 text-lg">Detailed View</h3>
+              <button onClick={() => setActiveAnnotation(null)} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 transition-colors cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 70px)' }}>
+              {activeAnnotation.mediaType === 'image' && activeAnnotation.mediaUrl && (
+                <div className="mb-6 rounded-xl overflow-hidden border border-slate-800 bg-black flex justify-center">
+                  <img src={activeAnnotation.mediaUrl} alt="Annotation Image" className="max-w-full max-h-[40vh] object-contain" />
+                </div>
+              )}
+              {activeAnnotation.mediaType === 'video' && activeAnnotation.mediaUrl && (
+                <div className="mb-6 rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video">
+                  <iframe src={activeAnnotation.mediaUrl} className="w-full h-full" frameBorder="0" allowFullScreen></iframe>
+                </div>
+              )}
+              
+              <div className="text-slate-300 font-serif text-lg leading-relaxed">
+                {activeAnnotation.text}
+              </div>
+            </div>
           </div>
         </div>
       )}

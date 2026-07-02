@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle2, DownloadCloud, AlertCircle, HardDrive, Loader2, FolderOpen } from 'lucide-react';
 import { AcademicClass, AcademicSubject, Book } from '../types';
-import { downloadAndCachePdf, isPdfCached, isNative } from '../lib/pdfCache';
 
 interface ExtraSmartboardDownloadProps {
   globalLogo?: string | null;
@@ -10,13 +9,6 @@ interface ExtraSmartboardDownloadProps {
   books: Book[];
   onCancel: () => void;
   onDownload: (grade: number, subjects: string[]) => void;
-}
-
-interface PdfDownloadItem {
-  url: string;
-  label: string;    // "Book Title — Lesson Title"
-  status: 'pending' | 'cached' | 'downloading' | 'done' | 'error';
-  progress: number; // 0–100
 }
 
 export default function ExtraSmartboardDownload({
@@ -32,12 +24,17 @@ export default function ExtraSmartboardDownload({
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [warning, setWarning] = useState('');
 
-  // Step 3 — PDF download state
-  const [pdfItems, setPdfItems] = useState<PdfDownloadItem[]>([]);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadDone, setDownloadDone] = useState(false);
+  // Step 3 — Sync state
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncDone, setSyncDone] = useState(false);
   const [overallProgress, setOverallProgress] = useState(0);
-  const [storageDir, setStorageDir] = useState<string | null>(null);
+
+  const isNative = () => {
+    return (
+      typeof (window as any).Capacitor !== 'undefined' &&
+      !!(window as any).Capacitor?.isNativePlatform?.()
+    );
+  };
 
   const handleNext = () => {
     if (step === 1 && selectedGrade !== null) {
@@ -60,49 +57,13 @@ export default function ExtraSmartboardDownload({
     }
   };
 
-  /** Collect all PDF URLs from books that match selected class + subjects */
-  const collectPdfItems = (): PdfDownloadItem[] => {
-    if (selectedGrade === null) return [];
-
-    const classObj = academicClasses.find(
-      c => Number(c.name) === selectedGrade || c.name === selectedGrade.toString()
-    );
-    const subjectIds = academicSubjects
-      .filter(s => selectedSubjects.includes(s.name))
-      .map(s => s.id);
-
-    const filteredBooks = books.filter(b => {
-      const matchClass = classObj ? b.classId === classObj.id : true;
-      const matchSubject = subjectIds.length > 0
-        ? (b.subjectId && subjectIds.includes(b.subjectId))
-        : true;
-      return matchClass && matchSubject;
-    });
-
-    const items: PdfDownloadItem[] = [];
-    for (const book of filteredBooks) {
-      for (const lesson of book.lessons) {
-        if (lesson.pdfUrl) {
-          items.push({
-            url: lesson.pdfUrl,
-            label: `${book.title} — ${lesson.title}`,
-            status: 'pending',
-            progress: 0,
-          });
-        }
-      }
-    }
-    return items;
-  };
-
-  const handleProceedToDownload = async () => {
+  const handleProceedToSync = async () => {
     if (selectedGrade === null || selectedSubjects.length === 0) {
       setWarning('Please select at least 1 subject.');
       return;
     }
 
-    // ── Persist class + subjects selection via Capacitor Preferences (native)
-    // or localStorage (web) so it survives app restarts and reinstalls ──
+    // ── Persist class + subjects selection
     if (isNative()) {
       try {
         const { Preferences } = await import('@capacitor/preferences');
@@ -119,67 +80,18 @@ export default function ExtraSmartboardDownload({
       localStorage.setItem('device_setup_subjects_v3', JSON.stringify(selectedSubjects));
     }
 
-    // Show native storage directory info
-    if (isNative()) {
-      setStorageDir('Android/data/com.extrapadhai.app/files/extrapadhai/pdfs');
-    }
-
-    const items = collectPdfItems();
-
-    // Check which are already cached
-    const itemsWithCacheStatus: PdfDownloadItem[] = await Promise.all(
-      items.map(async item => {
-        const cached = await isPdfCached(item.url);
-        return { ...item, status: cached ? 'cached' : 'pending' } as PdfDownloadItem;
-      })
-    );
-
-    setPdfItems(itemsWithCacheStatus);
     setStep(3);
+    setIsSyncing(true);
+    setOverallProgress(0);
 
-    // No PDFs in selected books — proceed immediately
-    if (itemsWithCacheStatus.length === 0) {
-      setDownloadDone(true);
-      setOverallProgress(100);
-      return;
+    // Simulate a quick sync operation for UX (the actual data is already in IndexedDB via dbLocal in App.tsx)
+    for (let i = 0; i <= 100; i += 20) {
+      setOverallProgress(i);
+      await new Promise(res => setTimeout(res, 200)); // fake delay
     }
 
-    setIsDownloading(true);
-    let completed = itemsWithCacheStatus.filter(i => i.status === 'cached').length;
-    const total = itemsWithCacheStatus.length;
-
-    setOverallProgress(Math.round((completed / total) * 100));
-
-    for (let idx = 0; idx < itemsWithCacheStatus.length; idx++) {
-      const item = itemsWithCacheStatus[idx];
-      if (item.status === 'cached') continue; // already on device
-
-      // Mark as actively downloading
-      setPdfItems(prev =>
-        prev.map((p, i) => (i === idx ? { ...p, status: 'downloading', progress: 0 } : p))
-      );
-
-      const blob = await downloadAndCachePdf(
-        item.url,
-        (loaded, total_) => {
-          const pct = Math.round((loaded / total_) * 100);
-          setPdfItems(prev =>
-            prev.map((p, i) => (i === idx ? { ...p, progress: pct } : p))
-          );
-        }
-      );
-
-      completed += 1;
-      setPdfItems(prev =>
-        prev.map((p, i) =>
-          i === idx ? { ...p, status: blob ? 'done' : 'error', progress: 100 } : p
-        )
-      );
-      setOverallProgress(Math.round((completed / total) * 100));
-    }
-
-    setIsDownloading(false);
-    setDownloadDone(true);
+    setIsSyncing(false);
+    setSyncDone(true);
   };
 
   const handleFinish = () => {
@@ -197,12 +109,12 @@ export default function ExtraSmartboardDownload({
         <button
           onClick={
             step === 3
-              ? () => { setStep(2); setDownloadDone(false); setPdfItems([]); }
+              ? () => { setStep(2); setSyncDone(false); }
               : step === 2
               ? () => setStep(1)
               : onCancel
           }
-          disabled={step === 3 && isDownloading}
+          disabled={step === 3 && isSyncing}
           className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors mb-6 font-mono text-sm tracking-wider cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -249,14 +161,14 @@ export default function ExtraSmartboardDownload({
                 ? 'Step 1: Select Your Class'
                 : step === 2
                 ? `Step 2: Select Subjects for Class ${selectedGrade}`
-                : 'Step 3: Downloading PDFs for Offline Use'}
+                : 'Step 3: Preparing Curriculum Content'}
             </h1>
             <p className="text-sm text-slate-400 font-serif italic">
               {step === 1
                 ? 'Choose exactly one class to proceed with the extra smartboard material download.'
                 : step === 2
                 ? 'Select up to 8 subjects to tailor your offline smartboard package.'
-                : 'All selected book PDFs are being saved to your device for offline access.'}
+                : 'Curriculum data is being prepared and synchronized for offline access.'}
             </p>
           </div>
 
@@ -315,7 +227,7 @@ export default function ExtraSmartboardDownload({
             </div>
           )}
 
-          {/* ── STEP 3: PDF Download progress ── */}
+          {/* ── STEP 3: Sync progress ── */}
           {step === 3 && (
             <div className="relative z-10 space-y-5">
               {/* Overall progress bar */}
@@ -332,114 +244,38 @@ export default function ExtraSmartboardDownload({
                 </div>
               </div>
 
-              {/* No PDFs message */}
-              {pdfItems.length === 0 && (
-                <div className="py-10 text-center space-y-3">
-                  <div className="text-4xl">📚</div>
-                  <p className="text-slate-400 text-sm font-serif italic">
-                    No PDF lessons found for the selected books. You can proceed directly.
-                  </p>
+              {/* Downloading message */}
+              {isSyncing && (
+                <div className="flex items-center gap-3 p-3 rounded-xl border bg-sky-900/20 border-sky-700/30">
+                    <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
+                    <p className="text-xs font-semibold text-slate-300">Synchronizing Local Database</p>
                 </div>
               )}
 
-              {/* PDF item list */}
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-1 custom-scroll">
-                {pdfItems.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                      item.status === 'done' || item.status === 'cached'
-                        ? 'bg-emerald-900/20 border-emerald-700/30'
-                        : item.status === 'error'
-                        ? 'bg-rose-900/20 border-rose-700/30'
-                        : item.status === 'downloading'
-                        ? 'bg-sky-900/20 border-sky-700/30'
-                        : 'bg-slate-900/40 border-slate-800'
-                    }`}
-                  >
-                    {/* Status icon */}
-                    <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center">
-                      {item.status === 'cached' && (
-                        <HardDrive className="w-4 h-4 text-emerald-400" />
-                      )}
-                      {item.status === 'done' && (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      )}
-                      {item.status === 'error' && (
-                        <AlertCircle className="w-4 h-4 text-rose-400" />
-                      )}
-                      {item.status === 'downloading' && (
-                        <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
-                      )}
-                      {item.status === 'pending' && (
-                        <div className="w-3 h-3 rounded-full border-2 border-slate-600" />
-                      )}
-                    </div>
-
-                    {/* Label + progress */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold truncate text-slate-300">{item.label}</p>
-                      {item.status === 'downloading' && (
-                        <div className="mt-1 h-1 bg-slate-700 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-sky-500 rounded-full transition-all duration-300"
-                            style={{ width: `${item.progress}%` }}
-                          />
-                        </div>
-                      )}
-                      {(item.status === 'done' || item.status === 'cached') && (
-                        <p className="text-[10px] text-emerald-500 font-mono mt-0.5">
-                          {item.status === 'cached' ? 'Already cached · skipped' : 'Saved to device storage'}
-                        </p>
-                      )}
-                      {item.status === 'error' && (
-                        <p className="text-[10px] text-rose-400 font-mono mt-0.5">
-                          Failed · will retry on first open
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Percentage badge */}
-                    {item.status === 'downloading' && (
-                      <span className="text-[10px] font-mono text-sky-400 flex-shrink-0">
-                        {item.progress}%
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Download complete message */}
-              {downloadDone && (
+              {/* Sync complete message */}
+              {syncDone && (
                 <div className="mt-4 space-y-3">
                   <div className="p-4 rounded-xl bg-emerald-900/30 border border-emerald-600/30 flex items-center gap-3">
                     <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
                     <div>
-                      <p className="text-emerald-300 font-bold text-sm">Download Complete!</p>
+                      <p className="text-emerald-300 font-bold text-sm">Synchronization Complete!</p>
                       <p className="text-emerald-500/80 text-xs font-serif italic mt-0.5">
-                        PDFs saved to device. They will load instantly — even without internet.
+                        Content configured for offline access.
                       </p>
                     </div>
                   </div>
-                  {storageDir && (
-                    <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700 flex items-start gap-2.5">
-                      <FolderOpen className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Storage Directory</p>
-                        <p className="text-[10px] font-mono text-slate-400 mt-0.5 break-all">{storageDir}</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
           )}
 
           {/* ── Footer Buttons ── */}
-          <div className="mt-10 flex justify-end relative z-10">
-            {step === 1 && (
-              <button
-                onClick={handleNext}
+          <div className="mt-10 flex justify-between items-center w-full relative z-10">
+            <span className="text-xs text-slate-500 font-mono">v4.0 (Live Sync Active)</span>
+            <div className="flex gap-4">
+              {step === 1 && (
+                <button
+                  onClick={handleNext}
                 disabled={selectedGrade === null}
                 className={`px-8 py-3 rounded-lg font-bold uppercase tracking-widest text-xs transition-all flex items-center gap-2 ${
                   selectedGrade !== null
@@ -453,7 +289,7 @@ export default function ExtraSmartboardDownload({
 
             {step === 2 && (
               <button
-                onClick={handleProceedToDownload}
+                onClick={handleProceedToSync}
                 disabled={selectedSubjects.length === 0}
                 className={`px-8 py-4 w-full md:w-auto rounded-xl font-black uppercase tracking-wider text-sm md:text-base transition-all flex items-center justify-center gap-3 hover:-translate-y-1 transform ${
                   selectedSubjects.length > 0
@@ -462,24 +298,24 @@ export default function ExtraSmartboardDownload({
                 }`}
               >
                 <DownloadCloud className="w-5 h-5" />
-                Download &amp; Continue
+                Configure &amp; Continue
               </button>
             )}
 
             {step === 3 && (
               <button
                 onClick={handleFinish}
-                disabled={isDownloading}
+                disabled={isSyncing}
                 className={`px-8 py-4 w-full md:w-auto rounded-xl font-black uppercase tracking-wider text-sm md:text-base transition-all flex items-center justify-center gap-3 ${
-                  !isDownloading
+                  !isSyncing
                     ? 'bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white shadow-xl shadow-sky-900/30 cursor-pointer active:scale-95 hover:-translate-y-1 transform'
                     : 'bg-slate-800/50 border border-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                {isDownloading ? (
+                {isSyncing ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Downloading…
+                    Preparing…
                   </>
                 ) : (
                   <>
@@ -489,6 +325,7 @@ export default function ExtraSmartboardDownload({
                 )}
               </button>
             )}
+            </div>
           </div>
         </div>
       </div>

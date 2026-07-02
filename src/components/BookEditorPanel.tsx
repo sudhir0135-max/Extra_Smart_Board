@@ -5,11 +5,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { Book, Lesson, FlashQuestion, BookEditor } from '../types';
-import { uploadImageToStorage, uploadWebpPage, writeMetaJson, deleteFileFromStorage, buildLessonStoragePath } from '../lib/firebaseHelper';
-import { auth, db, storage } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-// Local bundled PDF.js worker (Vite resolves the correct hashed URL at build time)
-import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import { uploadImageToStorage } from '../lib/firebaseHelper';
+import { dbLocal } from '../lib/db';
+import { hasTextContent } from '../lib/contentUtils';
 import {
   Shield,
   Key,
@@ -42,14 +42,15 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  AlignJustify
+  AlignJustify,
+  CheckCircle2,
+  Cloud
 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
 import InquiryQuestionManager from './InquiryQuestionManager';
 import ProfilePanel from './ProfilePanel';
-
-
+import AssetLibraryModal from './AssetLibraryModal';
 
 interface BookEditorPanelProps {
   books: Book[];
@@ -57,6 +58,10 @@ interface BookEditorPanelProps {
   editors: BookEditor[];
   onClose: () => void;
   globalLogo?: string | null;
+  currentUser?: any;
+  isPreviewMode?: boolean;
+  previewBookId?: number | null;
+  onApproveSubmission?: (bookId: number, lessons: Lesson[]) => Promise<void>;
 }
 
 export default function BookEditorPanel({
@@ -64,13 +69,22 @@ export default function BookEditorPanel({
   saveBookToFirebase,
   editors,
   onClose,
-  globalLogo
+  globalLogo,
+  currentUser,
+  isPreviewMode,
+  previewBookId,
+  onApproveSubmission,
 }: BookEditorPanelProps) {
   // Removed internal mock login states
-  const [assignedBookId, setAssignedBookId] = useState<number | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [assignedBookId, setAssignedBookId] = useState<number | null>(
+    isPreviewMode && previewBookId != null ? previewBookId : null
+  );
+  const [authLoading, setAuthLoading] = useState(!isPreviewMode);
 
   useEffect(() => {
+    // In preview mode, the admin has already provided the bookId via prop — skip auth check entirely.
+    if (isPreviewMode) return;
+    
     let unsub = () => {};
     import('firebase/auth').then(({ onAuthStateChanged }) => {
       unsub = onAuthStateChanged(auth, async (user) => {
@@ -99,6 +113,10 @@ export default function BookEditorPanel({
   const [profileOpen, setProfileOpen] = useState(false);
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number | null>(null);
+  
+  // Asset Library State
+  const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
+  const [assetLibraryTarget, setAssetLibraryTarget] = useState<'left' | 'center' | 'right' | null>(null);
 
   // Status visual feedback
   const [successMsg, setSuccessMsg] = useState('');
@@ -122,46 +140,22 @@ export default function BookEditorPanel({
   const [activeLessonTitleDraft, setActiveLessonTitleDraft] = useState('');
   const [activeLessonSubtitleDraft, setActiveLessonSubtitleDraft] = useState('');
   const [activeLessonVideoDraft, setActiveLessonVideoDraft] = useState('');
-  const [activeLessonPdfDraft, setActiveLessonPdfDraft] = useState<string | null>(null);
-  const [pdfUploading, setPdfUploading] = useState(false);
-  // WebP conversion state
-  const [convertProgress, setConvertProgress] = useState<{
-    phase: 'idle' | 'converting' | 'uploading' | 'done' | 'error';
-    current: number;
-    total: number;
-    error?: string;
-  }>({ phase: 'idle', current: 0, total: 0 });
-
-  // ── Conversion confirmation dialog ────────────────────────────────────────
-  const [convertConfirm, setConvertConfirm] = useState<{
-    open: boolean;
-    localFile: File | null;
-    existingPdfUrl: string | null;
-  }>({ open: false, localFile: null, existingPdfUrl: null });
-
-  const requestConversion = (localFile: File | null, existingPdfUrl: string | null) => {
-    setConvertConfirm({ open: true, localFile, existingPdfUrl });
-  };
-
-  const confirmConversion = async () => {
-    if (!assignedBook || !activeLesson) return;
-    setConvertConfirm({ open: false, localFile: null, existingPdfUrl: null });
-    await runPdfToWebpConversion(
-      convertConfirm.localFile,
-      assignedBook,
-      activeLesson,
-      convertConfirm.existingPdfUrl
-    );
-  };
-
-
-
   const flashMessage = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
-  // Resolve the assigned book for the editor
+  const saveBookLocally = async (modifiedBook: Book) => {
+    if (isPreviewMode) return; // Do not overwrite local offline state if admin is previewing a submission!
+    
+    await dbLocal.offline_lessons.put({
+      bookId: modifiedBook.id,
+      lessons: modifiedBook.lessons,
+      sync_status: 'pending'
+    });
+  };
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
   const assignedBook = books.find(b => b.id === assignedBookId) || null;
   const activeLesson = assignedBook ? assignedBook.lessons.find(l => l.id === selectedLessonId) || null : null;
 
@@ -173,7 +167,6 @@ export default function BookEditorPanel({
       setActiveLessonTitleDraft(activeLesson.title);
       setActiveLessonSubtitleDraft(activeLesson.subtitle || '');
       setActiveLessonVideoDraft(activeLesson.videoUrl || '');
-      setActiveLessonPdfDraft(activeLesson.pdfUrl || null);
     }
 
     if (activeLesson && selectedPageIndex !== null) {
@@ -227,7 +220,7 @@ export default function BookEditorPanel({
 
     try {
       const modifiedBook = { ...assignedBook, lessons: [...assignedBook.lessons, newLesson] };
-      await saveBookToFirebase(modifiedBook);
+      await saveBookLocally(modifiedBook);
       setLessonTitleDraft('');
       setLessonSubtitleDraft('');
       setLessonVideoDraft('');
@@ -258,7 +251,7 @@ export default function BookEditorPanel({
         ...assignedBook,
         lessons: assignedBook.lessons.map(l => (l.id === selectedLessonId ? { ...l, ...fields } : l))
       };
-      await saveBookToFirebase(modifiedBook);
+      await saveBookLocally(modifiedBook);
       flashMessage('Chapter metadata updated in Firebase.');
     } catch (err) {
       alert('Failed to update chapter metadata.');
@@ -274,7 +267,7 @@ export default function BookEditorPanel({
           ...assignedBook,
           lessons: assignedBook.lessons.filter(l => l.id !== lessonId)
         };
-        await saveBookToFirebase(modifiedBook);
+        await saveBookLocally(modifiedBook);
         setSelectedLessonId(null);
         setSelectedPageIndex(null);
         flashMessage('Chapter removed successfully from Firebase.');
@@ -297,7 +290,7 @@ export default function BookEditorPanel({
 
     try {
       const modifiedBook = { ...assignedBook, lessons: newLessons };
-      await saveBookToFirebase(modifiedBook);
+      await saveBookLocally(modifiedBook);
       flashMessage('Chapter order updated in Firebase.');
     } catch (err) {
       alert('Failed to reorder chapters.');
@@ -326,7 +319,7 @@ export default function BookEditorPanel({
           return l;
         })
       };
-      await saveBookToFirebase(modifiedBook);
+      await saveBookLocally(modifiedBook);
       setSelectedPageIndex(nextPageNum - 1);
       flashMessage(`Page ${nextPageNum} appended to Chapter draft in Firebase.`);
     } catch (err) {
@@ -344,6 +337,14 @@ export default function BookEditorPanel({
       .filter(line => line.length > 0);
 
     const finalContent = contentFromEditor !== undefined ? contentFromEditor : pageContentDraft;
+
+    if (!hasTextContent(finalContent)) {
+      if (pageCenterImageDraft && (pageLeftImageDraft || pageRightImageDraft)) {
+        alert('Warning: When there is no text in the editor, a Center Image cannot be saved alongside a Left or Right image. Please remove the Center Image or add text before saving.');
+        setIsSaving(false);
+        return;
+      }
+    }
 
     try {
       const modifiedBook = {
@@ -371,7 +372,7 @@ export default function BookEditorPanel({
           return l;
         })
       };
-      await saveBookToFirebase(modifiedBook);
+      await saveBookLocally(modifiedBook);
       setPageContentDraft(finalContent);
       flashMessage(`Page ${index + 1} content saved successfully to Firebase.`);
     } catch (err) {
@@ -404,7 +405,7 @@ export default function BookEditorPanel({
             return l;
           })
         };
-        await saveBookToFirebase(modifiedBook);
+        await saveBookLocally(modifiedBook);
         setSelectedPageIndex(null);
         flashMessage(`Page ${index + 1} deleted and re-indexed in Firebase.`);
       } catch (err) {
@@ -434,7 +435,7 @@ export default function BookEditorPanel({
         ...assignedBook,
         lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? { ...l, pages: newPages } : l))
       };
-      await saveBookToFirebase(modifiedBook);
+      await saveBookLocally(modifiedBook);
       // Update selected index so the user stays on the same page content they were editing
       setSelectedPageIndex(swapIndex);
       flashMessage('Page reordered successfully.');
@@ -443,186 +444,7 @@ export default function BookEditorPanel({
     }
   };
 
-  // ── PDF → WebP Conversion Engine ────────────────────────────────────────────
-  const runPdfToWebpConversion = async (
-    localFile: File | null,                 // null if converting from existing Firebase URL
-    book: typeof assignedBook,
-    lesson: NonNullable<typeof activeLesson>,
-    existingPdfUrl: string | null           // null if using localFile
-  ) => {
-    if (!book) return;
-
-    const classId  = book.classId  || 'unknown_class';
-    const subjectId = book.subjectId || 'unknown_subject';
-    const storagePath = buildLessonStoragePath(classId, subjectId, book.id, lesson.id);
-
-    setConvertProgress({ phase: 'converting', current: 0, total: 0 });
-
-    try {
-      // ── Step 1: Get PDF ArrayBuffer ──────────────────────────────────────
-      let pdfBuffer: ArrayBuffer;
-
-      if (localFile) {
-        pdfBuffer = await localFile.arrayBuffer();
-      } else if (existingPdfUrl) {
-        // Download from Firebase Storage
-        const { getBlob } = await import('firebase/storage');
-        const { ref: storageRef } = await import('firebase/storage');
-        const match = existingPdfUrl.match(/\/o\/(.+?)(\?|$)/);
-        const path = match ? decodeURIComponent(match[1]) : null;
-        if (!path) throw new Error('Cannot parse existing PDF URL');
-        const blob = await getBlob(storageRef(storage, path));
-        pdfBuffer = await blob.arrayBuffer();
-      } else {
-        throw new Error('No PDF source provided');
-      }
-
-      // ── Step 2: Load PDF.js ──────────────────────────────────────────────
-      const pdfjsLib = await import('pdfjs-dist');
-      // Use the locally bundled worker (Vite resolves this at build time — no CDN needed)
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
-
-      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
-      const total = pdf.numPages;
-      setConvertProgress({ phase: 'converting', current: 0, total });
-
-      // ── Step 3: Render each page → WebP → Upload ────────────────────────
-      // 120 DPI: sharp enough for any tablet/smartboard screen, ~60% smaller than 200 DPI.
-      // WebP quality 0.72: excellent compression for text-heavy PDFs, much smaller than raw raster.
-      const DPI = 120;
-      const SCALE = DPI / 72; // PDF user units are 72 DPI
-
-      for (let pageNum = 1; pageNum <= total; pageNum++) {
-        setConvertProgress({ phase: 'converting', current: pageNum, total });
-
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: SCALE });
-
-        const canvas = document.createElement('canvas');
-        canvas.width  = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        const ctx = canvas.getContext('2d')!;
-        // White background so transparent PDFs don't render as black
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
-        // Convert canvas to WebP blob — quality 0.72 gives good compression on text pages
-        const webpBlob: Blob = await new Promise((resolve, reject) => {
-          canvas.toBlob(
-            (b) => b ? resolve(b) : reject(new Error(`Page ${pageNum}: toBlob returned null`)),
-            'image/webp',
-            0.72
-          );
-        });
-
-        // Upload to Firebase Storage
-        setConvertProgress({ phase: 'uploading', current: pageNum, total });
-        await uploadWebpPage(classId, subjectId, book.id, lesson.id, pageNum, webpBlob);
-
-        // Free memory
-        canvas.width = 0; canvas.height = 0;
-      }
-
-      // ── Step 4: Write meta.json ──────────────────────────────────────────
-      await writeMetaJson(classId, subjectId, book.id, lesson.id, {
-        bookId: book.id,
-        lessonId: lesson.id,
-        title: lesson.title,
-        classId,
-        subjectId,
-        lessonOrder: book.lessons.findIndex(l => l.id === lesson.id) + 1,
-        pageCount: total,
-      });
-
-      // ── Step 5: Update Firestore lesson ──────────────────────────────────
-      // NOTE: storagePath is NOT stored in Firestore — it is computed dynamically from
-      // classId + subjectId + bookId + lessonId (via buildLessonStoragePath).
-      // This keeps the book document well under Firestore's 1 MB limit.
-      const updatedBook = {
-        ...book,
-        lessons: book.lessons.map(l => l.id === lesson.id
-          ? { ...l, storagePath: null, pageCount: total, pagesReady: true, pdfUrl: null }
-          : l
-        )
-      };
-      await saveBookToFirebase(updatedBook);
-
-      // ── Step 6: Delete original PDF from Firebase (if it was there) ──────
-      if (existingPdfUrl) {
-        await deleteFileFromStorage(existingPdfUrl);
-      }
-
-      setActiveLessonPdfDraft(null);
-      setConvertProgress({ phase: 'done', current: total, total });
-      flashMessage(`✅ ${total} pages converted and ready for students!`);
-
-      // Reset progress after 4 seconds
-      setTimeout(() => setConvertProgress({ phase: 'idle', current: 0, total: 0 }), 4000);
-
-    } catch (err: any) {
-      console.error('[PDF→WebP] Conversion failed:', err);
-      setConvertProgress({ phase: 'error', current: 0, total: 0, error: err.message || 'Unknown error' });
-    }
-  };
-
-  // ── Conversion Progress UI ────────────────────────────────────────────────
-  const ConversionProgress = ({ progress }: { progress: typeof convertProgress }) => {
-    if (progress.phase === 'idle') return null;
-
-    if (progress.phase === 'error') {
-      return (
-        <div className="bg-rose-950/40 border border-rose-500/30 rounded-xl p-4 space-y-2">
-          <p className="text-xs font-bold text-rose-300">❌ Conversion failed</p>
-          <p className="text-[9px] font-mono text-rose-400">{progress.error}</p>
-          <button
-            onClick={() => setConvertProgress({ phase: 'idle', current: 0, total: 0 })}
-            className="text-[9px] font-mono text-slate-400 hover:text-white underline cursor-pointer"
-          >
-            Try again
-          </button>
-        </div>
-      );
-    }
-
-    if (progress.phase === 'done') {
-      return (
-        <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-4">
-          <p className="text-xs font-bold text-emerald-300">
-            ✅ Done! {progress.total} pages ready for students.
-          </p>
-        </div>
-      );
-    }
-
-    const pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
-    const label = progress.phase === 'converting' ? '🖼️  Converting page' : '☁️  Uploading page';
-
-    return (
-      <div className="bg-[#0d1020] border border-violet-500/30 rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[9px] font-mono text-violet-300">
-            {label} {progress.current} / {progress.total}
-          </p>
-          <span className="text-[9px] font-mono text-slate-400">{pct}%</span>
-        </div>
-        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-violet-500 rounded-full transition-all duration-300"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <p className="text-[8px] font-mono text-slate-500">
-          {progress.phase === 'converting'
-            ? 'Reading PDF locally — not uploading the original file'
-            : 'Storing image in Firebase Storage'}
-        </p>
-      </div>
-    );
-  };
-
   if (authLoading) {
-
     return (
       <div className="h-screen w-full bg-[#070a13] flex items-center justify-center">
         <div className="text-emerald-500 animate-pulse">Loading Editor Credentials...</div>
@@ -653,43 +475,6 @@ export default function BookEditorPanel({
 
   return (
     <div className="h-screen w-full bg-[#070a13] text-slate-200 font-sans flex flex-col overflow-hidden" id="editor-workspace">
-      {/* CONVERSION CONFIRM DIALOG */}
-      {convertConfirm.open && (
-        <div className="fixed inset-0 z-[999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0d1020] border border-violet-500/40 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                <Upload className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-white">Start Conversion?</p>
-                <p className="text-[10px] font-mono text-slate-400 mt-0.5">{activeLesson?.title}</p>
-              </div>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              This will convert the PDF to WebP images and upload them to Firebase Storage.
-              <span className="text-rose-400 font-bold"> The original PDF will be permanently deleted</span> after conversion.
-            </p>
-            <p className="text-[9px] font-mono text-slate-500">
-              This may take several minutes for large PDFs. Do not close the browser tab during conversion.
-            </p>
-            <div className="flex gap-3 pt-1">
-              <button
-                onClick={() => setConvertConfirm({ open: false, localFile: null, existingPdfUrl: null })}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmConversion}
-                className="flex-1 py-2.5 bg-violet-700 hover:bg-violet-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Yes, Convert
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* HEADER BAR */}
       <header className="h-14 bg-[#0a0f1d] border-b border-slate-900 flex items-center justify-between px-4 lg:px-6 z-40 shrink-0">
         <div className="flex items-center gap-3">
@@ -729,12 +514,65 @@ export default function BookEditorPanel({
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              alert("Changes successfully saved to local database!");
+              setAssetLibraryTarget(null);
+              setIsAssetLibraryOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white p-2 px-3 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all mr-2"
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-2 px-3 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all mr-2"
           >
-            <Save className="w-3.5 h-3.5" /> Save
+            <ImageIcon className="w-4 h-4" />
+            Asset Library
           </button>
+          {isPreviewMode ? (
+              <>
+                <button
+                  onClick={async () => {
+                    if (onApproveSubmission && assignedBook) {
+                      await onApproveSubmission(assignedBook.id, assignedBook.lessons);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white p-2 px-4 rounded-lg text-xs font-bold uppercase tracking-wider select-none cursor-pointer transition-all mr-2 shadow-lg shadow-emerald-900/50"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Approve & Sync Live
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white p-2 px-3 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all mr-2 shadow-lg shadow-rose-900/50"
+                >
+                  <X className="w-3.5 h-3.5" /> Reject / Close
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={async () => {
+                    if (!assignedBook || !currentUser) return;
+                    try {
+                      const { doc, setDoc } = await import('firebase/firestore');
+                      const offlineBook = await dbLocal.offline_lessons.get(assignedBook.id);
+                      if (!offlineBook) {
+                        alert("No local data to submit.");
+                        return;
+                      }
+                      
+                      await setDoc(doc(db, 'editor_submissions', assignedBook.id.toString()), {
+                        bookId: assignedBook.id,
+                        editorId: currentUser.uid || currentUser.id,
+                        editorEmail: currentUser.email,
+                        lessons: offlineBook.lessons,
+                        timestamp: Date.now()
+                      });
+                      
+                      alert("Successfully submitted to Admin for review!");
+                    } catch (err: any) {
+                      alert("Failed to submit to Admin: " + err.message);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-2 px-3 rounded-lg text-xs font-bold select-none cursor-pointer transition-all shadow-lg shadow-indigo-900/50 mr-2"
+                >
+                  <Cloud className="w-3.5 h-3.5" /> Submit to Admin
+                </button>
+              </>
+            )}
           <button
             onClick={() => setProfileOpen(true)}
             className="text-amber-400 hover:text-amber-300 text-xs font-medium select-none cursor-pointer transition-all mr-2 flex items-center gap-1.5"
@@ -749,6 +587,13 @@ export default function BookEditorPanel({
           </button>
         </div>
       </header>
+
+      {/* PREVIEW BANNER */}
+      {isPreviewMode && (
+        <div className="bg-amber-500 text-amber-950 font-bold font-mono text-center py-1 text-[10px] uppercase tracking-widest">
+          ⚠️ Admin Preview Mode: Viewing unapproved Editor Submission. Saving locally is disabled. ⚠️
+        </div>
+      )}
 
       {/* CORE TWO-PANE LAYOUT */}
       <div className="flex-1 flex overflow-hidden">
@@ -870,7 +715,7 @@ export default function BookEditorPanel({
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrl: activeLessonVideoDraft, pdfUrl: activeLessonPdfDraft })}
+                        onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrl: activeLessonVideoDraft })}
                         className="p-1 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
                       >
                         <Save className="w-3.5 h-3.5" /> Save Meta
@@ -903,111 +748,6 @@ export default function BookEditorPanel({
                         className="w-full bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white"
                       />
                     </div>
-                  </div>
-
-                  {/* PDF → WebP Conversion Section */}
-                  <div className="border-t border-slate-800/60 pt-4">
-                    <span className="text-[8.5px] uppercase font-mono text-slate-400 block mb-2 flex items-center gap-1.5">
-                      <FileText className="w-3 h-3 text-violet-400" />
-                      Lesson Pages (WebP Images)
-                    </span>
-
-                    {/* Already converted — show status */}
-                    {activeLesson?.pagesReady && activeLesson?.pageCount ? (
-                      <div className="flex items-center gap-3 bg-[#0a1a10] border border-emerald-500/30 rounded-xl p-3">
-                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                          <CheckCircle className="w-5 h-5 text-emerald-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-emerald-300">
-                            ✅ {activeLesson.pageCount} pages ready for students
-                          </p>
-                          <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
-                            {activeLesson.storagePath}
-                          </p>
-                        </div>
-                        {/* Allow re-upload to replace pages */}
-                        <label className="text-[9px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 hover:border-violet-400/50 px-2 py-1 rounded transition-colors cursor-pointer flex-shrink-0">
-                          Re-upload PDF
-                          <input type="file" className="hidden" accept="application/pdf"
-                            onChange={(e) => {
-                              if (!e.target.files?.[0] || !assignedBook || !activeLesson) return;
-                              requestConversion(e.target.files[0], null);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
-                      </div>
-                    ) : activeLessonPdfDraft && !activeLesson?.pagesReady ? (
-                      /* Has old PDF — offer Convert + Delete */
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3 bg-[#0d1020] border border-amber-500/30 rounded-xl p-3">
-                          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                            <FileText className="w-5 h-5 text-amber-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-amber-300 truncate">
-                              {decodeURIComponent(activeLessonPdfDraft.split('/').pop()?.split('?')[0]?.replace(/^\d+_/, '') || 'lesson.pdf')}
-                            </p>
-                            <p className="text-[9px] font-mono text-slate-500 mt-0.5">
-                              ⚠️ Old PDF — students cannot view it. Convert to images.
-                            </p>
-                          </div>
-                          <a href={activeLessonPdfDraft} target="_blank" rel="noopener noreferrer"
-                            className="text-[9px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 px-2 py-1 rounded transition-colors flex-shrink-0">
-                            Open PDF
-                          </a>
-                        </div>
-                        {convertProgress.phase === 'idle' ? (
-                          <button
-                            onClick={() => {
-                              if (!assignedBook || !activeLesson || !activeLessonPdfDraft) return;
-                              requestConversion(null, activeLessonPdfDraft);
-                            }}
-                            className="w-full py-2.5 bg-violet-700 hover:bg-violet-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            Convert to WebP Images — Delete Original PDF
-                          </button>
-                        ) : (
-                          <ConversionProgress progress={convertProgress} />
-                        )}
-                      </div>
-                    ) : convertProgress.phase !== 'idle' ? (
-                      <ConversionProgress progress={convertProgress} />
-                    ) : (
-                      /* No PDF at all — pick from local PC */
-                      <label className={`flex items-center gap-3 border border-dashed rounded-xl p-4 cursor-pointer transition-all group ${
-                        pdfUploading ? 'border-violet-500/50 bg-violet-500/5 cursor-wait'
-                          : 'border-slate-700 hover:border-violet-500/50 bg-slate-950/40 hover:bg-violet-500/5'
-                      }`}>
-                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-800 group-hover:bg-violet-500/10 border border-slate-700 group-hover:border-violet-500/30 flex items-center justify-center transition-all">
-                          {pdfUploading
-                            ? <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
-                            : <Upload className="w-4 h-4 text-slate-500 group-hover:text-violet-400 transition-colors" />
-                          }
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-300 group-hover:text-violet-300 transition-colors">
-                            {pdfUploading ? 'Processing...' : 'Upload PDF → Auto-converts to images'}
-                          </p>
-                          <p className="text-[9px] font-mono text-slate-500 mt-0.5">
-                            PDF is read locally — only images are stored in Firebase
-                          </p>
-                        </div>
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept="application/pdf"
-                          disabled={pdfUploading || convertProgress.phase !== 'idle'}
-                          onChange={(e) => {
-                            if (!e.target.files?.[0] || !assignedBook || !activeLesson) return;
-                            requestConversion(e.target.files[0], null);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                    )}
                   </div>
                 </div>
 
@@ -1111,11 +851,8 @@ export default function BookEditorPanel({
                               <img src={pageLeftImageDraft} alt="Left Draft representation" className="h-28 object-contain rounded" />
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={() => {
                                   setPageLeftImageDraft('');
-                                  if (assignedBook && activeLesson && selectedPageIndex !== null) {
-                                    await handleUpdatePage(selectedPageIndex);
-                                  }
                                 }}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
@@ -1123,27 +860,37 @@ export default function BookEditorPanel({
                               </button>
                             </div>
                           ) : (
-                            <label className="flex flex-col items-center justify-center h-28 border border-dashed border-slate-800 hover:border-amber-500 rounded-lg cursor-pointer transition-colors p-4 text-center bg-slate-950/40 hover:bg-slate-950/80">
-                              <ImageIcon className="w-6 h-6 text-slate-500 mb-1" />
-                              <span className="text-xs text-slate-300 font-bold font-sans">Upload Left Column Asset</span>
-                              <span className="text-[9px] text-slate-500 mt-0.5 font-mono">Click to browse files</span>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={async (e) => {
-                                  if (e.target.files && e.target.files[0]) {
-                                    try {
-                                      const url = await uploadImageToStorage(e.target.files[0]);
-                                      setPageLeftImageDraft(url);
-                                    } catch(err: any) {
-                                      alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
-                                      console.error("Upload failed", err);
+                            <div className="flex flex-col gap-2">
+                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
+                                <Upload className="w-3 h-3" /> Upload New Asset
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*"
+                                  onChange={async (e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                      try {
+                                        const url = await uploadImageToStorage(e.target.files[0]);
+                                        setPageLeftImageDraft(url);
+                                      } catch(err: any) {
+                                        alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
+                                        console.error("Upload failed", err);
+                                      }
                                     }
-                                  }
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAssetLibraryTarget('left');
+                                  setIsAssetLibraryOpen(true);
                                 }}
-                              />
-                            </label>
+                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                              >
+                                <ImageIcon className="w-3 h-3" /> Choose from Library
+                              </button>
+                            </div>
                           )}
                         </div>
 
@@ -1155,11 +902,8 @@ export default function BookEditorPanel({
                               <img src={pageCenterImageDraft} alt="Center Draft representation" className="h-28 object-contain rounded" />
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={() => {
                                   setPageCenterImageDraft('');
-                                  if (assignedBook && activeLesson && selectedPageIndex !== null) {
-                                    await handleUpdatePage(selectedPageIndex);
-                                  }
                                 }}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
@@ -1167,27 +911,37 @@ export default function BookEditorPanel({
                               </button>
                             </div>
                           ) : (
-                            <label className="flex flex-col items-center justify-center h-28 border border-dashed border-slate-800 hover:border-amber-500 rounded-lg cursor-pointer transition-colors p-4 text-center bg-slate-950/40 hover:bg-slate-950/80">
-                              <ImageIcon className="w-6 h-6 text-slate-500 mb-1" />
-                              <span className="text-xs text-slate-300 font-bold font-sans">Upload Center Asset</span>
-                              <span className="text-[9px] text-slate-500 mt-0.5 font-mono">Click to browse files</span>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={async (e) => {
-                                  if (e.target.files && e.target.files[0]) {
-                                    try {
-                                      const url = await uploadImageToStorage(e.target.files[0]);
-                                      setPageCenterImageDraft(url);
-                                    } catch(err: any) {
-                                      alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
-                                      console.error("Upload failed", err);
+                            <div className="flex flex-col gap-2">
+                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
+                                <Upload className="w-3 h-3" /> Upload New Asset
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*"
+                                  onChange={async (e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                      try {
+                                        const url = await uploadImageToStorage(e.target.files[0]);
+                                        setPageCenterImageDraft(url);
+                                      } catch(err: any) {
+                                        alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
+                                        console.error("Upload failed", err);
+                                      }
                                     }
-                                  }
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAssetLibraryTarget('center');
+                                  setIsAssetLibraryOpen(true);
                                 }}
-                              />
-                            </label>
+                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                              >
+                                <ImageIcon className="w-3 h-3" /> Choose from Library
+                              </button>
+                            </div>
                           )}
                         </div>
 
@@ -1199,11 +953,8 @@ export default function BookEditorPanel({
                               <img src={pageRightImageDraft} alt="Right Draft representation" className="h-28 object-contain rounded" />
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={() => {
                                   setPageRightImageDraft('');
-                                  if (assignedBook && activeLesson && selectedPageIndex !== null) {
-                                    await handleUpdatePage(selectedPageIndex);
-                                  }
                                 }}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
@@ -1211,27 +962,37 @@ export default function BookEditorPanel({
                               </button>
                             </div>
                           ) : (
-                            <label className="flex flex-col items-center justify-center h-28 border border-dashed border-slate-800 hover:border-amber-500 rounded-lg cursor-pointer transition-colors p-4 text-center bg-slate-950/40 hover:bg-slate-950/80">
-                              <ImageIcon className="w-6 h-6 text-slate-500 mb-1" />
-                              <span className="text-xs text-slate-300 font-bold font-sans">Upload Right Column Asset</span>
-                              <span className="text-[9px] text-slate-500 mt-0.5 font-mono">Click to browse files</span>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={async (e) => {
-                                  if (e.target.files && e.target.files[0]) {
-                                    try {
-                                      const url = await uploadImageToStorage(e.target.files[0]);
-                                      setPageRightImageDraft(url);
-                                    } catch(err: any) {
-                                      alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
-                                      console.error("Upload failed", err);
+                            <div className="flex flex-col gap-2">
+                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
+                                <Upload className="w-3 h-3" /> Upload New Asset
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*"
+                                  onChange={async (e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                      try {
+                                        const url = await uploadImageToStorage(e.target.files[0]);
+                                        setPageRightImageDraft(url);
+                                      } catch(err: any) {
+                                        alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
+                                        console.error("Upload failed", err);
+                                      }
                                     }
-                                  }
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAssetLibraryTarget('right');
+                                  setIsAssetLibraryOpen(true);
                                 }}
-                              />
-                            </label>
+                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                              >
+                                <ImageIcon className="w-3 h-3" /> Choose from Library
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1326,7 +1087,7 @@ export default function BookEditorPanel({
                           return { ...l, flashQuestions: newQuestions };
                         })
                       };
-                      await saveBookToFirebase(modifiedBook);
+                      await saveBookLocally(modifiedBook);
                       flashMessage('Interactive quizzes synced to Firebase.');
                     } catch (err) {
                       alert('Failed to sync quizzes to Firebase.');
@@ -1347,7 +1108,7 @@ export default function BookEditorPanel({
                           return { ...l, inquiryQuestions: newQuestions };
                         })
                       };
-                      await saveBookToFirebase(modifiedBook);
+                      await saveBookLocally(modifiedBook);
                       flashMessage('Inquiry questions synced to Firebase.');
                     } catch (err) {
                       alert('Failed to sync inquiry questions to Firebase.');
@@ -1369,6 +1130,19 @@ export default function BookEditorPanel({
       {profileOpen && (
         <ProfilePanel onClose={() => setProfileOpen(false)} />
       )}
+      
+      <AssetLibraryModal
+        isOpen={isAssetLibraryOpen}
+        onClose={() => {
+          setIsAssetLibraryOpen(false);
+          setAssetLibraryTarget(null);
+        }}
+        onSelect={assetLibraryTarget ? (url) => {
+          if (assetLibraryTarget === 'left') setPageLeftImageDraft(url);
+          else if (assetLibraryTarget === 'center') setPageCenterImageDraft(url);
+          else if (assetLibraryTarget === 'right') setPageRightImageDraft(url);
+        } : undefined}
+      />
     </div>
   );
 }

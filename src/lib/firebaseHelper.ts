@@ -1,4 +1,4 @@
-import { ref, uploadBytes, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject, uploadString, listAll } from 'firebase/storage';
 import { storage } from './firebase';
 
 export async function uploadImageToStorage(file: File, folder: string = 'images'): Promise<string> {
@@ -6,6 +6,16 @@ export async function uploadImageToStorage(file: File, folder: string = 'images'
   const fileRef = ref(storage, `${folder}/${fileName}`);
   await uploadBytes(fileRef, file);
   return await getDownloadURL(fileRef);
+}
+
+export async function fetchAllUploadedImages(folder: string = 'images'): Promise<{url: string, name: string}[]> {
+  const folderRef = ref(storage, folder);
+  const result = await listAll(folderRef);
+  const items = await Promise.all(result.items.map(async (itemRef) => {
+    const url = await getDownloadURL(itemRef);
+    return { name: itemRef.name, url };
+  }));
+  return items;
 }
 
 export async function uploadPdfToStorage(file: File): Promise<string> {

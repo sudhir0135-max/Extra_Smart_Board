@@ -5,7 +5,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff } from 'lucide-react';
-import { Lesson, FlashQuestion, Note, InquiryQuestionObj } from '../types';
+import { Book, AcademicSubject, Lesson, FlashQuestion, Note, InquiryQuestionObj } from '../types';
+import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
+import 'katex/dist/katex.min.css';
 import ScribbleOverlay from './ScribbleOverlay';
 
 interface FloatingButtonProps {
@@ -18,15 +20,90 @@ interface FloatingButtonProps {
   globalLogo?: string | null;
 }
 
+const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionObj }) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  
+  const isAdvanced = typeof item !== 'string';
+  const image = isAdvanced ? item.image : null;
+  const pos = isAdvanced ? item.imagePosition || 'right' : 'right';
+
+  useEffect(() => {
+    if (contentRef.current) {
+      renderMathInElement(contentRef.current, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        throwOnError: false
+      });
+    }
+  }, [item]);
+
+  return (
+    <div className="flex-1 min-w-0 pointer-events-auto" ref={contentRef}>
+      {image && pos === 'center' && (
+        <div className="w-full flex justify-center mb-6">
+          <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" />
+        </div>
+      )}
+      
+      <div className="flex gap-6 items-start">
+        {image && pos === 'left' && (
+          <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
+        )}
+        
+        <div className="flex-1 font-medium">
+          {isAdvanced ? (
+            <div className="reader-content prose prose-invert prose-emerald max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl" dangerouslySetInnerHTML={{ __html: item.text }} />
+          ) : (
+            <span>{item}</span>
+          )}
+        </div>
+
+        {image && pos === 'right' && (
+          <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
+        )}
+      </div>
+    </div>
+  );
+});
+
+const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: string, isFlipped: boolean }) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (contentRef.current) {
+      renderMathInElement(contentRef.current, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        throwOnError: false
+      });
+    }
+  }, [contentText]);
+
+  return (
+    <div ref={contentRef} className="flex items-start gap-4">
+      <div className={`font-black shrink-0 mt-2 select-none ${isFlipped ? 'text-slate-900/60' : 'text-amber-500/70'}`}>
+        {isFlipped ? 'A.-' : 'Q.-'}
+      </div>
+      <div 
+        className={`flex-1 reader-content prose max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl ${isFlipped ? 'font-extrabold text-shadow-sm text-slate-950 prose-p:text-slate-950 prose-headings:text-slate-950 prose-strong:text-slate-950 prose-em:text-slate-950' : 'prose-invert prose-emerald font-semibold text-slate-100 prose-p:text-slate-100 prose-headings:text-slate-100'}`}
+        dangerouslySetInnerHTML={{ __html: contentText }} 
+      />
+    </div>
+  );
+});
+
 function QuestionItem({ item }: { item: string | InquiryQuestionObj }) {
   const [minHeight, setMinHeight] = useState<number>(0);
   const dragStartRef = useRef<{ y: number, startHeight: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const rawText = typeof item === 'string' ? item : (item.text.replace(/<[^>]+>/g, '') || 'Rich Text Question');
-  const isAdvanced = typeof item !== 'string';
-  const image = isAdvanced ? item.image : null;
-  const pos = isAdvanced ? item.imagePosition || 'right' : 'right';
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -61,31 +138,7 @@ function QuestionItem({ item }: { item: string | InquiryQuestionObj }) {
       style={{ minHeight: minHeight > 0 ? `${minHeight}px` : undefined }}
     >
       <div className="flex justify-between items-start gap-4">
-        <div className="flex-1 min-w-0 pointer-events-auto">
-          {image && pos === 'center' && (
-            <div className="w-full flex justify-center mb-6">
-              <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" />
-            </div>
-          )}
-          
-          <div className="flex gap-6 items-start">
-            {image && pos === 'left' && (
-              <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
-            )}
-            
-            <div className="flex-1 font-medium">
-              {isAdvanced ? (
-                <div className="reader-content prose prose-invert prose-emerald max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl" dangerouslySetInnerHTML={{ __html: item.text }} />
-              ) : (
-                <span>{item}</span>
-              )}
-            </div>
-
-            {image && pos === 'right' && (
-              <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
-            )}
-          </div>
-        </div>
+        <QuestionContent item={item} />
       </div>
 
       {/* Resize Handle at Bottom Left */}
@@ -689,17 +742,10 @@ export default function FloatingButton({
 
                   {/* Body textual block */}
                   <div className="my-4 font-sans text-[27px] leading-relaxed">
-                    {isFlipped ? (
-                      <div className="space-y-2">
-                        <div className="text-[14px] font-sans uppercase tracking-widest text-[#090d16]/70 font-bold">Solution Key:</div>
-                        <p className="font-extrabold text-shadow-sm leading-normal">{activeQuestion.answer}</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="text-[14px] font-sans uppercase tracking-widest text-amber-500/70 font-bold text-shadow">Classroom Prompt:</div>
-                        <p className="font-semibold leading-normal">{activeQuestion.question}</p>
-                      </div>
-                    )}
+                    <FlashcardContent 
+                      contentText={isFlipped ? activeQuestion.answer : activeQuestion.question}
+                      isFlipped={isFlipped}
+                    />
                   </div>
 
                   {/* Flip Prompt Footer */}

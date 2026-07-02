@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Save, Eye, FileText } from 'lucide-react';
 import { Editor } from '@tinymce/tinymce-react';
+import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
+import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
 
 export interface RichTextEditorProps {
   initialValue: string;
@@ -70,7 +72,11 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
       {activeSubTab === 'edit' ? (
         <div className="flex flex-col min-h-[300px] bg-[#1a1f2e]">
           <Editor
-            onInit={(_evt, editor) => editorRef.current = editor}
+            onInit={(_evt, editor) => {
+              editorRef.current = editor;
+              setupTinyMceMath(editor);
+              setupTinyMceAnnotation(editor);
+            }}
             tinymceScriptSrc="/tinymce/tinymce.min.js"
             initialValue={initialValue}
             init={{
@@ -79,17 +85,9 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
               menubar: true,
               skin: 'oxide-dark',
               content_css: 'dark',
-              plugins: [
-                'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
-                'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-                'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
-              ],
-              toolbar: 'undo redo | blocks | ' +
-                'bold italic forecolor | alignleft aligncenter ' +
-                'alignright alignjustify | bullist numlist outdent indent | ' +
-                'table link image | ' +
-                'removeformat | help',
-              content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px; background-color: #03060c; color: #e2e8f0; }'
+              plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
+              toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | latex annotation | table link image | removeformat | help',
+              content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:14px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle}`
             }}
           />
         </div>

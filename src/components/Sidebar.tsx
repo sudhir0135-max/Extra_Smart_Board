@@ -23,8 +23,9 @@ interface SidebarProps {
   isSyncing: boolean;
   isExpanded: boolean;
   onToggleExpand: () => void;
-  pdfViewMode: 'single' | 'double';
-  onPdfViewModeChange: (mode: 'single' | 'double') => void;
+  isLessonContentLess?: boolean;
+  imageViewMode?: 'single' | 'two';
+  setImageViewMode?: (mode: 'single' | 'two') => void;
 }
 
 export default function Sidebar({
@@ -34,8 +35,9 @@ export default function Sidebar({
   onSelectLesson,
   isExpanded,
   onToggleExpand,
-  pdfViewMode,
-  onPdfViewModeChange,
+  isLessonContentLess,
+  imageViewMode,
+  setImageViewMode,
 }: SidebarProps) {
   return (
     <div
@@ -125,52 +127,43 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* PDF View Mode Toggle — only visible when active lesson has a PDF */}
-      {activeLesson?.pdfUrl && (
-        <div className={`border-t border-slate-800/80 p-3 flex-shrink-0 ${
-          isExpanded ? 'flex flex-col gap-2' : 'flex flex-col items-center gap-2'
-        }`}>
-          {isExpanded && (
-            <span className="text-[8px] uppercase font-mono tracking-widest text-slate-500 font-extrabold px-1">
-              PDF View Mode
-            </span>
-          )}
-          <div className={`flex gap-1.5 ${isExpanded ? '' : 'flex-col items-center'}`}>
-            {/* Single Page */}
+      {/* Conditional Layout Toggles for Content-less lessons */}
+      {isLessonContentLess && isExpanded && setImageViewMode && (
+        <div className="p-3 border-t border-slate-800/50 flex flex-col gap-2 shrink-0">
+          <span className="text-[9px] font-mono uppercase text-slate-500 font-bold text-center block">Image Layout</span>
+          <div className="flex gap-2">
             <button
-              id="btn-pdf-single-page"
-              onClick={() => onPdfViewModeChange('single')}
-              title="Single page view"
-              className={`flex items-center gap-1.5 rounded-lg border transition-all cursor-pointer ${
-                isExpanded ? 'flex-1 px-3 py-2' : 'w-10 h-10 justify-center'
-              } ${
-                pdfViewMode === 'single'
-                  ? 'bg-amber-400/15 border-amber-400/50 text-amber-400'
-                  : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+              onClick={() => setImageViewMode('single')}
+              className={`flex-1 p-2 flex justify-center items-center rounded-lg border transition-all ${
+                imageViewMode === 'single'
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-md shadow-amber-900/20'
+                  : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-white'
               }`}
+              title="Single Page View (Stacked)"
             >
-              <BookOpen className="w-4 h-4 flex-shrink-0" />
-              {isExpanded && <span className="text-[10px] font-bold font-sans">Single Page</span>}
+              <div className="flex flex-col gap-1 w-4">
+                <div className="w-full h-2 bg-current rounded-sm"></div>
+                <div className="w-full h-2 bg-current rounded-sm"></div>
+              </div>
             </button>
-            {/* Double Page */}
             <button
-              id="btn-pdf-double-page"
-              onClick={() => onPdfViewModeChange('double')}
-              title="Two page view"
-              className={`flex items-center gap-1.5 rounded-lg border transition-all cursor-pointer ${
-                isExpanded ? 'flex-1 px-3 py-2' : 'w-10 h-10 justify-center'
-              } ${
-                pdfViewMode === 'double'
-                  ? 'bg-indigo-400/15 border-indigo-400/50 text-indigo-400'
-                  : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+              onClick={() => setImageViewMode('two')}
+              className={`flex-1 p-2 flex justify-center items-center rounded-lg border transition-all ${
+                imageViewMode === 'two'
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-md shadow-amber-900/20'
+                  : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-white'
               }`}
+              title="Two Page View (Side-by-side)"
             >
-              <Columns2 className="w-4 h-4 flex-shrink-0" />
-              {isExpanded && <span className="text-[10px] font-bold font-sans">Two Pages</span>}
+              <div className="flex gap-1 h-5 w-5">
+                <div className="w-1/2 h-full bg-current rounded-sm"></div>
+                <div className="w-1/2 h-full bg-current rounded-sm"></div>
+              </div>
             </button>
           </div>
         </div>
       )}
+
     </div>
   );
 }

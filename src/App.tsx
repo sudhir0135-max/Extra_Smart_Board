@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Book, Lesson, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject } from './types';
+import { Book, Lesson, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject, EditorSubmission } from './types';
 import { BOOKS_DATA } from './data/books';
 import BookShelf from './components/BookShelf';
 import Sidebar from './components/Sidebar';
@@ -22,6 +22,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import AuthModal from './components/AuthModal';
 import { Capacitor } from '@capacitor/core';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { dbLocal } from './lib/db';
+import { hasTextContent } from './lib/contentUtils';
 const PALETTE_COLORS = [
   { name: 'Classroom Amber', hex: '#f59e0b' },
   { name: 'Alert Red', hex: '#f43f5e' },
@@ -43,8 +46,31 @@ export default function App() {
   const [academicSubjects, setAcademicSubjects] = useState<AcademicSubject[]>([]);
 
   // Primary database and loading structures
-  const [books, setBooks] = useState<Book[]>([]);
+  const [firebaseBooks, setFirebaseBooks] = useState<Book[]>([]);
+  const offlineBookLessons = useLiveQuery(() => dbLocal.offline_lessons.toArray());
+  const [editorSubmissions, setEditorSubmissions] = useState<EditorSubmission[]>([]);
+  const [previewSubmissionBookId, setPreviewSubmissionBookId] = useState<number | null>(null);
+  
   const [isBooksLoaded, setIsBooksLoaded] = useState(false);
+
+  useEffect(() => {
+    // Listen to editor submissions
+    const unsubSubmissions = onSnapshot(collection(db, 'editor_submissions'), (snap) => {
+      const submissions = snap.docs.map(doc => doc.data() as EditorSubmission);
+      setEditorSubmissions(submissions);
+    }, (err) => console.error("Submissions listener error:", err));
+
+    return () => unsubSubmissions();
+  }, []);
+
+  useEffect(() => {
+    // Cleanup any stale records that were successfully synced but got stuck in Dexie
+    dbLocal.offline_lessons
+      .where('sync_status')
+      .equals('uploaded')
+      .delete()
+      .catch(console.error);
+  }, []);
 
   useEffect(() => {
     // Read classes from Firestore
@@ -70,7 +96,7 @@ export default function App() {
         BOOKS_DATA.forEach(b => {
           setDoc(doc(db, 'books', b.id.toString()), b).catch(console.error);
         });
-        setBooks(BOOKS_DATA.map(b => ({
+        setFirebaseBooks(BOOKS_DATA.map(b => ({
           ...b,
           classId: (b as any).classId || null,
           subjectId: (b as any).subjectId || null
@@ -94,7 +120,7 @@ export default function App() {
           } as Book;
         });
         loadedBooks.sort((a,b) => a.id - b.id);
-        setBooks(loadedBooks);
+        setFirebaseBooks(loadedBooks);
       }
       setIsBooksLoaded(true);
     });
@@ -108,7 +134,7 @@ export default function App() {
 
   const saveBookToFirebase = async (updatedBook: Book) => {
     await setDoc(doc(db, 'books', updatedBook.id.toString()), updatedBook);
-    setBooks(prev => {
+    setFirebaseBooks(prev => {
       if (prev.some(b => b.id === updatedBook.id)) {
         return prev.map(b => b.id === updatedBook.id ? updatedBook : b);
       }
@@ -119,7 +145,7 @@ export default function App() {
   const deleteBookFromFirebase = async (bookId: number) => {
     const { deleteDoc } = await import('firebase/firestore');
     await deleteDoc(doc(db, 'books', bookId.toString()));
-    setBooks(prev => prev.filter(b => b.id !== bookId));
+    setFirebaseBooks(prev => prev.filter(b => b.id !== bookId));
   };
 
   const bulkUpdateBooksInFirebase = async (allNewBooks: Book[]) => {
@@ -129,7 +155,7 @@ export default function App() {
       batch.set(doc(db, 'books', b.id.toString()), b);
     });
     await batch.commit();
-    setBooks(allNewBooks);
+    setFirebaseBooks(allNewBooks);
   };
 
   const [selectedBookId, setSelectedBookId] = useState<number>(1);
@@ -161,6 +187,38 @@ export default function App() {
       ? 'extra-download'   // will be updated by Preferences check below
       : 'landing'
   );
+
+  const books = React.useMemo(() => {
+    // PREVIEW MODE: If an admin is reviewing a submission, force the submitted data into the live book.
+    if (previewSubmissionBookId !== null) {
+      return firebaseBooks.map(b => {
+        if (b.id === previewSubmissionBookId) {
+          const submission = editorSubmissions.find(s => s.bookId === b.id);
+          if (submission) {
+            return { ...b, lessons: submission.lessons };
+          }
+        }
+        return b;
+      });
+    }
+
+    if (!offlineBookLessons) return firebaseBooks;
+    
+    // STRICT ISOLATION: Only apply offline overriding logic if we are inside the Book Editor Panel or the Admin Panel.
+    // If we are in the Workspace (as a Student) or any other screen, we strictly use the live Firebase curriculum.
+    if (activeScreen !== 'book-editor' && activeScreen !== 'admin') {
+      return firebaseBooks;
+    }
+
+    return firebaseBooks.map(b => {
+      const offline = offlineBookLessons.find(ol => ol.bookId === b.id);
+      if (offline && offline.sync_status !== 'deleted') {
+        return { ...b, lessons: offline.lessons };
+      }
+      return b;
+    });
+  }, [firebaseBooks, offlineBookLessons, activeScreen, previewSubmissionBookId, editorSubmissions]);
+
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
   // Download Extra Smartboard State
@@ -229,21 +287,24 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [snv1Expanded, setSnv1Expanded] = useState<boolean>(true);
   const [snv2Expanded, setSnv2Expanded] = useState<boolean>(false);
+  const [imageViewMode, setImageViewMode] = useState<'single' | 'two'>('single');
+
+  const activeBook = books.find(b => b.id === selectedBookId) || null;
+  const activeLesson = activeBook ? activeBook.lessons.find(l => l.id === activeLessonId) || null : null;
+  const isLessonContentLess = activeLesson?.pages.every(p => !hasTextContent(p.content)) ?? false;
 
   // Connectivity and queue variables
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [offlineQueue, setOfflineQueue] = useState<OfflineAction[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const activeNote = notes.find(n => n.bookId === selectedBookId && n.lessonId === activeLessonId) || null;
 
   // Scribble stylus states
   const [isDrawingEnabled, setIsDrawingEnabled] = useState<boolean>(false);
   const [selectedColor, setSelectedColor] = useState<string>('#f59e0b');
   const [lineWidth, setLineWidth] = useState<number>(4);
   const [isHighlighter, setIsHighlighter] = useState<boolean>(false);
-
-  // PDF view mode: single or double page
-  const [pdfViewMode, setPdfViewMode] = useState<'single' | 'double'>('single');
 
   // Active toast alerting module
   const [toasts, setToasts] = useState<{ id: string; text: string; type: 'info' | 'success' | 'warn' | 'cloud' }[]>([]);
@@ -514,10 +575,6 @@ export default function App() {
     addToast(`Successfully appended '${newBook.title}' into local book shelf.`, 'success');
   };
 
-  const activeBook = books.find(b => b.id === selectedBookId) || null;
-  const activeLesson = activeBook ? activeBook.lessons.find(l => l.id === activeLessonId) || null : null;
-  const activeNote = notes.find(n => n.bookId === selectedBookId && n.lessonId === activeLessonId) || null;
-
   const handleAuthSuccess = async (role?: string) => {
     setAuthModalOpen(false);
 
@@ -629,6 +686,12 @@ export default function App() {
         academicSubjects={academicSubjects}
         editors={editors}
         setEditors={setEditors}
+        editorSubmissions={editorSubmissions}
+        onReviewSubmission={(bookId) => {
+          setSelectedBookId(bookId);
+          setPreviewSubmissionBookId(bookId);
+          setActiveScreen('book-editor');
+        }}
       />
     );
   }
@@ -675,7 +738,35 @@ export default function App() {
         books={books}
         saveBookToFirebase={saveBookToFirebase}
         editors={editors}
-        onClose={() => setActiveScreen('landing')}
+        onClose={() => {
+          if (previewSubmissionBookId !== null) {
+            setPreviewSubmissionBookId(null);
+            setActiveScreen('admin');
+          } else {
+            setActiveScreen('landing');
+          }
+        }}
+        currentUser={currentUser}
+        isPreviewMode={previewSubmissionBookId !== null}
+        previewBookId={previewSubmissionBookId}
+        onApproveSubmission={async (bookId, lessons) => {
+          try {
+            const b = firebaseBooks.find(fb => fb.id === bookId);
+            if (b) {
+              const updatedBook = { ...b, lessons };
+              await saveBookToFirebase(updatedBook);
+              const { doc, deleteDoc } = await import('firebase/firestore');
+              await deleteDoc(doc(db, 'editor_submissions', bookId.toString()));
+              
+              setToasts(prev => [...prev, { id: Date.now().toString(), text: 'Submission Approved and Synced Live!', type: 'success' }]);
+            }
+          } catch(err: any) {
+            alert('Failed to approve submission: ' + err.message);
+          } finally {
+            setPreviewSubmissionBookId(null);
+            setActiveScreen('admin');
+          }
+        }}
       />
     );
   }
@@ -1013,8 +1104,9 @@ export default function App() {
               isSyncing={isSyncing}
               isExpanded={snv2Expanded}
               onToggleExpand={() => setSnv2Expanded(!snv2Expanded)}
-              pdfViewMode={pdfViewMode}
-              onPdfViewModeChange={setPdfViewMode}
+              isLessonContentLess={isLessonContentLess}
+              imageViewMode={imageViewMode}
+              setImageViewMode={setImageViewMode}
             />
           </>
         )}
@@ -1026,6 +1118,8 @@ export default function App() {
           themeMode={themeMode}
           fontSizeScale={fontSizeScale}
           isDrawingEnabled={isDrawingEnabled}
+          imageViewMode={imageViewMode}
+          isLessonContentLess={isLessonContentLess}
           onStrokeSaved={handleStrokeSaved}
           onCustomBookUploaded={handleCustomBookUploaded}
           onCloseDrawing={() => {
@@ -1034,7 +1128,6 @@ export default function App() {
           selectedColor={selectedColor}
           lineWidth={lineWidth}
           isHighlighter={isHighlighter}
-          pdfViewMode={pdfViewMode}
         />
 
 
