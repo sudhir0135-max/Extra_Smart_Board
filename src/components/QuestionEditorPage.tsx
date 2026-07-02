@@ -7,10 +7,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Editor } from '@tinymce/tinymce-react';
 import {
   HelpCircle, Plus, Trash2, Save, ArrowUp, ArrowDown,
-  Image as ImageIcon, X, Check, ChevronDown, ChevronUp, Maximize2
+  Image as ImageIcon, X, Check, MessageSquare
 } from 'lucide-react';
 import { InquiryQuestionObj } from '../types';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
+
+type EditorMode = 'question' | 'answer';
 
 /**
  * Standalone full-page rich text question editor.
@@ -36,13 +38,14 @@ export default function QuestionEditorPage() {
   });
 
   const [activeIdx, setActiveIdx] = useState(0);
+  const [editorMode, setEditorMode] = useState<EditorMode>('question');
   const [isSaving, setIsSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [collapsed, setCollapsed] = useState<boolean[]>([]);
   const editorRef = useRef<any>(null);
 
-  // Sync collapse state length
+  // Sync collapse state length (kept for compatibility, not used in this version)
+  const [, setCollapsed] = useState<boolean[]>([]);
   useEffect(() => {
     setCollapsed((prev) => {
       const next = [...prev];
@@ -57,31 +60,57 @@ export default function QuestionEditorPage() {
       text: '',
       image: null,
       imagePosition: 'right',
+      answerText: null,
+      answerImage: null,
+      answerImagePosition: 'right',
     };
   }
 
   function normalise(q: any): InquiryQuestionObj {
-    if (typeof q === 'string') return { id: `q_${Date.now()}`, text: q, image: null, imagePosition: 'right' };
-    return { id: q.id || `q_${Date.now()}`, text: q.text || '', image: q.image || null, imagePosition: q.imagePosition || 'right' };
+    if (typeof q === 'string') {
+      return { id: `q_${Date.now()}`, text: q, image: null, imagePosition: 'right', answerText: null, answerImage: null, answerImagePosition: 'right' };
+    }
+    return {
+      id: q.id || `q_${Date.now()}`,
+      text: q.text || '',
+      image: q.image || null,
+      imagePosition: q.imagePosition || 'right',
+      answerText: q.answerText || null,
+      answerImage: q.answerImage || null,
+      answerImagePosition: q.answerImagePosition || 'right',
+    };
   }
 
-  // Flush current editor content into state
+  // Flush current editor content into the right field depending on editorMode
   const flushEditor = () => {
     if (editorRef.current) {
       const content = editorRef.current.getContent();
       setQuestions((prev) => {
         const next = [...prev];
-        if (next[activeIdx]) next[activeIdx] = { ...next[activeIdx], text: content };
+        if (!next[activeIdx]) return next;
+        if (editorMode === 'question') {
+          next[activeIdx] = { ...next[activeIdx], text: content };
+        } else {
+          next[activeIdx] = { ...next[activeIdx], answerText: content };
+        }
         return next;
       });
       return content;
     }
-    return questions[activeIdx]?.text || '';
+    return editorMode === 'question'
+      ? (questions[activeIdx]?.text || '')
+      : (questions[activeIdx]?.answerText || '');
   };
 
   const switchTo = (idx: number) => {
     flushEditor();
     setActiveIdx(idx);
+  };
+
+  const switchMode = (mode: EditorMode) => {
+    if (mode === editorMode) return;
+    flushEditor();
+    setEditorMode(mode);
   };
 
   const addQuestion = () => {
@@ -124,18 +153,49 @@ export default function QuestionEditorPage() {
       const url = await uploadImageToStorage(file, `inquiry-questions/images`);
       setQuestions((prev) => {
         const next = [...prev];
-        next[activeIdx] = { ...next[activeIdx], image: url };
+        if (editorMode === 'question') {
+          next[activeIdx] = { ...next[activeIdx], image: url };
+        } else {
+          next[activeIdx] = { ...next[activeIdx], answerImage: url };
+        }
         return next;
       });
     } catch { alert('Image upload failed.'); }
     finally { setIsUploading(false); e.target.value = ''; }
   };
 
+  const removeImage = () => {
+    setQuestions((prev) => {
+      const next = [...prev];
+      if (editorMode === 'question') {
+        next[activeIdx] = { ...next[activeIdx], image: null };
+      } else {
+        next[activeIdx] = { ...next[activeIdx], answerImage: null };
+      }
+      return next;
+    });
+  };
+
+  const setImagePosition = (pos: 'left' | 'center' | 'right') => {
+    setQuestions((prev) => {
+      const next = [...prev];
+      if (editorMode === 'question') {
+        next[activeIdx] = { ...next[activeIdx], imagePosition: pos };
+      } else {
+        next[activeIdx] = { ...next[activeIdx], answerImagePosition: pos };
+      }
+      return next;
+    });
+  };
+
   const saveAll = () => {
     const finalContent = flushEditor();
-    const finalQuestions = questions.map((q, i) =>
-      i === activeIdx ? { ...q, text: finalContent } : q
-    );
+    const finalQuestions = questions.map((q, i) => {
+      if (i !== activeIdx) return q;
+      return editorMode === 'question'
+        ? { ...q, text: finalContent }
+        : { ...q, answerText: finalContent };
+    });
     setIsSaving(true);
 
     // Write to localStorage for parent tab to read
@@ -153,6 +213,14 @@ export default function QuestionEditorPage() {
   };
 
   const activeQ = questions[activeIdx];
+
+  // Derived values based on current mode
+  const currentImage = editorMode === 'question' ? activeQ?.image : activeQ?.answerImage;
+  const currentImagePosition = editorMode === 'question' ? activeQ?.imagePosition : activeQ?.answerImagePosition;
+  const currentEditorContent = editorMode === 'question' ? (activeQ?.text || '') : (activeQ?.answerText || '');
+
+  const hasAnswer = (q: InquiryQuestionObj) =>
+    !!(q.answerText && q.answerText.replace(/<[^>]+>/g, '').trim());
 
   return (
     <div className="min-h-screen bg-[#060a14] text-slate-100 flex flex-col font-sans" style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
@@ -205,6 +273,7 @@ export default function QuestionEditorPage() {
             {questions.map((q, idx) => {
               const preview = q.text.replace(/<[^>]+>/g, '').trim().slice(0, 50) || 'New Question';
               const isActive = idx === activeIdx;
+              const answered = hasAnswer(q);
               return (
                 <div
                   key={q.id}
@@ -217,9 +286,17 @@ export default function QuestionEditorPage() {
                 >
                   <div className="flex items-start justify-between gap-1">
                     <div className="flex-1 min-w-0">
-                      <span className="text-[9px] font-mono text-amber-500 font-bold block">Q{idx + 1}</span>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[9px] font-mono text-amber-500 font-bold">Q{idx + 1}</span>
+                        {answered && (
+                          <span className="text-[8px] font-mono text-emerald-500 font-bold flex items-center gap-0.5">
+                            <MessageSquare className="w-2 h-2" /> A
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] leading-snug truncate">{preview}</p>
-                      {q.image && <span className="text-[8px] text-sky-400 font-mono mt-0.5 block">📷 Has image</span>}
+                      {q.image && <span className="text-[8px] text-sky-400 font-mono mt-0.5 block">📷 Has Q image</span>}
+                      {q.answerImage && <span className="text-[8px] text-amber-400 font-mono mt-0.5 block">📷 Has A image</span>}
                     </div>
                     {/* Action buttons (shown on hover) */}
                     <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
@@ -246,32 +323,62 @@ export default function QuestionEditorPage() {
           </div>
         </aside>
 
-        {/* ── CENTER: Rich Text Editor ── */}
+        {/* ── CENTER: Q/A Mode Toggle + Rich Text Editor ── */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {activeQ ? (
             <>
-              {/* Editor header */}
-              <div className="px-5 py-3 bg-[#0d1120] border-b border-slate-800 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-indigo-400 font-bold">Editing Q{activeIdx + 1}</span>
-                  <span className="w-1 h-1 rounded-full bg-slate-600" />
-                  <span className="text-[9px] font-mono text-slate-500">Rich text · images · tables · LaTeX supported</span>
+              {/* Editor header with Q/A mode toggle */}
+              <div className="px-5 py-0 bg-[#0d1120] border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+                {/* Tab toggle */}
+                <div className="flex">
+                  <button
+                    onClick={() => switchMode('question')}
+                    className={`flex items-center gap-2 px-5 py-3 text-xs font-black uppercase tracking-wider transition-all border-b-2 cursor-pointer ${
+                      editorMode === 'question'
+                        ? 'border-indigo-500 text-indigo-300 bg-indigo-600/10'
+                        : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'
+                    }`}
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    Question
+                  </button>
+                  <button
+                    onClick={() => switchMode('answer')}
+                    className={`flex items-center gap-2 px-5 py-3 text-xs font-black uppercase tracking-wider transition-all border-b-2 cursor-pointer ${
+                      editorMode === 'answer'
+                        ? 'border-amber-500 text-amber-300 bg-amber-600/10'
+                        : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'
+                    }`}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    Answer
+                    {hasAnswer(activeQ) && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    )}
+                  </button>
                 </div>
-                <button
-                  onClick={() => { flushEditor(); addQuestion(); }}
-                  className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3 h-3" /> New Question
-                </button>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] font-mono text-slate-600 uppercase tracking-widest">
+                    {editorMode === 'question' ? 'Editing Q' : 'Editing Answer'}{activeIdx + 1}
+                    {editorMode === 'question' ? ' · Rich text · images · tables · LaTeX' : ' · Model answer for this question'}
+                  </span>
+                  <button
+                    onClick={() => { flushEditor(); addQuestion(); }}
+                    className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" /> New Question
+                  </button>
+                </div>
               </div>
 
-              {/* TinyMCE */}
+              {/* TinyMCE — keyed on activeIdx + editorMode so it reinitialises when switching */}
               <div className="flex-1 overflow-hidden bg-white">
                 <Editor
-                  key={activeQ.id}
+                  key={`${activeIdx}-${editorMode}`}
                   tinymceScriptSrc="/tinymce/tinymce.min.js"
                   onInit={(_, editor) => { editorRef.current = editor; }}
-                  initialValue={activeQ.text || '<p></p>'}
+                  initialValue={currentEditorContent || '<p></p>'}
                   init={{
                     license_key: 'gpl',
                     height: '100%',
@@ -316,23 +423,28 @@ export default function QuestionEditorPage() {
           )}
         </main>
 
-        {/* ── RIGHT SIDEBAR: Image & Settings ── */}
+        {/* ── RIGHT SIDEBAR: Image & Settings — mode-aware ── */}
         {activeQ && (
           <aside className="w-[220px] flex-shrink-0 bg-[#0b0f1f] border-l border-slate-800 flex flex-col overflow-y-auto p-4 space-y-5">
+
+            {/* Mode indicator */}
+            <div className={`text-center py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider ${
+              editorMode === 'question'
+                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
+                : 'bg-amber-600/20 text-amber-300 border border-amber-500/30'
+            }`}>
+              {editorMode === 'question' ? '📝 Question Image' : '💡 Answer Image'}
+            </div>
 
             <div>
               <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-2">
                 Accompanying Image
               </label>
-              {activeQ.image ? (
+              {currentImage ? (
                 <div className="relative group">
-                  <img src={activeQ.image} alt="Q img" className="w-full aspect-video object-cover rounded-lg border border-slate-700" />
+                  <img src={currentImage} alt="Q img" className="w-full aspect-video object-cover rounded-lg border border-slate-700" />
                   <button
-                    onClick={() => setQuestions((prev) => {
-                      const next = [...prev];
-                      next[activeIdx] = { ...next[activeIdx], image: null };
-                      return next;
-                    })}
+                    onClick={removeImage}
                     className="absolute top-1.5 right-1.5 p-1 bg-black/70 text-white rounded hover:bg-rose-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                   >
                     <X className="w-3 h-3" />
@@ -351,7 +463,7 @@ export default function QuestionEditorPage() {
             </div>
 
             {/* Image position */}
-            {activeQ.image && (
+            {currentImage && (
               <div>
                 <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-2">
                   Image Position
@@ -361,21 +473,17 @@ export default function QuestionEditorPage() {
                     <label
                       key={pos}
                       className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all text-xs ${
-                        activeQ.imagePosition === pos
+                        currentImagePosition === pos
                           ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
                           : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:bg-slate-800'
                       }`}
                     >
                       <input
                         type="radio"
-                        name="imgPos"
+                        name={`imgPos-${editorMode}`}
                         value={pos}
-                        checked={activeQ.imagePosition === pos}
-                        onChange={() => setQuestions((prev) => {
-                          const next = [...prev];
-                          next[activeIdx] = { ...next[activeIdx], imagePosition: pos };
-                          return next;
-                        })}
+                        checked={currentImagePosition === pos}
+                        onChange={() => setImagePosition(pos)}
                         className="w-3 h-3"
                       />
                       <span className="capitalize font-bold">{pos}</span>

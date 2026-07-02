@@ -8,6 +8,10 @@ export interface InquiryQuestionObj {
   text: string;
   image?: string | null;
   imagePosition?: 'left' | 'center' | 'right';
+  // Answer fields — same shape as the question
+  answerText?: string | null;
+  answerImage?: string | null;
+  answerImagePosition?: 'left' | 'center' | 'right';
 }
 
 export interface Lesson {
