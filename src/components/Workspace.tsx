@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
+import BlackboardPanel from './BlackboardPanel';
 import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X } from 'lucide-react';
 import { BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
@@ -24,12 +25,14 @@ interface WorkspaceProps {
   selectedColor?: string;
   lineWidth?: number;
   isHighlighter?: boolean;
-  books: Book[];
-  academicSubjects: AcademicSubject[];
-  editors: BookEditor[];
+  books?: Book[];
+  academicSubjects?: AcademicSubject[];
+  editors?: BookEditor[];
   globalLogo?: string | null;
   imageViewMode?: 'single' | 'two';
   isLessonContentLess?: boolean;
+  onBlackboardToggle?: (isOpen: boolean) => void;
+  isOnline?: boolean;
 }
 
 export default function Workspace({
@@ -50,11 +53,14 @@ export default function Workspace({
   globalLogo,
   imageViewMode,
   isLessonContentLess,
+  onBlackboardToggle,
+  isOnline,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
 
+  // Text-only annotation speech bubble
   const [activeAnnotation, setActiveAnnotation] = useState<{
     text: string;
     mediaType: string;
@@ -63,35 +69,83 @@ export default function Workspace({
     fontSize: string;
   } | null>(null);
   const annotationBubbleRef = useRef<HTMLDivElement>(null);
-  const annotationSheetRef = useRef<HTMLDivElement>(null);
 
-  // Auto-render math inside annotation popups when activeAnnotation changes
+  // Greenboard panel state — controlled here so annotation clicks can open it
+  const [boardOpen, setBoardOpen]       = useState(false);
+  const [boardMode, setBoardMode]       = useState<'draw' | 'media'>('draw');
+  const [boardMediaUrl, setBoardMediaUrl]   = useState<string | undefined>(undefined);
+  const [boardMediaType, setBoardMediaType] = useState<'image' | 'video' | undefined>(undefined);
+  const [boardMediaText, setBoardMediaText] = useState<string | undefined>(undefined);
+
+  /** Open board in media mode and notify parent to hide FloatingButton */
+  const openBoardMedia = (url: string, type: 'image' | 'video', text: string) => {
+    setBoardMediaUrl(url);
+    setBoardMediaType(type);
+    setBoardMediaText(text);
+    setBoardMode('media');
+    setBoardOpen(true);
+    onBlackboardToggle?.(true);
+  };
+
+  /** Strip toggled by student — only works in draw mode */
+  const handleBoardStripClick = () => {
+    if (boardOpen) {
+      setBoardOpen(false);
+      setBoardMode('draw');
+      setBoardMediaUrl(undefined);
+      setBoardMediaType(undefined);
+      setBoardMediaText(undefined);
+      onBlackboardToggle?.(false);
+    } else {
+      setBoardMode('draw');
+      setBoardOpen(true);
+      onBlackboardToggle?.(true);
+    }
+  };
+
+  /** Close button pressed — always closes entirely */
+  const handleBoardClose = () => {
+    setBoardOpen(false);
+    setBoardMode('draw');
+    setBoardMediaUrl(undefined);
+    setBoardMediaType(undefined);
+    setBoardMediaText(undefined);
+    onBlackboardToggle?.(false);
+  };
+
+  // Auto-render math inside speech-bubble annotation popups
   React.useEffect(() => {
-    if (activeAnnotation) {
-      if (annotationBubbleRef.current) {
-        renderMathInElement(annotationBubbleRef.current, {
-          delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false},
-            {left: '\\(', right: '\\)', display: false},
-            {left: '\\[', right: '\\]', display: true}
-          ],
-          throwOnError: false
-        });
-      }
-      if (annotationSheetRef.current) {
-        renderMathInElement(annotationSheetRef.current, {
-          delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false},
-            {left: '\\(', right: '\\)', display: false},
-            {left: '\\[', right: '\\]', display: true}
-          ],
-          throwOnError: false
-        });
-      }
+    if (activeAnnotation && annotationBubbleRef.current) {
+      renderMathInElement(annotationBubbleRef.current, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        throwOnError: false
+      });
     }
   }, [activeAnnotation]);
+
+  // Auto-render KaTeX math inside all page content blocks whenever the lesson changes.
+  // TinyMCE stores inline math as \(...\) and display math as \[...\] plain text.
+  useEffect(() => {
+    const MATH_DELIMITERS = [
+      { left: '$$', right: '$$', display: true },
+      { left: '$', right: '$', display: false },
+      { left: '\\(', right: '\\)', display: false },
+      { left: '\\[', right: '\\]', display: true },
+    ];
+    const containers = document.querySelectorAll<HTMLElement>('.reader-content');
+    containers.forEach(el => {
+      try {
+        renderMathInElement(el, { delimiters: MATH_DELIMITERS, throwOnError: false });
+      } catch {
+        // silently ignore parse errors in individual lessons
+      }
+    });
+  }, [activeLesson]);
 
   const handleContentClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -100,7 +154,7 @@ export default function Workspace({
       const text = decodeURIComponent(annotationSpan.getAttribute('data-annotation-text') || '');
       const mediaType = annotationSpan.getAttribute('data-annotation-media-type') || 'none';
       let mediaUrl = annotationSpan.getAttribute('data-annotation-media-url') || '';
-      
+
       // Fix YouTube URLs for iframe embedding
       if (mediaUrl.includes('youtube.com/watch?v=')) {
         mediaUrl = mediaUrl.replace('watch?v=', 'embed/');
@@ -111,10 +165,17 @@ export default function Workspace({
         const queryIndex = mediaUrl.indexOf('?');
         if (queryIndex !== -1) mediaUrl = mediaUrl.substring(0, queryIndex);
       }
-      
-      const rect = annotationSpan.getBoundingClientRect();
-      const fontSize = window.getComputedStyle(annotationSpan).fontSize || '16px';
-      setActiveAnnotation({ text, mediaType, mediaUrl, rect, fontSize });
+
+      if ((mediaType === 'image' || mediaType === 'video') && mediaUrl) {
+        // ── Media annotation → open greenboard in media mode ──────────
+        setActiveAnnotation(null);   // close any open speech bubble
+        openBoardMedia(mediaUrl, mediaType as 'image' | 'video', text);
+      } else {
+        // ── Text-only annotation → speech bubble as before ────────────
+        const rect = annotationSpan.getBoundingClientRect();
+        const fontSize = window.getComputedStyle(annotationSpan).fontSize || '16px';
+        setActiveAnnotation({ text, mediaType, mediaUrl, rect, fontSize });
+      }
     } else {
       setActiveAnnotation(null);
     }
@@ -286,6 +347,19 @@ export default function Workspace({
             accept=".pdf,.txt,.md,.docx"
             onChange={handleFileClickChange}
             className="hidden"
+          />
+
+          {/* ── Greenboard panel — controlled from Workspace ── */}
+          <BlackboardPanel
+            lessonId={activeLesson.id}
+            isOpen={boardOpen}
+            mode={boardMode}
+            mediaUrl={boardMediaUrl}
+            mediaType={boardMediaType}
+            mediaText={boardMediaText}
+            onStripClick={handleBoardStripClick}
+            onClose={handleBoardClose}
+            isOnline={isOnline}
           />
 
             {/* ── PAGE MODE: render lesson pages as before ── */}
@@ -515,41 +589,7 @@ export default function Workspace({
         </>
       )}
 
-      {/* ANNOTATION UI: Bottom Sheet */}
-      {activeAnnotation && activeAnnotation.mediaType !== 'none' && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm transition-all" onClick={() => setActiveAnnotation(null)}>
-          <div 
-            ref={annotationSheetRef}
-            className="bg-slate-900 w-full max-w-3xl rounded-t-3xl border-t border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-full duration-300"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxHeight: '85vh' }}
-          >
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/50 sticky top-0 z-10">
-              <h3 className="font-sans font-bold text-slate-200 text-lg">Detailed View</h3>
-              <button onClick={() => setActiveAnnotation(null)} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 transition-colors cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 70px)' }}>
-              {activeAnnotation.mediaType === 'image' && activeAnnotation.mediaUrl && (
-                <div className="mb-6 rounded-xl overflow-hidden border border-slate-800 bg-black flex justify-center">
-                  <img src={activeAnnotation.mediaUrl} alt="Annotation Image" className="max-w-full max-h-[40vh] object-contain" />
-                </div>
-              )}
-              {activeAnnotation.mediaType === 'video' && activeAnnotation.mediaUrl && (
-                <div className="mb-6 rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video">
-                  <iframe src={activeAnnotation.mediaUrl} className="w-full h-full" frameBorder="0" allowFullScreen></iframe>
-                </div>
-              )}
-              
-              <div className="text-slate-300 font-serif text-lg leading-relaxed">
-                {activeAnnotation.text}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+

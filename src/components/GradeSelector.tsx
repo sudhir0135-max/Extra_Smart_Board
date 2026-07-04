@@ -6,6 +6,7 @@
 import React from 'react';
 import { Book } from '../types';
 import { Sparkles, BookOpenCheck, Library } from 'lucide-react';
+import { StudyClass } from './ClassSelector';
 
 interface GradeSelectorProps {
   books: Book[];
@@ -13,9 +14,25 @@ interface GradeSelectorProps {
   onEnterAdmin?: () => void;
   globalLogo?: string | null;
   isBooksLoaded?: boolean;
+  studyClasses?: StudyClass[];
+  activeClassIndex?: number;
+  onSelectClassIndex?: (index: number) => void;
+  onGoBackToProfiles?: () => void;
+  onGoBackToLanding?: () => void;
 }
 
-export default function GradeSelector({ books, onSelectBook, onEnterAdmin, globalLogo, isBooksLoaded = true }: GradeSelectorProps) {
+export default function GradeSelector({
+  books,
+  onSelectBook,
+  onEnterAdmin,
+  globalLogo,
+  isBooksLoaded = true,
+  studyClasses,
+  activeClassIndex,
+  onSelectClassIndex,
+  onGoBackToProfiles,
+  onGoBackToLanding,
+}: GradeSelectorProps) {
   // Take exactly 12 books or slice/pad to ensure we have 12 items for the two 6-column rows
   const displayBooks = books.slice(0, 12);
 
@@ -24,6 +41,7 @@ export default function GradeSelector({ books, onSelectBook, onEnterAdmin, globa
       {/* Fixed top appbar navigation bar */}
       <header className="fixed top-0 w-full z-50 bg-[#f7fbf0]/80 backdrop-blur-md border-b border-[#ebefe5]">
         <div className="flex items-center justify-between px-6 h-14 max-w-6xl mx-auto">
+          {/* Logo and title */}
           <div className="flex items-center gap-2">
             {globalLogo ? (
               <img src={globalLogo} alt="Global Logo" className="w-7 h-7 rounded-lg object-contain bg-[#0d631b]/10" />
@@ -32,17 +50,44 @@ export default function GradeSelector({ books, onSelectBook, onEnterAdmin, globa
                 <Sparkles className="w-3.5 h-3.5" />
               </div>
             )}
-            <h1 className="font-manrope font-extrabold text-lg tracking-tight text-[#0d631b]">
+            <h1 className="font-manrope font-extrabold text-lg tracking-tight text-[#0d631b] hidden sm:block">
               Extra Padhai
             </h1>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2">
-              <Library className="w-4 h-4 text-[#707a6c]" />
-              <span className="text-[10px] font-mono font-extrabold tracking-widest text-[#707a6c] uppercase">
-                SMARTBOARD LIBRARY SYSTEM
-              </span>
+
+          {/* Class switcher tabs in center */}
+          {studyClasses && studyClasses.length > 1 && (
+            <div className="flex bg-[#0d631b]/5 p-0.5 rounded-xl border border-[#0d631b]/10 gap-0.5 select-none">
+              {studyClasses.map((sc, idx) => {
+                const isActive = idx === activeClassIndex;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => onSelectClassIndex?.(idx)}
+                    className={`px-3.5 py-1 rounded-lg text-xs font-bold font-manrope transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-[#0d631b] text-white shadow-sm font-extrabold'
+                        : 'text-[#0d631b]/70 hover:text-[#0d631b] hover:bg-[#0d631b]/5'
+                    }`}
+                  >
+                    Class {sc.className}
+                  </button>
+                );
+              })}
             </div>
+          )}
+
+          {/* Action buttons on the right */}
+          <div className="flex items-center gap-2">
+            {onGoBackToProfiles && (
+              <button
+                onClick={onGoBackToProfiles}
+                className="px-3.5 py-1.5 bg-[#0d631b]/10 hover:bg-[#0d631b]/20 border border-[#0d631b]/15 text-[#0d631b] rounded-xl text-xs font-bold font-manrope cursor-pointer transition-all flex items-center gap-1 shadow-sm active:scale-95"
+                title="Go back to Class Profiles"
+              >
+                Profiles
+              </button>
+            )}
           </div>
         </div>
       </header>

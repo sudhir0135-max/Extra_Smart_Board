@@ -131,7 +131,33 @@ export default function LandingPage({
           </a>
         </div>
         
-        <p className="text-[10px] text-slate-500 font-mono tracking-wider mt-2">
+        <button
+          onClick={() => {
+            if (window.confirm("Are you sure you want to clear all local cache, configured classes, and notes? This will reload the app.")) {
+              localStorage.clear();
+              try {
+                indexedDB.deleteDatabase("OfflineSmartboardLocalDB");
+              } catch(e){}
+              
+              if (typeof (window as any).Capacitor !== 'undefined') {
+                import('@capacitor/preferences').then(({ Preferences }) => {
+                  Preferences.clear().then(() => {
+                    window.location.reload();
+                  });
+                }).catch(() => {
+                  window.location.reload();
+                });
+              } else {
+                window.location.reload();
+              }
+            }
+          }}
+          className="mt-1 px-3.5 py-1.5 bg-rose-950/40 hover:bg-rose-900 border border-rose-900/35 hover:border-rose-700 text-rose-350 hover:text-white rounded-lg text-[9px] font-bold tracking-widest uppercase cursor-pointer transition-all active:scale-95"
+        >
+          Reset System Cache
+        </button>
+
+        <p className="text-[10px] text-slate-500 font-mono tracking-wider mt-1">
           © {new Date().getFullYear()} EXTRAPADHAI SMARTBOARD • OFFLINE LEARNING ARCHITECTURE
         </p>
       </footer>

@@ -6,6 +6,7 @@
 import React from 'react';
 import { Book } from '../types';
 import { Bookmark, ChevronsLeft, ChevronsRight, Library } from 'lucide-react';
+import { StudyClass } from './ClassSelector';
 
 interface BookShelfProps {
   books: Book[];
@@ -14,6 +15,10 @@ interface BookShelfProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   onChangeGrade?: () => void;
+  studyClasses?: StudyClass[];
+  activeClassIndex?: number;
+  onSelectClassIndex?: (index: number) => void;
+  globalLogo?: string | null;
 }
 
 export default function BookShelf({
@@ -23,6 +28,9 @@ export default function BookShelf({
   isExpanded,
   onToggleExpand,
   onChangeGrade,
+  studyClasses,
+  activeClassIndex,
+  onSelectClassIndex,
 }: BookShelfProps) {
   if (!isExpanded) return null;
 
@@ -44,17 +52,39 @@ export default function BookShelf({
                 className="w-full bg-[#0d631b]/20 hover:bg-[#0d631b]/35 border border-[#0d631b]/40 hover:border-[#0d631b]/70 text-[#cbffc2] text-[10px] font-sans font-bold py-1.5 px-2 rounded-md transition-all cursor-pointer text-center uppercase tracking-wider block"
                 id="btn-change-grade-shelf"
               >
-                ← Back to Library
+                ← Class Profiles
               </button>
             ) : (
               <button
                 onClick={onChangeGrade}
                 className="w-10 h-8 mx-auto bg-[#0d631b]/20 hover:bg-[#0d631b]/35 border border-[#0d631b]/40 text-[#cbffc2] text-[10px] font-mono font-black rounded-md transition-all cursor-pointer flex items-center justify-center uppercase"
-                title="Back to Library"
+                title="Class Profiles"
                 id="btn-change-grade-shelf-squeezed"
               >
-                LIB
+                CLS
               </button>
+            )}
+
+            {/* In-memory class profile switcher */}
+            {isExpanded && studyClasses && studyClasses.length > 1 && (
+              <div className="mt-2.5 p-1 bg-slate-900/60 rounded-md border border-slate-800 flex justify-between gap-1">
+                {studyClasses.map((sc, idx) => {
+                  const isActive = idx === activeClassIndex;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => onSelectClassIndex?.(idx)}
+                      className={`flex-1 text-[9px] font-bold py-1 px-1.5 rounded transition-all cursor-pointer text-center uppercase ${
+                        isActive
+                          ? 'bg-emerald-600 text-white shadow-sm font-black'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Class {sc.className}
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}

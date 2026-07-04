@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2026-07-03] - Image Externalization (Option C) & Firestore 1MB Fix
+
+### Fixed
+- **Firestore 1MB document limit on `books/{id}`**: `saveBookToFirebase` and `bulkUpdateBooksInFirebase` now run `externalizeBookImages()` before every Firestore write. Any base64 data-URIs embedded in TinyMCE HTML (`page.content`) or direct image fields (`leftImage`, `centerImage`, `rightImage`, `coverImage`, inquiry `image`/`answerImage`) are uploaded to Firebase Storage and replaced with `https://` URLs. Firestore documents now stay tiny regardless of book size.
+- **Firestore 1MB limit on `editor_submissions/{id}`**: Editor submissions are now split into a lightweight metadata document + one Firestore sub-document per lesson under `editor_submissions/{bookId}/lessons/{i}`. The parent doc no longer carries the `lessons` array.
+- **Admin approval cleanup**: The "Approve & Sync Live" flow now deletes all lesson sub-documents from the submission subcollection before deleting the parent, preventing orphaned storage.
+
+### Added
+- **`src/lib/imageExternalizer.ts`**: New utility module. Exports `externalizeBookImages(book)` and `externalizeLessonImages(lesson, bookId)`. Scans all base64 data-URIs in a Book/Lesson object and uploads them to Firebase Storage under `books/{bookId}/lessons/{lessonId}/images/`, returning the object with URLs in place of blobs.
+- **Storage rules**: Added explicit `allow read: if true` rules for `books/**` and `inquiry-questions/**` paths so unauthenticated student viewers can load externalized lesson images.
+
+
 ## [2026-07-02] - Inquiry Question Answer Field
 
 ### Added

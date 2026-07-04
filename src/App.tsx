@@ -16,10 +16,12 @@ import LandingPage from './components/LandingPage';
 import BookEditorPanel from './components/BookEditorPanel';
 import ExtraSmartboardDownload from './components/ExtraSmartboardDownload';
 import QuestionEditorPage from './components/QuestionEditorPage';
-import { Wifi, WifiOff, Cloud, CheckCircle2, AlertCircle, RefreshCw, Layers, Database, X, Menu, Upload, Palette, Undo, Trash2, Circle, Home } from 'lucide-react';
+import ClassSelector, { StudyClass } from './components/ClassSelector';
+import { Wifi, WifiOff, Cloud, CheckCircle2, AlertCircle, RefreshCw, Layers, Database, X, Menu, Upload, Palette, Undo, Trash2, Circle, Home, ArrowLeft, BookOpenCheck } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { externalizeBookImages } from './lib/imageExternalizer';
 import AuthModal from './components/AuthModal';
 import { Capacitor } from '@capacitor/core';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -50,6 +52,7 @@ export default function App() {
   const offlineBookLessons = useLiveQuery(() => dbLocal.offline_lessons.toArray());
   const [editorSubmissions, setEditorSubmissions] = useState<EditorSubmission[]>([]);
   const [previewSubmissionBookId, setPreviewSubmissionBookId] = useState<number | null>(null);
+  const [previewLessons, setPreviewLessons] = useState<Lesson[] | null>(null);
   
   const [isBooksLoaded, setIsBooksLoaded] = useState(false);
 
@@ -133,12 +136,17 @@ export default function App() {
   }, []);
 
   const saveBookToFirebase = async (updatedBook: Book) => {
-    await setDoc(doc(db, 'books', updatedBook.id.toString()), updatedBook);
+    // Externalize any base64 images → Firebase Storage URLs before writing.
+    // This keeps the Firestore document well under the 1 MB hard limit.
+    const cleanBook = await externalizeBookImages(updatedBook);
+    // JSON round-trip strips all `undefined` values — Firestore rejects them.
+    const firestoreBook: Book = JSON.parse(JSON.stringify(cleanBook));
+    await setDoc(doc(db, 'books', firestoreBook.id.toString()), firestoreBook);
     setFirebaseBooks(prev => {
-      if (prev.some(b => b.id === updatedBook.id)) {
-        return prev.map(b => b.id === updatedBook.id ? updatedBook : b);
+      if (prev.some(b => b.id === firestoreBook.id)) {
+        return prev.map(b => b.id === firestoreBook.id ? firestoreBook : b);
       }
-      return [...prev, updatedBook];
+      return [...prev, firestoreBook];
     });
   };
 
@@ -150,12 +158,15 @@ export default function App() {
 
   const bulkUpdateBooksInFirebase = async (allNewBooks: Book[]) => {
     const { writeBatch } = await import('firebase/firestore');
+    // Externalize images then strip undefined values before writing
+    const cleanBooks = (await Promise.all(allNewBooks.map(externalizeBookImages)))
+      .map(b => JSON.parse(JSON.stringify(b)) as Book);
     const batch = writeBatch(db);
-    allNewBooks.forEach(b => {
+    cleanBooks.forEach(b => {
       batch.set(doc(db, 'books', b.id.toString()), b);
     });
     await batch.commit();
-    setFirebaseBooks(allNewBooks);
+    setFirebaseBooks(cleanBooks);
   };
 
   const [selectedBookId, setSelectedBookId] = useState<number>(1);
@@ -182,21 +193,18 @@ export default function App() {
   }, [editors]);
 
 
-  const [activeScreen, setActiveScreen] = useState<'landing' | 'admin' | 'grade-selector' | 'workspace' | 'book-editor' | 'extra-download'>(
+  const [activeScreen, setActiveScreen] = useState<'landing' | 'admin' | 'grade-selector' | 'workspace' | 'book-editor' | 'extra-download' | 'class-selector'>(
     Capacitor.isNativePlatform()
       ? 'extra-download'   // will be updated by Preferences check below
       : 'landing'
   );
 
   const books = React.useMemo(() => {
-    // PREVIEW MODE: If an admin is reviewing a submission, force the submitted data into the live book.
+    // PREVIEW MODE: If an admin is reviewing a submission, force the submitted lessons into the live book.
     if (previewSubmissionBookId !== null) {
       return firebaseBooks.map(b => {
-        if (b.id === previewSubmissionBookId) {
-          const submission = editorSubmissions.find(s => s.bookId === b.id);
-          if (submission) {
-            return { ...b, lessons: submission.lessons };
-          }
+        if (b.id === previewSubmissionBookId && previewLessons) {
+          return { ...b, lessons: previewLessons };
         }
         return b;
       });
@@ -217,9 +225,61 @@ export default function App() {
       }
       return b;
     });
-  }, [firebaseBooks, offlineBookLessons, activeScreen, previewSubmissionBookId, editorSubmissions]);
+  }, [firebaseBooks, offlineBookLessons, activeScreen, previewSubmissionBookId, previewLessons]);
 
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
+
+  // In-memory study classes (maximum of 2)
+  const [studyClasses, setStudyClasses] = useState<StudyClass[]>(() => {
+    const saved = localStorage.getItem('study_classes_v1');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return [];
+      }
+    }
+    // Migration fallback
+    const savedClass = localStorage.getItem('device_setup_class_v3');
+    const savedSubjects = localStorage.getItem('device_setup_subjects_v3');
+    if (savedClass) {
+      try {
+        const clsNum = parseInt(savedClass, 10);
+        const subjs = savedSubjects ? JSON.parse(savedSubjects) : [];
+        return [{ classId: clsNum.toString(), className: clsNum.toString(), subjects: subjs }];
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [activeClassIndex, setActiveClassIndex] = useState<number>(() => {
+    const saved = localStorage.getItem('active_class_idx_v1');
+    if (saved) {
+      try {
+        const idx = parseInt(saved, 10);
+        return isNaN(idx) ? 0 : idx;
+      } catch (e) {}
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('study_classes_v1', JSON.stringify(studyClasses));
+    if (Capacitor.isNativePlatform()) {
+      import('@capacitor/preferences').then(({ Preferences }) => {
+        Preferences.set({ key: 'study_classes_v1', value: JSON.stringify(studyClasses) });
+      });
+    }
+  }, [studyClasses]);
+
+  useEffect(() => {
+    localStorage.setItem('active_class_idx_v1', activeClassIndex.toString());
+    if (Capacitor.isNativePlatform()) {
+      import('@capacitor/preferences').then(({ Preferences }) => {
+        Preferences.set({ key: 'active_class_idx_v1', value: activeClassIndex.toString() });
+      });
+    }
+  }, [activeClassIndex]);
 
   // Download Extra Smartboard State
   const [downloadedClass, setDownloadedClass] = useState<number | null>(null);
@@ -230,52 +290,63 @@ export default function App() {
   // On web   : read from localStorage synchronously
   useEffect(() => {
     const loadSetup = async () => {
+      let currentClasses = [...studyClasses];
+      
       if (Capacitor.isNativePlatform()) {
         try {
           const { Preferences } = await import('@capacitor/preferences');
-          const classResult  = await Preferences.get({ key: 'device_setup_class_v3' });
-          const subjResult   = await Preferences.get({ key: 'device_setup_subjects_v3' });
+          
+          // Load new class profiles configuration from native Preferences
+          const savedClassesRes = await Preferences.get({ key: 'study_classes_v1' });
+          const savedActiveRes  = await Preferences.get({ key: 'active_class_idx_v1' });
 
-          const classVal = classResult.value;
-          const subjVal  = subjResult.value;
+          if (savedClassesRes.value) {
+            try {
+              const parsed = JSON.parse(savedClassesRes.value);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setStudyClasses(parsed);
+                currentClasses = parsed;
+              }
+            } catch (e) {}
+          }
+          
+          if (savedActiveRes.value) {
+            const idx = parseInt(savedActiveRes.value, 10);
+            if (!isNaN(idx)) {
+              setActiveClassIndex(idx);
+            }
+          }
 
-          if (classVal && classVal !== 'null' && classVal !== 'NaN' && classVal !== '') {
-            const parsedClass = parseInt(classVal, 10);
-            const parsedSubjects: string[] = subjVal ? JSON.parse(subjVal) : [];
-            setDownloadedClass(parsedClass);
-            setDownloadedSubjects(parsedSubjects);
-            // Also mirror to localStorage for web-view reads
-            localStorage.setItem('device_setup_class_v3', classVal);
-            localStorage.setItem('device_setup_subjects_v3', subjVal ?? '[]');
-            setActiveScreen('grade-selector');
-            console.log('[App] Loaded setup from Preferences — class:', parsedClass, 'subjects:', parsedSubjects);
-          } else {
-            // First install — go to setup screen
-            setActiveScreen('extra-download');
-            console.log('[App] No saved setup found — showing download screen');
+          // Fallback legacy setup preferences migration to dual profile schema
+          if (currentClasses.length === 0) {
+            const classResult  = await Preferences.get({ key: 'device_setup_class_v3' });
+            const subjResult   = await Preferences.get({ key: 'device_setup_subjects_v3' });
+
+            const classVal = classResult.value;
+            const subjVal  = subjResult.value;
+
+            if (classVal && classVal !== 'null' && classVal !== 'NaN' && classVal !== '') {
+              const parsedClass = parseInt(classVal, 10);
+              const parsedSubjects: string[] = subjVal ? JSON.parse(subjVal) : [];
+              setDownloadedClass(parsedClass);
+              setDownloadedSubjects(parsedSubjects);
+              
+              const migratedClass: StudyClass = {
+                classId: parsedClass.toString(),
+                className: parsedClass.toString(),
+                subjects: parsedSubjects
+              };
+              currentClasses = [migratedClass];
+              setStudyClasses(currentClasses);
+            }
           }
         } catch (e) {
-          console.warn('[App] Preferences read failed, trying localStorage:', e);
-          // Fallback to localStorage
-          const saved = localStorage.getItem('device_setup_class_v3');
-          if (saved && saved !== 'null' && saved !== 'NaN') {
-            setDownloadedClass(parseInt(saved, 10));
-            const subj = localStorage.getItem('device_setup_subjects_v3');
-            setDownloadedSubjects(subj ? JSON.parse(subj) : []);
-            setActiveScreen('grade-selector');
-          } else {
-            setActiveScreen('extra-download');
-          }
-        }
-      } else {
-        // Web — use localStorage synchronously
-        const saved = localStorage.getItem('device_setup_class_v3');
-        if (saved && saved !== 'null' && saved !== 'NaN') {
-          setDownloadedClass(parseInt(saved, 10));
-          const subj = localStorage.getItem('device_setup_subjects_v3');
-          setDownloadedSubjects(subj ? JSON.parse(subj) : []);
+          console.warn('[App] Preferences read failed:', e);
         }
       }
+
+      // Always boot to the landing page initially so updates are visible to students
+      setActiveScreen('landing');
       setSetupLoaded(true);
     };
     loadSetup();
@@ -305,6 +376,8 @@ export default function App() {
   const [selectedColor, setSelectedColor] = useState<string>('#f59e0b');
   const [lineWidth, setLineWidth] = useState<number>(4);
   const [isHighlighter, setIsHighlighter] = useState<boolean>(false);
+  // Blackboard panel state — hides FloatingButton while open
+  const [isBlackboardOpen, setIsBlackboardOpen] = useState<boolean>(false);
 
   // Active toast alerting module
   const [toasts, setToasts] = useState<{ id: string; text: string; type: 'info' | 'success' | 'warn' | 'cloud' }[]>([]);
@@ -418,31 +491,71 @@ export default function App() {
   };
 
   const handleChangeGrade = () => {
-    setActiveScreen('grade-selector');
-    setSelectedGrade(null);
-    addToast('Returning to library shelves.', 'info');
+    setActiveScreen('class-selector');
+    addToast('Returning to class selection profiles.', 'info');
+  };
+
+  const handleSwitchClass = (idx: number) => {
+    setActiveClassIndex(idx);
+    const newClassConfig = studyClasses[idx];
+    if (newClassConfig) {
+      const classObj = academicClasses.find(c => c.id === newClassConfig.classId || c.name === newClassConfig.className);
+      if (classObj) {
+        let classBooks = firebaseBooks.filter(b => b.classId === classObj.id);
+        if (newClassConfig.subjects && newClassConfig.subjects.length > 0) {
+          const subjectIds = academicSubjects.filter(s => newClassConfig.subjects.includes(s.name)).map(s => s.id);
+          const filtered = classBooks.filter(b => b.subjectId && subjectIds.includes(b.subjectId));
+          if (filtered.length > 0) {
+            handleSelectBook(filtered[0].id);
+            addToast(`Switched to Class ${newClassConfig.className}`, 'success');
+            return;
+          }
+        }
+        if (classBooks.length > 0) {
+          handleSelectBook(classBooks[0].id);
+          addToast(`Switched to Class ${newClassConfig.className}`, 'success');
+        }
+      }
+    }
   };
 
   const getFilteredBooks = () => {
     let result = books;
-    if (downloadedClass !== null) {
-      const classObj = academicClasses.find(c => Number(c.name) === downloadedClass || c.name === downloadedClass.toString());
+    
+    // Use the active configured class profile in memory
+    const activeClassConfig = studyClasses[activeClassIndex];
+    if (activeClassConfig) {
+      const classObj = academicClasses.find(c => c.id === activeClassConfig.classId || c.name === activeClassConfig.className);
       if (classObj) {
         result = result.filter(b => b.classId === classObj.id);
       } else {
         result = [];
       }
-    }
-    if (downloadedSubjects.length > 0) {
-      const subjectIds = academicSubjects.filter(s => downloadedSubjects.includes(s.name)).map(s => s.id);
-      result = result.filter(b => b.subjectId && subjectIds.includes(b.subjectId));
-    }
-    if (selectedGrade) {
-      const classObj = academicClasses.find(c => Number(c.name) === selectedGrade || c.name === selectedGrade.toString());
-      if (classObj) {
-        result = result.filter(b => b.classId === classObj.id);
-      } else {
-        result = [];
+      if (activeClassConfig.subjects && activeClassConfig.subjects.length > 0) {
+        const subjectIds = academicSubjects.filter(s => activeClassConfig.subjects.includes(s.name)).map(s => s.id);
+        result = result.filter(b => b.subjectId && subjectIds.includes(b.subjectId));
+      }
+    } else {
+      // Fallback to legacy setup filtering
+      if (downloadedClass !== null) {
+        const classObj = academicClasses.find(c => Number(c.name) === downloadedClass || c.name === downloadedClass.toString());
+        if (classObj) {
+          result = result.filter(b => b.classId === classObj.id);
+        } else {
+          result = [];
+        }
+      }
+      if (downloadedSubjects.length > 0) {
+        const subjectIds = academicSubjects.filter(s => downloadedSubjects.includes(s.name)).map(s => s.id);
+        result = result.filter(b => b.subjectId && subjectIds.includes(b.subjectId));
+      }
+      if (selectedGrade) {
+        const classObj = academicClasses.find(c => Number(c.name) === selectedGrade || c.name === selectedGrade.toString());
+        if (classObj) {
+          result = result.filter(b => b.classId === classObj.id);
+        } else {
+          result = [];
+        }
       }
     }
     return result;
@@ -556,7 +669,7 @@ export default function App() {
 
   // Upload local textbook/document stream
   const handleCustomBookUploaded = (newBook: Book) => {
-    setBooks(prev => [...prev, newBook]);
+    setFirebaseBooks(prev => [...prev, newBook]);
     setSelectedBookId(newBook.id);
     if (newBook.lessons.length > 0) {
       setActiveLessonId(newBook.lessons[0].id);
@@ -620,13 +733,26 @@ export default function App() {
     }
   };
 
+  if (!setupLoaded && Capacitor.isNativePlatform()) {
+    return (
+      <div className="min-h-screen bg-[#070b13] flex flex-col items-center justify-center text-slate-200">
+        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mb-4" />
+        <p className="text-sm font-mono tracking-wider">Syncing study profiles...</p>
+      </div>
+    );
+  }
+
   if (activeScreen === 'landing') {
     return (
       <>
         <LandingPage
           globalLogo={globalLogo}
           onEnterStudents={() => {
-            setActiveScreen('grade-selector');
+            if (studyClasses.length === 0) {
+              setActiveScreen('class-selector');
+            } else {
+              setActiveScreen('grade-selector');
+            }
             addToast('Authorized Student session loaded.', 'success');
           }}
           onEnterEditors={() => {
@@ -642,10 +768,11 @@ export default function App() {
             setAuthModalOpen(true);
           }}
           onEnterDownloadExtra={() => {
-            // Web: skip setup — go straight into the app content
-            // Native APK: setup (class/subject + PDF download) is handled automatically
-            //             on first launch via the useEffect Preferences check above
-            setActiveScreen('grade-selector');
+            if (studyClasses.length === 0) {
+              setActiveScreen('class-selector');
+            } else {
+              setActiveScreen('grade-selector');
+            }
           }}
           onSignIn={() => {
             setAuthTargetScreen(null);
@@ -687,8 +814,21 @@ export default function App() {
         editors={editors}
         setEditors={setEditors}
         editorSubmissions={editorSubmissions}
-        onReviewSubmission={(bookId) => {
+        onReviewSubmission={async (bookId) => {
           setSelectedBookId(bookId);
+          try {
+            const { collection, getDocs } = await import('firebase/firestore');
+            const snap = await getDocs(collection(db, 'editor_submissions', bookId.toString(), 'lessons'));
+            // Sort by numeric doc ID to preserve lesson order
+            const sorted = snap.docs
+              .slice()
+              .sort((a, b) => parseInt(a.id) - parseInt(b.id))
+              .map(d => d.data() as Lesson);
+            setPreviewLessons(sorted);
+          } catch (err: any) {
+            alert('Failed to load submission lessons: ' + err.message);
+            return;
+          }
           setPreviewSubmissionBookId(bookId);
           setActiveScreen('book-editor');
         }}
@@ -755,14 +895,21 @@ export default function App() {
             if (b) {
               const updatedBook = { ...b, lessons };
               await saveBookToFirebase(updatedBook);
-              const { doc, deleteDoc } = await import('firebase/firestore');
-              await deleteDoc(doc(db, 'editor_submissions', bookId.toString()));
-              
+              // Delete all lesson sub-docs then the parent metadata doc
+              const { doc, deleteDoc, collection, getDocs, writeBatch } = await import('firebase/firestore');
+              const bookIdStr = bookId.toString();
+              const lessonsSnap = await getDocs(collection(db, 'editor_submissions', bookIdStr, 'lessons'));
+              const batch = writeBatch(db);
+              lessonsSnap.docs.forEach(d => batch.delete(d.ref));
+              await batch.commit();
+              await deleteDoc(doc(db, 'editor_submissions', bookIdStr));
+
               setToasts(prev => [...prev, { id: Date.now().toString(), text: 'Submission Approved and Synced Live!', type: 'success' }]);
             }
           } catch(err: any) {
             alert('Failed to approve submission: ' + err.message);
           } finally {
+            setPreviewLessons(null);
             setPreviewSubmissionBookId(null);
             setActiveScreen('admin');
           }
@@ -771,26 +918,59 @@ export default function App() {
     );
   }
 
+  if (activeScreen === 'class-selector') {
+    return (
+      <ClassSelector
+        globalLogo={globalLogo}
+        academicClasses={academicClasses}
+        academicSubjects={academicSubjects}
+        studyClasses={studyClasses}
+        activeClassIndex={activeClassIndex}
+        onSelectClassIndex={handleSwitchClass}
+        onAddClass={(newClass) => {
+          if (studyClasses.length < 2) {
+            const updated = [...studyClasses, newClass];
+            setStudyClasses(updated);
+            setActiveClassIndex(updated.length - 1);
+            addToast(`Configured Class ${newClass.className} successfully!`, 'success');
+          }
+        }}
+        onRemoveClass={(idx) => {
+          const updated = studyClasses.filter((_, i) => i !== idx);
+          setStudyClasses(updated);
+          if (activeClassIndex >= updated.length) {
+            setActiveClassIndex(Math.max(0, updated.length - 1));
+          }
+          addToast('Deleted study class profile.', 'warn');
+        }}
+        onProceed={() => {
+          if (studyClasses.length === 0) {
+            addToast('Please configure at least one class to study.', 'warn');
+            return;
+          }
+          setActiveScreen('grade-selector');
+        }}
+        onBack={() => {
+          setActiveScreen('landing');
+        }}
+      />
+    );
+  }
+
   if (activeScreen === 'grade-selector') {
     return (
       <div className="h-screen w-full relative overflow-hidden bg-[#f7fbf0]" id="app-layout">
-        {/* Floating Back to Landing option */}
-        <div className="absolute top-4 right-4 z-40">
-          <button
-            onClick={() => setActiveScreen('landing')}
-            className="p-2 px-3 bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-lg transition-all"
-            title="Go to main landing menu"
-          >
-            <Home className="w-3.5 h-3.5 text-emerald-400" /> Landing Page
-          </button>
-        </div>
-
         <GradeSelector
           globalLogo={globalLogo}
           books={getFilteredBooks()}
           onSelectBook={handleSelectBookFromSelector}
           onEnterAdmin={() => setActiveScreen('admin')}
           isBooksLoaded={isBooksLoaded && academicClasses.length > 0}
+          studyClasses={studyClasses}
+          activeClassIndex={activeClassIndex}
+          onSelectClassIndex={handleSwitchClass}
+          onGoBackToProfiles={() => setActiveScreen('class-selector')}
+          onGoBackToLanding={() => setActiveScreen('landing')}
         />
         
         {/* Toasts feed for consistent alerts on entry selection */}
@@ -999,11 +1179,21 @@ export default function App() {
             )}
 
             <button
+              onClick={() => setActiveScreen('class-selector')}
+              className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-all cursor-pointer rounded-lg gap-1.5 px-3 text-xs font-extrabold uppercase font-sans tracking-wide shadow-md active:scale-95"
+              title="Return to class selection"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Class Profiles</span>
+            </button>
+
+            <button
               onClick={() => setActiveScreen('grade-selector')}
-              className="p-2 bg-transparent hover:bg-slate-500/10 text-[#0d631b] border border-[#0d631b]/20 hover:border-[#0d631b]/50 flex items-center justify-center transition-all cursor-pointer rounded-lg"
+              className="p-2 bg-amber-500 hover:bg-amber-600 text-slate-950 flex items-center justify-center transition-all cursor-pointer rounded-lg gap-1.5 px-3 text-xs font-extrabold uppercase font-sans tracking-wide shadow-md active:scale-95"
               title="Return to book selection"
             >
-              <Home className="w-4 h-4" />
+              <BookOpenCheck className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Library Shelf</span>
             </button>
           </div>
           </div>
@@ -1085,6 +1275,9 @@ export default function App() {
               isExpanded={snv1Expanded}
               onToggleExpand={() => setSnv1Expanded(!snv1Expanded)}
               onChangeGrade={handleChangeGrade}
+              studyClasses={studyClasses}
+              activeClassIndex={activeClassIndex}
+              onSelectClassIndex={handleSwitchClass}
             />
 
             {/* Side Nav Bar (Snv2): Lessons / Chapters List Column */}
@@ -1128,11 +1321,14 @@ export default function App() {
           selectedColor={selectedColor}
           lineWidth={lineWidth}
           isHighlighter={isHighlighter}
+          onBlackboardToggle={(open) => setIsBlackboardOpen(open)}
+          isOnline={isOnline}
         />
 
 
 
-        {/* Movable Semi-transparent Floating interactive helpers */}
+        {/* Movable Semi-transparent Floating interactive helpers — hidden while blackboard is open */}
+        {!isBlackboardOpen && (
         <FloatingButton
           currentLesson={activeLesson}
           onToggleButtonDraw={() => {
@@ -1144,6 +1340,7 @@ export default function App() {
           addToast={addToast}
           globalLogo={globalLogo}
         />
+        )}
       </div>
 
       {/* 3. ABSOLUTE TOAST NOTIFICATIONS FEED OVERLAY */}

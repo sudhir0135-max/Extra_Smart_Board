@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Database, Upload } from 'lucide-react';
 import { FlashQuestion } from '../types';
 import { Editor } from '@tinymce/tinymce-react';
+import * as XLSX from 'xlsx';
 import { hasTextContent } from '../lib/contentUtils';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
 import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
@@ -170,47 +171,62 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
 
             <div className="relative mt-2">
               <label className="w-full flex items-center justify-center gap-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer border border-slate-700">
-                <Upload className="w-3.5 h-3.5" /> Bulk Upload JSON/CSV
+                <Upload className="w-3.5 h-3.5" /> Bulk Upload JSON/XLSX
                 <input
                   type="file"
-                  accept=".json,.csv"
+                  accept=".json,.xlsx,.xls"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
                     const reader = new FileReader();
-                    reader.onload = (event) => {
-                      const content = event.target?.result as string;
-                      let newQuestions: any[] = [];
-                      if (file.name.endsWith('.json')) {
+                    
+                    if (file.name.endsWith('.json')) {
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string;
                         try {
                           const parsed = JSON.parse(content);
-                          if (Array.isArray(parsed)) newQuestions = parsed;
-                        } catch (err) { alert("Invalid JSON file"); }
-                      } else if (file.name.endsWith('.csv')) {
-                        const lines = content.split('\n');
-                        newQuestions = lines.slice(1).map((line) => {
-                          const parts = line.split(',');
-                          if (parts.length >= 2) {
-                            return { question: parts[0].trim(), answer: parts[1].trim(), difficulty: (parts[2]?.trim() || 'Medium') };
+                          if (Array.isArray(parsed)) {
+                            const formattedQuestions: FlashQuestion[] = parsed.map((q, idx) => ({
+                              id: `up-q-${Date.now()}-${idx}`,
+                              question: q.question || '',
+                              answer: q.answer || '',
+                              difficulty: q.difficulty || 'Medium'
+                            }));
+                            onQuestionsUpdate([...questions, ...formattedQuestions]);
+                            alert(`Successfully bulk loaded ${formattedQuestions.length} questions!`);
                           }
-                          return null;
-                        }).filter(Boolean);
-                      }
-                      
-                      if (newQuestions.length > 0) {
-                        const formattedQuestions: FlashQuestion[] = newQuestions.map((q, idx) => ({
-                          id: `up-q-${Date.now()}-${idx}`,
-                          question: q.question,
-                          answer: q.answer,
-                          difficulty: q.difficulty || 'Medium'
-                        }));
-                        
-                        onQuestionsUpdate([...questions, ...formattedQuestions]);
-                        alert(`Successfully bulk loaded ${formattedQuestions.length} questions!`);
-                      }
-                    };
-                    reader.readAsText(file);
+                        } catch (err) { alert("Invalid JSON file"); }
+                      };
+                      reader.readAsText(file);
+                    } else {
+                      reader.onload = (event) => {
+                        try {
+                          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+                          const workbook = XLSX.read(data, { type: 'array' });
+                          const sheetName = workbook.SheetNames[0];
+                          const sheet = workbook.Sheets[sheetName];
+                          const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+                          
+                          const formattedQuestions: FlashQuestion[] = rows.map((r, idx) => ({
+                            id: `up-q-${Date.now()}-${idx}`,
+                            question: String(r.Question || r.question || ''),
+                            answer: String(r.Answer || r.answer || ''),
+                            difficulty: (r.Difficulty || r.difficulty || 'Medium') as 'Easy' | 'Medium' | 'Hard'
+                          })).filter(q => q.question && q.answer);
+                          
+                          if (formattedQuestions.length > 0) {
+                            onQuestionsUpdate([...questions, ...formattedQuestions]);
+                            alert(`Successfully bulk loaded ${formattedQuestions.length} questions from Excel!`);
+                          } else {
+                            alert("No valid questions found in Excel file. Make sure columns are named 'Question', 'Answer', and optional 'Difficulty'.");
+                          }
+                        } catch (err) {
+                          alert("Failed to parse XLSX file");
+                        }
+                      };
+                      reader.readAsArrayBuffer(file);
+                    }
                     e.target.value = '';
                   }}
                 />
@@ -219,18 +235,20 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
             <div className="flex justify-end mt-1">
               <button
                 onClick={() => {
-                  const csvContent = "data:text/csv;charset=utf-8," + "Question,Answer,Difficulty\n\"What is 2+2?\",\"4\",\"Easy\"";
-                  const encodedUri = encodeURI(csvContent);
-                  const link = document.createElement("a");
-                  link.setAttribute("href", encodedUri);
-                  link.setAttribute("download", "flashcards_template.csv");
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
+                  try {
+                    const worksheet = XLSX.utils.json_to_sheet([
+                      { Question: "What is 2+2?", Answer: "4", Difficulty: "Easy" }
+                    ]);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "Flashcards");
+                    XLSX.writeFile(workbook, "flashcards_template.xlsx");
+                  } catch (e) {
+                    alert("Failed to generate Excel template");
+                  }
                 }}
                 className="text-[9px] text-purple-400 hover:text-purple-300 uppercase font-mono tracking-wider cursor-pointer transition-colors bg-transparent border-none"
               >
-                Download Template CSV
+                Download Template XLSX
               </button>
             </div>
           </div>

@@ -113,6 +113,8 @@ export interface EditorSubmission {
   bookId: number;
   editorId: string;
   editorEmail: string;
-  lessons: Lesson[];
+  /** Populated only when lessons are fetched from the subcollection */
+  lessons?: Lesson[];
+  lessonCount?: number;
   timestamp: number;
 }

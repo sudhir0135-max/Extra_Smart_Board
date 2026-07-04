@@ -547,21 +547,41 @@ export default function BookEditorPanel({
                   onClick={async () => {
                     if (!assignedBook || !currentUser) return;
                     try {
-                      const { doc, setDoc } = await import('firebase/firestore');
+                      const { doc, setDoc, collection, writeBatch } = await import('firebase/firestore');
                       const offlineBook = await dbLocal.offline_lessons.get(assignedBook.id);
                       if (!offlineBook) {
                         alert("No local data to submit.");
                         return;
                       }
-                      
-                      await setDoc(doc(db, 'editor_submissions', assignedBook.id.toString()), {
+
+                      const bookIdStr = assignedBook.id.toString();
+                      const lessons: any[] = offlineBook.lessons ?? [];
+
+                      // 1. Write lightweight metadata doc (no lessons array = stays tiny)
+                      await setDoc(doc(db, 'editor_submissions', bookIdStr), {
                         bookId: assignedBook.id,
                         editorId: currentUser.uid || currentUser.id,
                         editorEmail: currentUser.email,
-                        lessons: offlineBook.lessons,
+                        lessonCount: lessons.length,
                         timestamp: Date.now()
                       });
-                      
+
+                      // 2. Write each lesson into a subcollection in batches of 20
+                      //    (Firestore batch limit = 500 ops, but lessons can be large)
+                      const BATCH_SIZE = 20;
+                      for (let i = 0; i < lessons.length; i += BATCH_SIZE) {
+                        const batch = writeBatch(db);
+                        const chunk = lessons.slice(i, i + BATCH_SIZE);
+                        chunk.forEach((lesson, j) => {
+                          const lessonRef = doc(
+                            collection(db, 'editor_submissions', bookIdStr, 'lessons'),
+                            String(i + j)
+                          );
+                          batch.set(lessonRef, lesson);
+                        });
+                        await batch.commit();
+                      }
+
                       alert("Successfully submitted to Admin for review!");
                     } catch (err: any) {
                       alert("Failed to submit to Admin: " + err.message);

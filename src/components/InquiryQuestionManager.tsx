@@ -4,6 +4,7 @@ import {
   Image as ImageIcon, Plus, Trash2, ExternalLink,
   MessageSquare, HelpCircle as QuestionIcon, CheckCircle2
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { InquiryQuestionObj } from '../types';
 import { Editor } from '@tinymce/tinymce-react';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
@@ -349,40 +350,66 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
 
             <div className="relative mt-2">
               <label className="w-full flex items-center justify-center gap-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer border border-slate-700">
-                <Upload className="w-3.5 h-3.5" /> Bulk Upload JSON/CSV
+                <Upload className="w-3.5 h-3.5" /> Bulk Upload JSON/XLSX
                 <input
                   type="file"
-                  accept=".json,.csv"
+                  accept=".json,.xlsx,.xls"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
                     const reader = new FileReader();
-                    reader.onload = (event) => {
-                      const content = event.target?.result as string;
-                      let newQuestions: (string | InquiryQuestionObj)[] = [];
-                      if (file.name.endsWith('.json')) {
+
+                    if (file.name.endsWith('.json')) {
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string;
                         try {
                           const parsed = JSON.parse(content);
-                          if (Array.isArray(parsed)) newQuestions = parsed;
-                        } catch (err) { alert("Invalid JSON file"); }
-                      } else if (file.name.endsWith('.csv')) {
-                        const lines = content.split('\n');
-                        newQuestions = lines.slice(1).map((line) => {
-                          const parts = line.split(',');
-                          if (parts.length >= 1) {
-                            return parts[0].trim();
+                          if (Array.isArray(parsed)) {
+                            onQuestionsUpdate([...questions, ...parsed]);
+                            alert(`Successfully bulk loaded ${parsed.length} questions!`);
                           }
-                          return null;
-                        }).filter((q): q is NonNullable<typeof q> => Boolean(q));
-                      }
+                        } catch (err) { alert("Invalid JSON file"); }
+                      };
+                      reader.readAsText(file);
+                    } else {
+                      reader.onload = (event) => {
+                        try {
+                          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+                          const workbook = XLSX.read(data, { type: 'array' });
+                          const sheetName = workbook.SheetNames[0];
+                          const sheet = workbook.Sheets[sheetName];
+                          const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
-                      if (newQuestions.length > 0) {
-                        onQuestionsUpdate([...questions, ...newQuestions]);
-                        alert(`Successfully bulk loaded ${newQuestions.length} questions!`);
-                      }
-                    };
-                    reader.readAsText(file);
+                          const newQuestions: (string | InquiryQuestionObj)[] = rows.map((r, idx) => {
+                            const qText = String(r.Question || r.question || '').trim();
+                            const aText = String(r.Answer || r.answer || '').trim();
+                            if (!qText) return null;
+
+                            if (aText) {
+                              return {
+                                id: `up-iq-${Date.now()}-${idx}`,
+                                text: qText,
+                                answerText: aText,
+                                imagePosition: 'right',
+                                answerImagePosition: 'right'
+                              } as InquiryQuestionObj;
+                            }
+                            return qText;
+                          }).filter((q): q is NonNullable<typeof q> => q !== null);
+
+                          if (newQuestions.length > 0) {
+                            onQuestionsUpdate([...questions, ...newQuestions]);
+                            alert(`Successfully bulk loaded ${newQuestions.length} questions from Excel!`);
+                          } else {
+                            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer'.");
+                          }
+                        } catch (err) {
+                          alert("Failed to parse XLSX file");
+                        }
+                      };
+                      reader.readAsArrayBuffer(file);
+                    }
                     e.target.value = '';
                   }}
                 />
@@ -391,18 +418,21 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
             <div className="flex justify-end mt-1">
               <button
                 onClick={() => {
-                  const csvContent = "data:text/csv;charset=utf-8," + "Question,Answer\n\"How does this relate to chapter 1?\",\"Your answer here...\"\n\"What are the real-world applications?\",\"\"";
-                  const encodedUri = encodeURI(csvContent);
-                  const link = document.createElement("a");
-                  link.setAttribute("href", encodedUri);
-                  link.setAttribute("download", "inquiry_template.csv");
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
+                  try {
+                    const worksheet = XLSX.utils.json_to_sheet([
+                      { Question: "How does this relate to chapter 1?", Answer: "Your answer here..." },
+                      { Question: "What are the real-world applications?", Answer: "" }
+                    ]);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "Inquiry Questions");
+                    XLSX.writeFile(workbook, "inquiry_template.xlsx");
+                  } catch (e) {
+                    alert("Failed to generate Excel template");
+                  }
                 }}
                 className="text-[9px] text-emerald-400 hover:text-emerald-300 uppercase font-mono tracking-wider cursor-pointer transition-colors bg-transparent border-none"
               >
-                Download Template CSV
+                Download Template XLSX
               </button>
             </div>
           </div>
