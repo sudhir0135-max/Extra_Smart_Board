@@ -15,6 +15,7 @@ PortableGit/
 serviceAccountKey.json
 
 *.zip
+*.apk
 jdk*/
 node*/
 node22*/
