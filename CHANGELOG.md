@@ -2,7 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2026-07-04] - Multi-profile Switcher, Native APK Alignment, XLSX Uploaders, & Git Purge
+
+### Added
+- **Multi-Class Profiles**: Added the ability for students to configure and study up to 2 distinct classes. Features a dual-profile switcher widget in the Library Shelf Selector, allowing seamless switching.
+- **Boot-up Routing**: The app now always boots to the Landing Page initially so updates are visible to students. Clicking "Start Learning" routes to the Library Selector if profiles exist, or the Class Selector otherwise.
+- **Native APK Storage Mirroring**: Integrated native `@capacitor/preferences` storage to persist class profiles (`studyClasses`) and active index (`activeClassIndex`) dynamically, ensuring settings survive updates and cache clears. Added a spinner/loader screen during boot.
+- **Offline Blackboard Warnings**: Added `isOnline` awareness to `Workspace` and `BlackboardPanel`. Opening a video annotation while offline replaces the broken iframe with an elegant "Offline: Streaming Paused" notice.
+- **XLSX Bulk Question Uploaders**: Added SheetJS (`xlsx`) library. Both `FlashQuestionManager` (Diagnostic Quizzing) and `InquiryQuestionManager` now accept `.xlsx` and `.xls` files, parsing them into structured questions.
+- **XLSX Templates**: Changed the template download buttons to generate and trigger download of `.xlsx` files (`flashcards_template.xlsx` and `inquiry_template.xlsx`) using SheetJS client-side workbook exporters.
+- **Developer Cache Reset**: Added a "Reset System Cache" button in the Landing Page footer to wipe local storage, IndexedDB, and native preferences for clean-slate testing.
+
+### Fixed
+- **Git History Purge**: Purged large, expired intermediate files (`public/app-debug.apk`, `public/ExtraPadhai.apk`, `jdk21.zip`) from Git history using `git filter-branch` to resolve GitHub's 100MB file limit pre-receive hook decline.
+- **Removed Home Buttons**: Removed the Home / Back-to-Landing buttons from the Class Profile wizard header and Library Shelf header to restrict students to their workspace dashboard.
 
 ## [2026-07-03] - Image Externalization (Option C) & Firestore 1MB Fix
 
