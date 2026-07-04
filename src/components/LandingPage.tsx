@@ -105,7 +105,7 @@ export default function LandingPage({
           </button>
 
           <a
-            href="/ExtraPadhai.apk"
+            href="https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=cbdeb5f8-6f47-4567-948d-603bcd1b1832"
             download="ExtraPadhai.apk"
             className="group relative px-8 py-5 bg-gradient-to-r from-slate-900/40 to-slate-800/40 hover:from-slate-800/60 hover:to-slate-700/60 border-2 border-slate-600/50 hover:border-slate-400 rounded-2xl text-slate-300 hover:text-white font-extrabold tracking-widest transition-all duration-300 shadow-2xl shadow-slate-900/20 hover:shadow-slate-500/40 flex items-center justify-center gap-4 w-full sm:w-auto uppercase text-sm md:text-lg hover:scale-105 transform"
           >
