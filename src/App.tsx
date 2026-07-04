@@ -345,8 +345,16 @@ export default function App() {
         }
       }
 
-      // Always boot to the landing page initially so updates are visible to students
-      setActiveScreen('landing');
+      // If running on native APK, bypass the landing page and start directly on class selector or library shelf
+      if (Capacitor.isNativePlatform()) {
+        if (currentClasses.length === 0) {
+          setActiveScreen('class-selector');
+        } else {
+          setActiveScreen('grade-selector');
+        }
+      } else {
+        setActiveScreen('landing');
+      }
       setSetupLoaded(true);
     };
     loadSetup();
@@ -951,7 +959,13 @@ export default function App() {
           setActiveScreen('grade-selector');
         }}
         onBack={() => {
-          setActiveScreen('landing');
+          if (Capacitor.isNativePlatform()) {
+            if (studyClasses.length > 0) {
+              setActiveScreen('grade-selector');
+            }
+          } else {
+            setActiveScreen('landing');
+          }
         }}
       />
     );
@@ -970,7 +984,11 @@ export default function App() {
           activeClassIndex={activeClassIndex}
           onSelectClassIndex={handleSwitchClass}
           onGoBackToProfiles={() => setActiveScreen('class-selector')}
-          onGoBackToLanding={() => setActiveScreen('landing')}
+          onGoBackToLanding={() => {
+            if (!Capacitor.isNativePlatform()) {
+              setActiveScreen('landing');
+            }
+          }}
         />
         
         {/* Toasts feed for consistent alerts on entry selection */}
