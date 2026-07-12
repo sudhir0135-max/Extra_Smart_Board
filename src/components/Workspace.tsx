@@ -12,6 +12,9 @@ import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X } from 'l
 import { BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
 import renderMathInElement from 'katex/contrib/auto-render';
+import ImageFrame from './ImageFrame';
+import CachedImage from './CachedImage';
+import { getLocalImageSrc } from '../lib/imageCache';
 
 interface WorkspaceProps {
   selectedBook: Book | null;
@@ -73,6 +76,9 @@ export default function Workspace({
   // Greenboard panel state — controlled here so annotation clicks can open it
   const [boardOpen, setBoardOpen]       = useState(false);
   const [boardMode, setBoardMode]       = useState<'draw' | 'media'>('draw');
+
+  // Image Frame state for fullscreen annotations
+  const [imageFrameSrc, setImageFrameSrc] = useState<string | null>(null);
   const [boardMediaUrl, setBoardMediaUrl]   = useState<string | undefined>(undefined);
   const [boardMediaType, setBoardMediaType] = useState<'image' | 'video' | undefined>(undefined);
   const [boardMediaText, setBoardMediaText] = useState<string | undefined>(undefined);
@@ -128,15 +134,15 @@ export default function Workspace({
     }
   }, [activeAnnotation]);
 
-  // Auto-render KaTeX math inside all page content blocks whenever the lesson changes.
-  // TinyMCE stores inline math as \(...\) and display math as \[...\] plain text.
-  useEffect(() => {
+  // Use useLayoutEffect to run synchronously before browser paints to eliminate KaTeX flicker
+  React.useLayoutEffect(() => {
     const MATH_DELIMITERS = [
       { left: '$$', right: '$$', display: true },
       { left: '$', right: '$', display: false },
       { left: '\\(', right: '\\)', display: false },
       { left: '\\[', right: '\\]', display: true },
     ];
+    
     const containers = document.querySelectorAll<HTMLElement>('.reader-content');
     containers.forEach(el => {
       try {
@@ -144,8 +150,23 @@ export default function Workspace({
       } catch {
         // silently ignore parse errors in individual lessons
       }
+
+      // Offline Image translation for rich text content
+      if (typeof (window as any).Capacitor !== 'undefined') {
+        const imgs = el.querySelectorAll('img');
+        imgs.forEach(async (img) => {
+          const originalSrc = img.getAttribute('src');
+          if (originalSrc && originalSrc.startsWith('http') && !img.hasAttribute('data-offline-loaded')) {
+            const localSrc = await getLocalImageSrc(originalSrc);
+            if (localSrc !== originalSrc) {
+              img.src = localSrc;
+            }
+            img.setAttribute('data-offline-loaded', 'true');
+          }
+        });
+      }
     });
-  }, [activeLesson]);
+  }); // run on every layout phase to ensure math is perfectly formatted before user sees it
 
   const handleContentClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -166,7 +187,11 @@ export default function Workspace({
         if (queryIndex !== -1) mediaUrl = mediaUrl.substring(0, queryIndex);
       }
 
-      if ((mediaType === 'image' || mediaType === 'video') && mediaUrl) {
+      if (mediaType === 'image-frame' && mediaUrl) {
+        // ── Fullscreen Image Frame ──────────
+        setActiveAnnotation(null);
+        setImageFrameSrc(mediaUrl);
+      } else if ((mediaType === 'image' || mediaType === 'video') && mediaUrl) {
         // ── Media annotation → open greenboard in media mode ──────────
         setActiveAnnotation(null);   // close any open speech bubble
         openBoardMedia(mediaUrl, mediaType as 'image' | 'video', text);
@@ -365,7 +390,10 @@ export default function Workspace({
             {/* ── PAGE MODE: render lesson pages as before ── */}
             <div
               id="content-scroll"
-              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text"
+              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root transition-all duration-300"
+              style={{
+                marginRight: 'max(3%, 28px)', // Always keep strip space only, allowing expanded board to overlay
+              }}
             >
               <div
                 className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} transition-all duration-300 rounded-xl pdf-shadow overflow-hidden relative`}
@@ -395,13 +423,12 @@ export default function Workspace({
                       imageViewMode === 'two' ? (
                         <div className="flex flex-row w-full gap-6 mt-4">
                           {((page as any).leftImage || (page as any).rightImage) && (
-                            <div className="w-1/2 flex-shrink-0">
+                            <div className="w-full lg:w-[30%] flex-shrink-0">
                               {(page as any).leftImage && (
-                                <img 
+                                <CachedImage 
                                   src={(page as any).leftImage} 
-                                  alt="Left Side Column Illustration" 
+                                  alt="Left Column Graphic Illustration" 
                                   className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                                  referrerPolicy="no-referrer" 
                                 />
                               )}
                             </div>
@@ -409,11 +436,10 @@ export default function Workspace({
                           {((page as any).leftImage || (page as any).rightImage) && (
                             <div className="w-1/2 flex-shrink-0">
                               {(page as any).rightImage && (
-                                <img 
+                                <CachedImage 
                                   src={(page as any).rightImage} 
                                   alt="Right Column Graphic Illustration" 
                                   className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                                  referrerPolicy="no-referrer" 
                                 />
                               )}
                             </div>
@@ -423,21 +449,19 @@ export default function Workspace({
                         <div className="flex flex-col w-full gap-6 mt-4 items-center">
                           {(page as any).leftImage && (
                             <div className="w-full">
-                              <img 
+                              <CachedImage 
                                 src={(page as any).leftImage} 
-                                alt="Left Side Column Illustration" 
+                                alt="Left Top Graphic Illustration" 
                                 className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                                referrerPolicy="no-referrer" 
                               />
                             </div>
                           )}
                           {(page as any).rightImage && (
                             <div className="w-full">
-                              <img 
+                              <CachedImage 
                                 src={(page as any).rightImage} 
-                                alt="Right Column Graphic Illustration" 
+                                alt="Right Top Graphic Illustration" 
                                 className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                                referrerPolicy="no-referrer" 
                               />
                             </div>
                           )}
@@ -447,11 +471,10 @@ export default function Workspace({
                       <div className="flex flex-col lg:flex-row gap-6 items-start w-full mt-4">
                         {(page as any).leftImage && (
                           <div className="w-full lg:w-[30%] flex-shrink-0">
-                            <img 
+                            <CachedImage 
                               src={(page as any).leftImage} 
-                              alt="Left Side Column Illustration" 
+                              alt="Left Column Graphic Illustration" 
                               className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                              referrerPolicy="no-referrer" 
                             />
                           </div>
                         )}
@@ -477,11 +500,10 @@ export default function Workspace({
 
                         {(page as any).rightImage && (
                           <div className="w-full lg:w-[30%] flex-shrink-0">
-                            <img 
+                            <CachedImage 
                               src={(page as any).rightImage} 
                               alt="Right Column Graphic Illustration" 
                               className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
-                              referrerPolicy="no-referrer" 
                             />
                           </div>
                         )}
@@ -528,7 +550,7 @@ export default function Workspace({
           <div className="text-center max-w-md space-y-5">
             {globalLogo ? (
               <div className="w-20 h-20 mx-auto bg-white/10 rounded-lg flex items-center justify-center border border-slate-700/80 mb-2 p-2">
-                <img src={globalLogo} alt="Global Logo" className="max-w-full max-h-full object-contain" />
+                <CachedImage src={globalLogo} alt="Global Logo" className="max-w-full max-h-full object-contain" />
               </div>
             ) : (
               <div className="w-16 h-16 mx-auto rounded-full bg-slate-800/40 border border-slate-700/80 flex items-center justify-center text-amber-400 text-3xl animate-bounce-short mb-2">
@@ -589,6 +611,13 @@ export default function Workspace({
         </>
       )}
 
+      {/* Fullscreen Image Frame for Annotations */}
+      <ImageFrame 
+        isOpen={!!imageFrameSrc}
+        onClose={() => setImageFrameSrc(null)}
+        src={imageFrameSrc || ''}
+        alt="Annotation Media"
+      />
     </div>
   );
 }

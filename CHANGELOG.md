@@ -2,11 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026-07-04] - Multi-profile Switcher, Native APK Alignment, XLSX Uploaders, & Git Purge
+## [2026-07-04] - Multi-profile Switcher, Native APK Alignment, XLSX Uploaders, Tablet Simulator, & Git Purge
 
 ### Added
 - **Firebase Storage APK Hosting**: Moved hosting of the `ExtraPadhai.apk` binary file to Firebase Storage to bypass Firebase Hosting CDN (Varnish/Fastly) `503 backend read error` timeouts on large files.
 - **Fresh Native APK Compile**: Re-compiled the Android app from updated source code, ensuring all student panel content view features are fully present in the native APK.
+- **Android Tablet Simulator (Extra Pad)**: Added a widescreen Android Tablet simulator with physical Back, Home, and Recents hardware controls, time/battery status bar, auto-scaling engine to fit the laptop viewport, and a rotation toggle (Landscape/Portrait orientations).
 - **Multi-Class Profiles**: Added the ability for students to configure and study up to 2 distinct classes. Features a dual-profile switcher widget in the Library Shelf Selector, allowing seamless switching.
 - **Boot-up Routing**: The app now always boots to the Landing Page initially so updates are visible to students. Clicking "Start Learning" routes to the Library Selector if profiles exist, or the Class Selector otherwise.
 - **Native APK Storage Mirroring**: Integrated native `@capacitor/preferences` storage to persist class profiles (`studyClasses`) and active index (`activeClassIndex`) dynamically, ensuring settings survive updates and cache clears. Added a spinner/loader screen during boot.
@@ -16,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - **Developer Cache Reset**: Added a "Reset System Cache" button in the Landing Page footer to wipe local storage, IndexedDB, and native preferences for clean-slate testing.
 
 ### Fixed
+- **Scrollability on Mobile/Tablet**: Fixed vertical scrolling on the Profile Selection Screen (`ClassSelector.tsx`) and Book Selection Screen (`GradeSelector.tsx`) by removing `overflow-hidden` constraints and setting container heights dynamically to `min-h-screen` and `overflow-y-auto`.
 - **APK Recursive Build Bloat**: Discovered and resolved a recursive build bug where Capacitor copied `public/ExtraPadhai.apk` into native Android assets, packaging previous builds inside subsequent ones recursively (bloating size to 1.59 GB). Deleting duplicate APKs from assets and building clean brought the APK size down to **14.11 MB**.
 - **Git History Purge**: Purged large, expired intermediate files (`public/app-debug.apk`, `public/ExtraPadhai.apk`, `jdk21.zip`) from Git history using `git filter-branch` to resolve GitHub's 100MB file limit pre-receive hook decline.
 - **Removed Home Buttons**: Removed the Home / Back-to-Landing buttons from the Class Profile wizard header and Library Shelf header to restrict students to their workspace dashboard.

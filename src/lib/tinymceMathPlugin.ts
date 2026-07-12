@@ -15,9 +15,19 @@ export const setupTinyMceMath = (editor: any) => {
               type: 'textarea',
               name: 'latex',
               label: 'Enter LaTeX expression (e.g. \\frac{1}{2})'
+            },
+            {
+              type: 'selectbox',
+              name: 'displayMode',
+              label: 'Math Layout',
+              items: [
+                { value: 'inline', text: 'Inline Math (flows with text, like $...$)' },
+                { value: 'block', text: 'Display Math (centered block on new line, like $$...$$)' }
+              ]
             }
           ]
         },
+        initialData: { displayMode: 'inline' },
         buttons: [
           { type: 'cancel', text: 'Cancel' },
           { type: 'submit', text: 'Insert Math', primary: true }
@@ -29,8 +39,9 @@ export const setupTinyMceMath = (editor: any) => {
             return;
           }
           try {
-            const html = katex.renderToString(data.latex, { throwOnError: false, displayMode: true });
-            editor.insertContent(`&nbsp;<span class="math-tex mceNonEditable" data-latex="${encodeURIComponent(data.latex)}" contenteditable="false">${html}</span>&nbsp;`);
+            const isBlock = data.displayMode === 'block';
+            const html = katex.renderToString(data.latex, { throwOnError: false, displayMode: isBlock });
+            editor.insertContent(`&nbsp;<span class="math-tex mceNonEditable" data-latex="${encodeURIComponent(data.latex)}" data-display-mode="${data.displayMode}" contenteditable="false">${html}</span>&nbsp;`);
             api.close();
           } catch (e) {
             alert("Invalid LaTeX expression!");
@@ -47,14 +58,26 @@ export const setupTinyMceMath = (editor: any) => {
     
     if (mathSpan) {
       const rawLatex = decodeURIComponent(mathSpan.getAttribute('data-latex') || '');
+      const displayMode = mathSpan.getAttribute('data-display-mode') || 'inline';
       if (rawLatex) {
         editor.windowManager.open({
           title: 'Edit LaTeX Math',
           body: {
             type: 'panel',
-            items: [{ type: 'textarea', name: 'latex', label: 'LaTeX Expression' }]
+            items: [
+              { type: 'textarea', name: 'latex', label: 'LaTeX Expression' },
+              {
+                type: 'selectbox',
+                name: 'displayMode',
+                label: 'Math Layout',
+                items: [
+                  { value: 'inline', text: 'Inline Math (flows with text)' },
+                  { value: 'block', text: 'Display Math (centered block)' }
+                ]
+              }
+            ]
           },
-          initialData: { latex: rawLatex },
+          initialData: { latex: rawLatex, displayMode: displayMode },
           buttons: [
             { type: 'cancel', text: 'Cancel' },
             { type: 'submit', text: 'Update', primary: true }
@@ -62,8 +85,9 @@ export const setupTinyMceMath = (editor: any) => {
           onSubmit: (api: any) => {
             const data = api.getData();
             try {
-              const html = katex.renderToString(data.latex, { throwOnError: false, displayMode: true });
-              mathSpan.outerHTML = `<span class="math-tex mceNonEditable" data-latex="${encodeURIComponent(data.latex)}" contenteditable="false">${html}</span>`;
+              const isBlock = data.displayMode === 'block';
+              const html = katex.renderToString(data.latex, { throwOnError: false, displayMode: isBlock });
+              mathSpan.outerHTML = `<span class="math-tex mceNonEditable" data-latex="${encodeURIComponent(data.latex)}" data-display-mode="${data.displayMode}" contenteditable="false">${html}</span>`;
               api.close();
             } catch (err) {
               alert("Invalid LaTeX expression!");
@@ -78,5 +102,7 @@ export const setupTinyMceMath = (editor: any) => {
 export const tinymceMathContentStyle = `
 @import url('https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css');
 .math-tex { display: inline-block; cursor: pointer; border-radius: 4px; padding: 0 4px; vertical-align: middle; }
+.math-tex[data-display-mode="block"] { display: block; text-align: center; margin: 1em auto; }
+.math-tex[data-display-mode="inline"] { display: inline-block; vertical-align: middle; }
 .math-tex:hover { background: rgba(255, 255, 255, 0.1); outline: 1px dashed #a855f7; }
 `;

@@ -393,13 +393,14 @@ export default function QuestionEditorPage() {
                     toolbar:
                       'undo redo | styles | bold italic underline strikethrough | ' +
                       'forecolor backcolor | alignleft aligncenter alignright alignjustify | ' +
-                      'bullist numlist outdent indent | table | image media link | ' +
+                      'bullist numlist outdent indent | blockquote | table | image media link | ' +
                       'codesample emoticons | removeformat | fullscreen | help',
                     table_toolbar:
                       'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | ' +
                       'tableinsertcolbefore tableinsertcolafter tabledeletecol',
                     content_style:
                       'body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 16px; color: #1a1a1a; line-height: 1.7; padding: 1.5rem 2rem; max-width: 100%; }' +
+                      'blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #666; font-style: italic; margin: 12px 0; }' +
                       'table { border-collapse: collapse; width: 100%; margin: 1rem 0; }' +
                       'table td, table th { border: 1px solid #ddd; padding: 8px 12px; }' +
                       'table th { background: #f5f5f5; font-weight: bold; }' +

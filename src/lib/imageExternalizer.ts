@@ -60,13 +60,16 @@ async function uploadBase64(dataUri: string, path: string): Promise<string> {
 async function externalizeHtml(html: string, storagePath: string): Promise<string> {
   if (!html || !html.includes('data:')) return html;
 
-  // Match src="data:..." or src='data:...' — greedy to capture full base64
-  const imgRegex = /src=["'](data:[^"']+)["']/g;
+  // Match any base64 image data URI exactly, regardless of surrounding quotes or entities
+  const imgRegex = /(data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+)/g;
   const matches: { full: string; dataUri: string }[] = [];
   let m: RegExpExecArray | null;
 
   while ((m = imgRegex.exec(html)) !== null) {
-    matches.push({ full: m[0], dataUri: m[1] });
+    // Only process if we haven't already processed this exact data URI
+    if (!matches.some(match => match.dataUri === m![1])) {
+      matches.push({ full: m[0], dataUri: m[1] });
+    }
   }
 
   if (matches.length === 0) return html;
@@ -75,9 +78,8 @@ async function externalizeHtml(html: string, storagePath: string): Promise<strin
   const uploads = await Promise.all(
     matches.map(async ({ full, dataUri }) => {
       const url = await uploadBase64(dataUri, storagePath);
-      // Rebuild the src attribute with the new URL (preserve quote style)
-      const quote = full[4]; // char after 'src='
-      return { full, replacement: `src=${quote}${url}${quote}` };
+      // We are directly replacing the data URI with the URL
+      return { full, replacement: url };
     })
   );
 

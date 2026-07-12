@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, UploadCloud, Copy, CheckCircle2, Loader2, Image as ImageIcon } from 'lucide-react';
-import { fetchAllUploadedImages, uploadImageToStorage } from '../lib/firebaseHelper';
+import { X, UploadCloud, Copy, CheckCircle2, Loader2, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { fetchAllUploadedImages, uploadImageToStorage, deleteFileFromStorage } from '../lib/firebaseHelper';
 
 interface AssetLibraryModalProps {
   isOpen: boolean;
@@ -65,6 +65,20 @@ export default function AssetLibraryModal({ isOpen, onClose, onSelect }: AssetLi
       navigator.clipboard.writeText(url);
       setCopiedUrl(url);
       setTimeout(() => setCopiedUrl(null), 2000);
+    }
+  };
+
+  const handleDeleteImage = async (url: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to permanently delete this image from the Asset Library?")) return;
+    
+    setLoading(true);
+    try {
+      await deleteFileFromStorage(url);
+      await loadImages();
+    } catch (err) {
+      console.error('Error deleting image:', err);
+      setLoading(false);
     }
   };
 
@@ -152,16 +166,25 @@ export default function AssetLibraryModal({ isOpen, onClose, onSelect }: AssetLi
                       className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300"
                       loading="lazy"
                     />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-sm gap-2">
                       {onSelect ? (
                         <span className="px-3 py-1.5 bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg">
                           Select Image
                         </span>
                       ) : (
-                        <span className="px-3 py-1.5 bg-slate-800 text-slate-200 text-xs font-bold rounded-lg shadow-lg flex items-center gap-1.5">
-                          {copiedUrl === img.url ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          {copiedUrl === img.url ? 'Copied!' : 'Copy URL'}
-                        </span>
+                        <>
+                          <span className="px-3 py-1.5 bg-slate-800 text-slate-200 text-xs font-bold rounded-lg shadow-lg flex items-center gap-1.5">
+                            {copiedUrl === img.url ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            {copiedUrl === img.url ? 'Copied!' : 'Copy URL'}
+                          </span>
+                          <button 
+                            onClick={(e) => handleDeleteImage(img.url, e)}
+                            className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white text-xs font-bold rounded-lg shadow-lg flex items-center gap-1.5 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

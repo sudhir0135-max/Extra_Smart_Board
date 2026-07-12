@@ -97,6 +97,20 @@ html, body, #root {
   font-size: 1.15em;
 }
 
+.math-tex {
+  display: inline-block;
+  vertical-align: middle;
+}
+.math-tex[data-display-mode="block"] {
+  display: block;
+  text-align: center;
+  margin: 1.5rem auto;
+}
+.math-tex[data-display-mode="inline"] {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 .callout {
   margin: 1.5rem 0;
   padding: 1.25rem 1.5rem;
@@ -111,8 +125,12 @@ html, body, #root {
 blockquote {
   font-family: var(--font-serif);
   font-style: italic;
-  font-size: 1.15em;
+  font-size: 1.1em;
   line-height: 1.7;
+  border-left: 3px solid #f59e0b;
+  padding-left: 1.25rem;
+  margin: 1.25rem 0;
+  color: #d1d5db;
 }
 
 /* Text selections matching modern blue accents */
@@ -165,4 +183,59 @@ blockquote {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* ── Container Queries for Responsive Workspace Layouts ────────────────── */
+.content-container-root {
+  container-type: inline-size;
+  container-name: workspace;
+}
+
+/* Default side-by-side flex layout on desktop/large container */
+.page-row-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 1.5rem;
+  align-items: start;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.page-side-column {
+  width: 30%;
+  flex-shrink: 0;
+}
+
+.page-center-column {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Two-page image view layout */
+.two-page-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+.two-page-layout > div {
+  width: 50%;
+  flex-shrink: 0;
+}
+
+/* Responsive snaps: if workspace container is squeezed below 850px, stack columns vertically */
+@container workspace (max-width: 850px) {
+  .page-row-layout {
+    flex-direction: column !important;
+  }
+  .page-side-column {
+    width: 100% !important;
+  }
+  .two-page-layout {
+    flex-direction: column !important;
+  }
+  .two-page-layout > div {
+    width: 100% !important;
+  }
 }

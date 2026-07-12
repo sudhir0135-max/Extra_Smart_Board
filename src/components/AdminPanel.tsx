@@ -39,6 +39,7 @@ import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
 import InquiryQuestionManager from './InquiryQuestionManager';
 import SyncManager from './SyncManager';
+import AssetLibraryModal from './AssetLibraryModal';
 
 export interface AdminPanelProps {
   books: Book[];
@@ -79,6 +80,7 @@ export default function AdminPanel({
 
   // Tabs: 'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced'
   const [activeTab, setActiveTab] = useState<'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced'>('stats');
+  const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
 
   // Book Editor Form drafting states
   const [fbUsers, setFbUsers] = useState<any[]>([]);
@@ -813,6 +815,12 @@ export default function AdminPanel({
             >
               <ShieldAlert className="w-4 h-4" /> Forced Entries
             </button>
+            <button
+              onClick={() => setIsAssetLibraryOpen(true)}
+              className="w-full text-left p-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 text-slate-400 hover:bg-slate-950 hover:text-slate-200"
+            >
+              <ImageIcon className="w-4 h-4" /> Asset Library
+            </button>
           </div>
 
           <div className="bg-[#03050a] border border-slate-900 p-3 rounded-xl">
@@ -1172,11 +1180,14 @@ export default function AdminPanel({
 
           {/* TAB 5: TEXTBOOK CRUD & DEEP EDITING ENGINE */}
           {activeTab === 'books' && (
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-x-auto overflow-y-hidden">
               {/* PRIMARY MASTER TWO-PANE LAYOUT */}
               {/* PANELS LIST SPLIT RAIL */}
-              <div className="w-[320px] bg-[#090e1b] border-r border-slate-900 flex flex-col overflow-hidden select-none">
-                <div className="p-4 border-b border-slate-900 bg-slate-950/40 space-y-4">
+              {!activeBook && (
+                <>
+                  {/* COL 1: CREATE/EDIT FORM */}
+                  <div className="w-[320px] bg-[#090e1b] border-r border-slate-900 flex flex-col overflow-y-auto select-none flex-shrink-0 no-scrollbar">
+                <div className="p-4 space-y-4">
                   <h3 className="text-xs font-black text-white uppercase tracking-wider font-sans">{editingBookId ? 'Edit Textbook' : 'Textbooks'}</h3>
                   <div className="space-y-3">
                     <span className="text-[8px] font-mono tracking-widest text-slate-400 block uppercase">Draft New Book Cover</span>
@@ -1249,35 +1260,50 @@ export default function AdminPanel({
 
                     <div className="space-y-1 pt-1">
                       <span className="text-[7.5px] uppercase font-mono text-slate-550 block">Cover Graphic (Optional):</span>
-                      <label className="flex items-center justify-center w-full h-14 border border-dashed border-slate-800 hover:border-emerald-500/50 rounded cursor-pointer transition-colors overflow-hidden relative group">
-                        {bookCoverDraft ? (
-                          <>
-                            <div className="absolute inset-0 bg-slate-950/40 z-10 group-hover:bg-slate-950/20 transition-all"></div>
-                            <img src={bookCoverDraft} alt="Cover Preview" className="absolute inset-0 w-full h-full object-cover" />
-                          </>
-                        ) : (
-                          <div className="flex flex-col items-center">
-                            <ImageIcon className="w-4 h-4 text-slate-600 mb-1" />
-                            <span className="text-[8.5px] text-slate-500 font-mono">Upload Image</span>
-                          </div>
-                        )}
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept="image/*"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const url = await uploadImageToStorage(e.target.files[0]);
-                                setBookCoverDraft(url);
-                              } catch(err: any) {
-                                alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized in your Firebase Console and the Storage Rules allow uploads.");
-                                console.error("Upload failed", err);
+                      <div className="relative">
+                        <label className="flex items-center justify-center w-full h-40 border border-dashed border-slate-800 hover:border-emerald-500/50 rounded-lg cursor-pointer transition-colors overflow-hidden relative group">
+                          {bookCoverDraft ? (
+                            <>
+                              <div className="absolute inset-0 bg-slate-950/40 z-10 group-hover:bg-slate-950/20 transition-all"></div>
+                              <img src={bookCoverDraft} alt="Cover Preview" className="absolute inset-0 w-full h-full object-cover" />
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <ImageIcon className="w-6 h-6 text-slate-600 mb-2" />
+                              <span className="text-[9.5px] text-slate-500 font-mono">Upload Image</span>
+                            </div>
+                          )}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                try {
+                                  const url = await uploadImageToStorage(e.target.files[0]);
+                                  setBookCoverDraft(url);
+                                } catch(err: any) {
+                                  alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized in your Firebase Console and the Storage Rules allow uploads.");
+                                  console.error("Upload failed", err);
+                                }
                               }
-                            }
-                          }}
-                        />
-                      </label>
+                            }}
+                          />
+                        </label>
+                        {bookCoverDraft && (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setBookCoverDraft(null);
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-md z-20 shadow-md transition-colors cursor-pointer"
+                            title="Remove Cover Image"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex gap-2 mt-2">
@@ -1298,9 +1324,11 @@ export default function AdminPanel({
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* BOOKS VERTICAL RAIL TRACK LIST */}
-                <div className="flex-1 overflow-y-auto p-2 space-y-1.5 no-scrollbar bg-[#060a13]" id="books-crud-scroll-track">
+              {/* COL 2: BOOKS VERTICAL RAIL TRACK LIST */}
+              <div className="w-[320px] bg-[#060a13] border-r border-slate-900 flex flex-col overflow-hidden select-none flex-shrink-0">
+                <div className="flex-1 overflow-y-auto p-2 space-y-1.5 no-scrollbar" id="books-crud-scroll-track">
                   <span className="text-[8px] font-mono tracking-widest text-[#707a6c] uppercase block p-2">
                     RECORDS IN DIRECTORY ({books.length})
                   </span>
@@ -1400,22 +1428,37 @@ export default function AdminPanel({
                   })}
                 </div>
               </div>
+                </>
+              )}
 
               {/* PRIMARY DEEP CONTENT EDITOR WINDOW (MIDDLE SPLIT) */}
-              <div className="flex-1 flex flex-col overflow-hidden bg-[#05070e]">
+              <div className="flex-1 flex flex-col overflow-hidden bg-[#05070e] min-w-[700px]">
                 {activeBook ? (
                   <div className="flex-1 flex overflow-hidden">
                     {/* CHAPTERS/LESSONS TREE FOR THE SELECTIVE BOOK */}
                     <div className="w-[280px] bg-[#070b13] border-r border-slate-900 flex flex-col overflow-hidden select-none flex-shrink-0">
                       <div className="p-4 border-b border-slate-900 bg-[#0d1425] space-y-4">
-                        <div>
-                          <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">Textbook Settings</span>
-                          <h3 className="font-sans font-black text-sm text-amber-400 mt-1 line-clamp-1">{activeBook.title}</h3>
+                        <div className="flex items-start gap-3">
+                          <button
+                            onClick={() => {
+                              setSelectedBookId(null);
+                              setSelectedLessonId(null);
+                              setSelectedPageIndex(null);
+                            }}
+                            className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors mt-0.5 shadow-sm"
+                            title="Back to Library"
+                          >
+                            <ArrowLeft className="w-4 h-4" />
+                          </button>
+                          <div>
+                            <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">Textbook Settings</span>
+                            <h3 className="font-sans font-black text-sm text-amber-400 mt-1 line-clamp-1">{activeBook.title}</h3>
+                          </div>
                         </div>
 
                         {/* Book Metadata View (Read Only) */}
                         <div className="space-y-1 mt-2">
-                          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 pl-9">
                             <span className="font-mono bg-slate-900 px-1.5 rounded">ID: {activeBook.id}</span>
                             <span>By: {activeBook.author}</span>
                           </div>
@@ -1935,6 +1978,11 @@ export default function AdminPanel({
                                 Google Auth
                               </span>
                             )}
+                            {u.status === 'inactive' && (
+                              <span className="text-[8.5px] font-mono bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded text-rose-400 uppercase">
+                                Inactive
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-400 flex items-center gap-2">
                             <span>UID: <span className="font-mono">{u.id}</span></span>
@@ -2016,6 +2064,27 @@ export default function AdminPanel({
                           >
                             Reset Password
                           </button>
+                          
+                          <button
+                            onClick={async () => {
+                              try {
+                                const newStatus = u.status === 'inactive' ? 'active' : 'inactive';
+                                const { updateDoc, doc } = await import('firebase/firestore');
+                                await updateDoc(doc(db, 'users', u.id), { status: newStatus });
+                                flashMessage(`User account marked as ${newStatus}.`);
+                              } catch (err: any) {
+                                alert('Failed to change user status: ' + err.message);
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
+                              u.status === 'inactive' 
+                                ? 'bg-emerald-900/40 hover:bg-emerald-900 text-emerald-400' 
+                                : 'bg-orange-900/40 hover:bg-orange-900 text-orange-300'
+                            }`}
+                          >
+                            {u.status === 'inactive' ? 'Activate' : 'Deactivate'}
+                          </button>
+
                           <button
                             onClick={async () => {
                               const confirmDelete = window.confirm(`Are you sure you want to delete ${u.email}? This will revoke their editorial privileges.`);
@@ -2208,6 +2277,11 @@ export default function AdminPanel({
           )}
         </main>
       </div>
+
+      <AssetLibraryModal 
+        isOpen={isAssetLibraryOpen} 
+        onClose={() => setIsAssetLibraryOpen(false)} 
+      />
     </div>
   );
 }

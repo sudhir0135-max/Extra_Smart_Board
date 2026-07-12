@@ -7,6 +7,7 @@ import React from 'react';
 import { Book } from '../types';
 import { Sparkles, BookOpenCheck, Library } from 'lucide-react';
 import { StudyClass } from './ClassSelector';
+import CachedImage from './CachedImage';
 
 interface GradeSelectorProps {
   books: Book[];
@@ -93,7 +94,7 @@ export default function GradeSelector({
       </header>
 
       {/* Main Container tailored to fit perfectly in 1 screen height */}
-      <main className="pt-16 pb-6 px-6 max-w-6xl mx-auto flex flex-col justify-between h-[calc(100vh-16px)] overflow-hidden">
+      <main className="pt-16 pb-6 px-6 max-w-6xl mx-auto flex flex-col justify-between min-h-screen overflow-y-auto">
         {!isBooksLoaded ? (
           <div className="flex-1 flex flex-col items-center justify-center">
             <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#0d631b] tracking-tight text-center animate-pulse">
@@ -121,7 +122,7 @@ export default function GradeSelector({
               {/* Book Cover Image (if available) */}
               {book.coverImage && (
                 <div className="absolute inset-0 z-0">
-                  <img src={book.coverImage} alt={book.title} className="w-full h-full object-cover rounded-2xl opacity-90 group-hover:opacity-100 transition-opacity" />
+                  <CachedImage src={book.coverImage} alt={book.title} className="w-full h-full object-cover rounded-2xl opacity-90 group-hover:opacity-100 transition-opacity" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                 </div>
               )}

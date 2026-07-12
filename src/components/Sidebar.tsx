@@ -40,12 +40,13 @@ export default function Sidebar({
   setImageViewMode,
 }: SidebarProps) {
   return (
-    <div
-      className={`h-full flex-shrink-0 bg-[#0c1220] border-r border-slate-900 flex flex-col overflow-hidden text-slate-200 select-none transition-all duration-300 ${
-        isExpanded ? 'w-[260px]' : 'w-[72px]'
-      }`}
-      id="sidebar"
-    >
+    <div className="relative h-full flex-shrink-0 z-40" style={{ width: '72px' }}>
+      <div
+        className={`absolute top-0 left-0 h-full bg-[#0c1220] border-r border-slate-900 flex flex-col overflow-hidden text-slate-200 select-none transition-all duration-300 shadow-2xl ${
+          isExpanded ? 'w-[260px]' : 'w-[72px]'
+        }`}
+        id="sidebar"
+      >
 
 
       {/* Chapters / Lessons Content list container */}
@@ -164,6 +165,7 @@ export default function Sidebar({
         </div>
       )}
 
+    </div>
     </div>
   );
 }

@@ -112,6 +112,11 @@ export default function AuthModal({ isOpen, onClose, onSuccess, title, initialMo
       const docRef = doc(db, 'users', user.uid);
       const docSnap = await fetchDocWithRetry(docRef);
 
+      if (docSnap.exists() && docSnap.data().status === 'inactive') {
+        await auth.signOut();
+        throw new Error('Your account is inactive. Please contact the administrator.');
+      }
+
       if (docSnap.exists() && docSnap.data().pin) {
         setTempUser(user);
         setMode('pin-verify');
@@ -163,7 +168,12 @@ export default function AuthModal({ isOpen, onClose, onSuccess, title, initialMo
         const { getDoc, doc } = await import('firebase/firestore');
         const docSnap = await getDoc(doc(db, 'users', result.user.uid));
         if (docSnap.exists()) {
-          userRole = docSnap.data().role || 'editor';
+          const data = docSnap.data();
+          if (data.status === 'inactive') {
+            await auth.signOut();
+            throw new Error('Your account is inactive. Please contact the administrator.');
+          }
+          userRole = data.role || 'editor';
         }
       }
       handleSuccess(userRole);

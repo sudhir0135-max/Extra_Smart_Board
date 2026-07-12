@@ -1,8 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Save, Eye, FileText } from 'lucide-react';
 import { Editor } from '@tinymce/tinymce-react';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
 import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
+import renderMathInElement from 'katex/contrib/auto-render';
+import 'katex/dist/katex.min.css';
 
 export interface RichTextEditorProps {
   initialValue: string;
@@ -16,7 +18,26 @@ export interface RichTextEditorProps {
 export default function RichTextEditor({ initialValue, onSave, isSaving = false, leftImage, centerImage, rightImage }: RichTextEditorProps) {
   const [activeSubTab, setActiveSubTab] = useState<'edit' | 'preview'>('edit');
   const editorRef = useRef<any>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
   const [previewContent, setPreviewContent] = useState(initialValue);
+
+  useEffect(() => {
+    if (activeSubTab === 'preview' && previewContainerRef.current) {
+      try {
+        renderMathInElement(previewContainerRef.current, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true },
+          ],
+          throwOnError: false,
+        });
+      } catch (err) {
+        console.error("Failed to render math inside preview", err);
+      }
+    }
+  }, [previewContent, activeSubTab]);
 
   const handleTabSwitch = (tab: 'edit' | 'preview') => {
     if (tab === 'preview' && editorRef.current) {
@@ -86,8 +107,8 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
               skin: 'oxide-dark',
               content_css: 'dark',
               plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
-              toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | latex annotation | table link image | removeformat | help',
-              content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:14px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle}`
+              toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | table link image | removeformat | help',
+              content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:14px; background-color: #03060c; color: #e2e8f0; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #94a3b8; font-style: italic; margin: 12px 0; } ${tinymceMathContentStyle}`
             }}
           />
         </div>
@@ -120,7 +141,8 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
               )}
               {previewContent.trim() ? (
                 <div 
-                  className="prose prose-invert prose-sm font-sans text-slate-200 leading-relaxed space-y-3"
+                  ref={previewContainerRef}
+                  className="reader-content prose prose-invert prose-sm font-sans text-slate-200 leading-relaxed space-y-3"
                   dangerouslySetInnerHTML={{ __html: previewContent }}
                 />
               ) : (

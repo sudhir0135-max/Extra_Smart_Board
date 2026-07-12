@@ -591,8 +591,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                           setupTinyMceMath(editor);
                           setupTinyMceAnnotation(editor);
                         },
-                        toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | latex annotation | table | removeformat | help',
-                        content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; } ${tinymceMathContentStyle}`,
+                        toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | table | removeformat | help',
+                        content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #666; font-style: italic; margin: 12px 0; } ${tinymceMathContentStyle}`,
                         skin: 'oxide',
                         content_css: 'default'
                       }}

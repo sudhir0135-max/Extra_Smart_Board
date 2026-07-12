@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle2, DownloadCloud, AlertCircle, HardDrive, Loader2, FolderOpen } from 'lucide-react';
-import { AcademicClass, AcademicSubject, Book } from '../types';
+import { AcademicClass, AcademicSubject, Book, OfflineBookLessons } from '../types';
+import { dbLocal } from '../lib/db';
+import { downloadAndCacheImage, extractImagesFromLesson } from '../lib/imageCache';
 
 interface ExtraSmartboardDownloadProps {
   globalLogo?: string | null;
@@ -84,10 +86,78 @@ export default function ExtraSmartboardDownload({
     setIsSyncing(true);
     setOverallProgress(0);
 
-    // Simulate a quick sync operation for UX (the actual data is already in IndexedDB via dbLocal in App.tsx)
-    for (let i = 0; i <= 100; i += 20) {
-      setOverallProgress(i);
-      await new Promise(res => setTimeout(res, 200)); // fake delay
+    let allImageUrls: string[] = [];
+
+    // Extract all images if native
+    if (isNative()) {
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        
+        const selectedBooks = books.filter(b => 
+          b.classId === selectedGrade?.toString() && 
+          selectedSubjects.includes(b.subjectId || '')
+        );
+
+        for (const book of selectedBooks) {
+          if (book.coverImage && book.coverImage.startsWith('http')) {
+            allImageUrls.push(book.coverImage);
+          }
+
+          // 1. Fetch and cache lessons from Firestore subcollection for offline use
+          try {
+            const lessonsSnap = await getDocs(collection(db, 'books', book.id.toString(), 'lessons'));
+            const subLessons = lessonsSnap.docs.map(d => d.data());
+            
+            // Extract images from subcollection lessons
+            for (const lesson of subLessons) {
+              const urls = extractImagesFromLesson(lesson);
+              allImageUrls.push(...urls);
+            }
+          } catch (e) {
+            console.error(`Failed to fetch subcollection for book ${book.id}`, e);
+          }
+
+          // 2. Extract images from any legacy root lessons
+          if (book.lessons) {
+             for (const lesson of book.lessons) {
+                 const urls = extractImagesFromLesson(lesson);
+                 allImageUrls.push(...urls);
+             }
+          }
+
+          // 3. Check for any locally edited offline data
+          const offlineData = await dbLocal.offline_lessons.get(book.id);
+          if (offlineData && offlineData.lessons) {
+            for (const lesson of offlineData.lessons) {
+              const urls = extractImagesFromLesson(lesson);
+              allImageUrls.push(...urls);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Setup] Error scanning for images:', err);
+      }
+    }
+
+    allImageUrls = Array.from(new Set(allImageUrls)); // deduplicate
+
+    if (allImageUrls.length > 0) {
+      let completed = 0;
+      // Download images in batches of 3 to avoid overwhelming network/filesystem
+      const batchSize = 3;
+      for (let i = 0; i < allImageUrls.length; i += batchSize) {
+        const batch = allImageUrls.slice(i, i + batchSize);
+        await Promise.all(batch.map(url => downloadAndCacheImage(url).catch(console.error)));
+        completed += batch.length;
+        setOverallProgress(Math.floor((completed / allImageUrls.length) * 100));
+      }
+    } else {
+      // Fake sync if no images found or not native
+      for (let i = 0; i <= 100; i += 20) {
+        setOverallProgress(i);
+        await new Promise(res => setTimeout(res, 200));
+      }
     }
 
     setIsSyncing(false);

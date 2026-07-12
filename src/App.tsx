@@ -17,6 +17,8 @@ import BookEditorPanel from './components/BookEditorPanel';
 import ExtraSmartboardDownload from './components/ExtraSmartboardDownload';
 import QuestionEditorPage from './components/QuestionEditorPage';
 import ClassSelector, { StudyClass } from './components/ClassSelector';
+import AndroidSimulator from './components/AndroidSimulator';
+import ImageFrame from './components/ImageFrame';
 import { Wifi, WifiOff, Cloud, CheckCircle2, AlertCircle, RefreshCw, Layers, Database, X, Menu, Upload, Palette, Undo, Trash2, Circle, Home, ArrowLeft, BookOpenCheck } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -93,21 +95,31 @@ export default function App() {
     });
 
     // Read books from Firestore
-    const unsubBooks = onSnapshot(collection(db, 'books'), (snapshot) => {
+    const unsubBooks = onSnapshot(collection(db, 'books'), async (snapshot) => {
       if (snapshot.empty) {
         // Seed database on first run
         BOOKS_DATA.forEach(b => {
-          setDoc(doc(db, 'books', b.id.toString()), b).catch(console.error);
+          const firestoreBook = JSON.parse(JSON.stringify(b));
+          const bookMeta = { ...firestoreBook, lessons: [] };
+          setDoc(doc(db, 'books', b.id.toString()), bookMeta).then(() => {
+             b.lessons.forEach(l => {
+                 setDoc(doc(db, 'books', b.id.toString(), 'lessons', l.id), l).catch(console.error);
+             });
+          }).catch(console.error);
         });
         setFirebaseBooks(BOOKS_DATA.map(b => ({
           ...b,
           classId: (b as any).classId || null,
           subjectId: (b as any).subjectId || null
         })));
+        setIsBooksLoaded(true);
       } else {
-        const loadedBooks = snapshot.docs.map(d => {
+        const loadedBooks: Book[] = [];
+        
+        for (const d of snapshot.docs) {
           const data = d.data();
           const rawLessons = Array.isArray(data.lessons) ? data.lessons : (data.lessons ? Object.values(data.lessons) : []);
+          
           const sanitizedLessons = rawLessons
             .filter((l: any) => l !== null && l !== undefined)
             .map((l: any) => ({
@@ -116,16 +128,17 @@ export default function App() {
               flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
             }));
 
-          return {
+          loadedBooks.push({
             ...data,
             lessons: sanitizedLessons,
             title: data.title || 'Untitled Book'
-          } as Book;
-        });
+          } as Book);
+        }
+        
         loadedBooks.sort((a,b) => a.id - b.id);
         setFirebaseBooks(loadedBooks);
+        setIsBooksLoaded(true);
       }
-      setIsBooksLoaded(true);
     });
 
     return () => {
@@ -137,11 +150,22 @@ export default function App() {
 
   const saveBookToFirebase = async (updatedBook: Book) => {
     // Externalize any base64 images → Firebase Storage URLs before writing.
-    // This keeps the Firestore document well under the 1 MB hard limit.
     const cleanBook = await externalizeBookImages(updatedBook);
-    // JSON round-trip strips all `undefined` values — Firestore rejects them.
     const firestoreBook: Book = JSON.parse(JSON.stringify(cleanBook));
-    await setDoc(doc(db, 'books', firestoreBook.id.toString()), firestoreBook);
+    
+    // Save metadata without lessons to the main document
+    const bookMeta = { ...firestoreBook, lessons: [] };
+    await setDoc(doc(db, 'books', firestoreBook.id.toString()), bookMeta);
+
+    // Save lessons chapter-wise to avoid 1MB limit and show granular progress
+    if (firestoreBook.lessons) {
+      for (let i = 0; i < firestoreBook.lessons.length; i++) {
+        const lesson = firestoreBook.lessons[i];
+        await setDoc(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), lesson);
+        addToast(`Lesson ${i + 1}/${firestoreBook.lessons.length} synchronized.`, 'cloud');
+      }
+    }
+
     setFirebaseBooks(prev => {
       if (prev.some(b => b.id === firestoreBook.id)) {
         return prev.map(b => b.id === firestoreBook.id ? firestoreBook : b);
@@ -151,7 +175,13 @@ export default function App() {
   };
 
   const deleteBookFromFirebase = async (bookId: number) => {
-    const { deleteDoc } = await import('firebase/firestore');
+    const { deleteDoc, collection, getDocs } = await import('firebase/firestore');
+    // Delete subcollection documents first
+    const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
+    for (const d of lessonsSnap.docs) {
+       await deleteDoc(d.ref);
+    }
+    // Delete main document
     await deleteDoc(doc(db, 'books', bookId.toString()));
     setFirebaseBooks(prev => prev.filter(b => b.id !== bookId));
   };
@@ -161,16 +191,79 @@ export default function App() {
     // Externalize images then strip undefined values before writing
     const cleanBooks = (await Promise.all(allNewBooks.map(externalizeBookImages)))
       .map(b => JSON.parse(JSON.stringify(b)) as Book);
-    const batch = writeBatch(db);
-    cleanBooks.forEach(b => {
-      batch.set(doc(db, 'books', b.id.toString()), b);
-    });
-    await batch.commit();
+    
+    let batch = writeBatch(db);
+    let count = 0;
+    for (const b of cleanBooks) {
+      const bookMeta = { ...b, lessons: [] };
+      batch.set(doc(db, 'books', b.id.toString()), bookMeta);
+      count++;
+      if (b.lessons) {
+        for (const l of b.lessons) {
+          batch.set(doc(db, 'books', b.id.toString(), 'lessons', l.id), l);
+          count++;
+          if (count >= 400) {
+             await batch.commit();
+             batch = writeBatch(db);
+             count = 0;
+          }
+        }
+      }
+    }
+    if (count > 0) {
+      await batch.commit();
+    }
     setFirebaseBooks(cleanBooks);
   };
 
   const [selectedBookId, setSelectedBookId] = useState<number>(1);
   const [activeLessonId, setActiveLessonId] = useState<string>('think-1');
+
+  useEffect(() => {
+    if (!selectedBookId) return;
+    const fetchSubcollectionLessons = async () => {
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const lessonsSnap = await getDocs(collection(db, 'books', selectedBookId.toString(), 'lessons'));
+        
+        if (!lessonsSnap.empty) {
+          const subLessons = lessonsSnap.docs.map(ld => ld.data());
+          setFirebaseBooks(prev => {
+            const bookIndex = prev.findIndex(b => b.id === selectedBookId);
+            if (bookIndex === -1) return prev;
+            
+            const book = prev[bookIndex];
+            const allLessons = [...book.lessons, ...subLessons];
+            const dedupedLessons = Array.from(new Map(allLessons.map((l: any) => [l.id, l])).values());
+            
+            const sanitizedLessons = dedupedLessons
+              .filter((l: any) => l !== null && l !== undefined)
+              .map((l: any) => ({
+                ...l,
+                pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+                flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
+              }));
+              
+            const newBooks = [...prev];
+            newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
+            
+            // Auto-select the first lesson if none is active or it's invalid for this book
+            if (sanitizedLessons.length > 0) {
+               const isValidLesson = sanitizedLessons.some((l: any) => l.id === activeLessonId);
+               if (!isValidLesson) {
+                 setActiveLessonId(sanitizedLessons[0].id);
+               }
+            }
+            
+            return newBooks;
+          });
+        }
+      } catch (err) {
+        console.error(`Error loading subcollection lessons for book ${selectedBookId}`, err);
+      }
+    };
+    fetchSubcollectionLessons();
+  }, [selectedBookId, activeLessonId]);
 
   // Master list of book editors with persistent local storage caching
   const [editors, setEditors] = useState<BookEditor[]>(() => {
@@ -193,11 +286,17 @@ export default function App() {
   }, [editors]);
 
 
+  const [isSimulatingApk, setIsSimulatingApk] = useState<boolean>(false);
+
   const [activeScreen, setActiveScreen] = useState<'landing' | 'admin' | 'grade-selector' | 'workspace' | 'book-editor' | 'extra-download' | 'class-selector'>(
     Capacitor.isNativePlatform()
       ? 'extra-download'   // will be updated by Preferences check below
       : 'landing'
   );
+
+  const [isDemoImageFrameOpen, setIsDemoImageFrameOpen] = useState(false);
+
+  const isNative = Capacitor.isNativePlatform() || isSimulatingApk;
 
   const books = React.useMemo(() => {
     // PREVIEW MODE: If an admin is reviewing a submission, force the submitted lessons into the live book.
@@ -265,7 +364,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('study_classes_v1', JSON.stringify(studyClasses));
-    if (Capacitor.isNativePlatform()) {
+    if (isNative) {
       import('@capacitor/preferences').then(({ Preferences }) => {
         Preferences.set({ key: 'study_classes_v1', value: JSON.stringify(studyClasses) });
       });
@@ -274,7 +373,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('active_class_idx_v1', activeClassIndex.toString());
-    if (Capacitor.isNativePlatform()) {
+    if (isNative) {
       import('@capacitor/preferences').then(({ Preferences }) => {
         Preferences.set({ key: 'active_class_idx_v1', value: activeClassIndex.toString() });
       });
@@ -284,7 +383,7 @@ export default function App() {
   // Download Extra Smartboard State
   const [downloadedClass, setDownloadedClass] = useState<number | null>(null);
   const [downloadedSubjects, setDownloadedSubjects] = useState<string[]>([]);
-  const [setupLoaded, setSetupLoaded] = useState(!Capacitor.isNativePlatform()); // web is instant
+  const [setupLoaded, setSetupLoaded] = useState(!Capacitor.isNativePlatform()); // web is instant on mount
 
   // On native: read class+subjects from Capacitor Preferences (survives reinstall)
   // On web   : read from localStorage synchronously
@@ -292,7 +391,7 @@ export default function App() {
     const loadSetup = async () => {
       let currentClasses = [...studyClasses];
       
-      if (Capacitor.isNativePlatform()) {
+      if (isNative) {
         try {
           const { Preferences } = await import('@capacitor/preferences');
           
@@ -346,7 +445,7 @@ export default function App() {
       }
 
       // If running on native APK, bypass the landing page and start directly on class selector or library shelf
-      if (Capacitor.isNativePlatform()) {
+      if (isNative) {
         if (currentClasses.length === 0) {
           setActiveScreen('class-selector');
         } else {
@@ -741,7 +840,7 @@ export default function App() {
     }
   };
 
-  if (!setupLoaded && Capacitor.isNativePlatform()) {
+  if (!setupLoaded && isNative) {
     return (
       <div className="min-h-screen bg-[#070b13] flex flex-col items-center justify-center text-slate-200">
         <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mb-4" />
@@ -782,6 +881,16 @@ export default function App() {
               setActiveScreen('grade-selector');
             }
           }}
+          onEnterSimulator={() => {
+            setIsSimulatingApk(true);
+            if (studyClasses.length === 0) {
+              setActiveScreen('class-selector');
+            } else {
+              setActiveScreen('grade-selector');
+            }
+            addToast('Android APK Simulator activated.', 'success');
+          }}
+          onDemoImageFrame={() => setIsDemoImageFrameOpen(true)}
           onSignIn={() => {
             setAuthTargetScreen(null);
             setAuthInitialMode('initial');
@@ -803,6 +912,12 @@ export default function App() {
           onClose={() => setAuthModalOpen(false)}
           title={authModalTitle}
           onSuccess={handleAuthSuccess}
+        />
+        <ImageFrame 
+          isOpen={isDemoImageFrameOpen}
+          onClose={() => setIsDemoImageFrameOpen(false)}
+          src="/smartboard1img.webp"
+          alt="Demo Frame Image"
         />
       </>
     );
@@ -846,7 +961,7 @@ export default function App() {
 
   // ExtraSmartboardDownload is ONLY for the native APK (first-launch setup).
   // Web users never see this screen — they go directly to grade-selector.
-  if (activeScreen === 'extra-download' && Capacitor.isNativePlatform()) {
+  if (activeScreen === 'extra-download' && isNative) {
     return (
       <ExtraSmartboardDownload
         globalLogo={globalLogo}
@@ -874,7 +989,7 @@ export default function App() {
   }
 
   // Fallback: if somehow extra-download is set on web, redirect to grade-selector
-  if (activeScreen === 'extra-download' && !Capacitor.isNativePlatform()) {
+  if (activeScreen === 'extra-download' && !isNative) {
     setActiveScreen('grade-selector');
     return null;
   }
@@ -926,8 +1041,50 @@ export default function App() {
     );
   }
 
+  const handleWipeSimulatorStorage = async () => {
+    if (window.confirm("Are you sure you want to wipe simulator storage? This will clear all configured classes.")) {
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        await Preferences.remove({ key: 'study_classes_v1' });
+        await Preferences.remove({ key: 'active_class_idx_v1' });
+        await Preferences.remove({ key: 'device_setup_class_v3' });
+        await Preferences.remove({ key: 'device_setup_subjects_v3' });
+      } catch (e) {}
+      localStorage.removeItem('study_classes_v1');
+      localStorage.removeItem('active_class_idx_v1');
+      localStorage.removeItem('device_setup_class_v3');
+      localStorage.removeItem('device_setup_subjects_v3');
+      setStudyClasses([]);
+      setActiveClassIndex(0);
+      setActiveScreen('class-selector');
+      addToast('Simulator storage cleared successfully.', 'warn');
+    }
+  };
+
+  const handleExitSimulator = () => {
+    setIsSimulatingApk(false);
+    setActiveScreen('landing');
+  };
+
+  const handleAndroidBack = () => {
+    if (activeScreen === 'workspace') {
+      setActiveScreen('grade-selector');
+    } else if (activeScreen === 'grade-selector') {
+      setActiveScreen('class-selector');
+    } else if (activeScreen === 'class-selector') {
+      addToast('Cannot go back: Home screen reached.', 'info');
+    }
+  };
+
+  const handleAndroidHome = () => {
+    if (activeScreen !== 'class-selector') {
+      setActiveScreen('class-selector');
+      addToast('Returned to Android Home (Class Profiles).', 'success');
+    }
+  };
+
   if (activeScreen === 'class-selector') {
-    return (
+    const pageContent = (
       <ClassSelector
         globalLogo={globalLogo}
         academicClasses={academicClasses}
@@ -959,7 +1116,7 @@ export default function App() {
           setActiveScreen('grade-selector');
         }}
         onBack={() => {
-          if (Capacitor.isNativePlatform()) {
+          if (isNative) {
             if (studyClasses.length > 0) {
               setActiveScreen('grade-selector');
             }
@@ -969,11 +1126,28 @@ export default function App() {
         }}
       />
     );
+
+    if (isSimulatingApk) {
+      return (
+        <AndroidSimulator
+          isOnline={isOnline}
+          onToggleOnline={() => setIsOnline(!isOnline)}
+          onWipeStorage={handleWipeSimulatorStorage}
+          onExit={handleExitSimulator}
+          onAndroidBack={handleAndroidBack}
+          onAndroidHome={handleAndroidHome}
+        >
+          {pageContent}
+        </AndroidSimulator>
+      );
+    }
+
+    return pageContent;
   }
 
   if (activeScreen === 'grade-selector') {
-    return (
-      <div className="h-screen w-full relative overflow-hidden bg-[#f7fbf0]" id="app-layout">
+    const pageContent = (
+      <div className={`${isSimulatingApk ? 'h-full' : 'h-screen'} w-full relative overflow-hidden bg-[#f7fbf0]`} id="app-layout">
         <GradeSelector
           globalLogo={globalLogo}
           books={getFilteredBooks()}
@@ -985,7 +1159,7 @@ export default function App() {
           onSelectClassIndex={handleSwitchClass}
           onGoBackToProfiles={() => setActiveScreen('class-selector')}
           onGoBackToLanding={() => {
-            if (!Capacitor.isNativePlatform()) {
+            if (!isNative) {
               setActiveScreen('landing');
             }
           }}
@@ -1017,6 +1191,23 @@ export default function App() {
         </div>
       </div>
     );
+
+    if (isSimulatingApk) {
+      return (
+        <AndroidSimulator
+          isOnline={isOnline}
+          onToggleOnline={() => setIsOnline(!isOnline)}
+          onWipeStorage={handleWipeSimulatorStorage}
+          onExit={handleExitSimulator}
+          onAndroidBack={handleAndroidBack}
+          onAndroidHome={handleAndroidHome}
+        >
+          {pageContent}
+        </AndroidSimulator>
+      );
+    }
+
+    return pageContent;
   }
 
   const appThemeStyles = {
@@ -1051,8 +1242,8 @@ export default function App() {
     headerBg: 'bg-[#faf7f2]/95 text-[#2a1f0e]',
   };
 
-  return (
-    <div className="h-screen w-full flex flex-col overflow-hidden bg-[#0b0f19]" id="app-layout">
+  const workspacePageContent = (
+    <div className={`${isSimulatingApk ? 'h-full' : 'h-screen'} w-full flex flex-col overflow-hidden bg-[#0b0f19]`} id="app-layout">
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -1395,5 +1586,22 @@ export default function App() {
       )}
     </div>
   );
+
+  if (isSimulatingApk) {
+    return (
+      <AndroidSimulator
+        isOnline={isOnline}
+        onToggleOnline={() => setIsOnline(!isOnline)}
+        onWipeStorage={handleWipeSimulatorStorage}
+        onExit={handleExitSimulator}
+        onAndroidBack={handleAndroidBack}
+        onAndroidHome={handleAndroidHome}
+      >
+        {workspacePageContent}
+      </AndroidSimulator>
+    );
+  }
+
+  return workspacePageContent;
 }
 

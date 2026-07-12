@@ -41,6 +41,7 @@ export const setupTinyMceAnnotation = (editor: any) => {
               items: [
                 { text: 'None (Speech Bubble)', value: 'none' },
                 { text: 'Image (Bottom Sheet)', value: 'image' },
+                { text: 'Image (Fullscreen Frame)', value: 'image-frame' },
                 { text: 'Video (Bottom Sheet)', value: 'video' }
               ]
             },
@@ -105,6 +106,7 @@ export const setupTinyMceAnnotation = (editor: any) => {
               items: [
                 { text: 'None (Speech Bubble)', value: 'none' },
                 { text: 'Image (Bottom Sheet)', value: 'image' },
+                { text: 'Image (Fullscreen Frame)', value: 'image-frame' },
                 { text: 'Video (Bottom Sheet)', value: 'video' }
               ]
             },

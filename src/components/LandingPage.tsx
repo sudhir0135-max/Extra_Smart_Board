@@ -11,6 +11,8 @@ interface LandingPageProps {
   onEnterEditors: () => void;
   onEnterAdmin: () => void;
   onEnterDownloadExtra: () => void;
+  onEnterSimulator: () => void;
+  onDemoImageFrame?: () => void;
   onSignIn: () => void;
   onSignUp: () => void;
   booksCount: number;
@@ -23,6 +25,8 @@ export default function LandingPage({
   onEnterEditors,
   onEnterAdmin,
   onEnterDownloadExtra,
+  onEnterSimulator,
+  onDemoImageFrame,
   onSignIn,
   onSignUp,
   booksCount,
@@ -105,7 +109,7 @@ export default function LandingPage({
           </button>
 
           <a
-            href="https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=43eec2a7-6ad2-4bb6-b751-239896892415"
+            href="/ExtraPadhai.apk"
             download="ExtraPadhai.apk"
             className="group relative px-8 py-5 bg-gradient-to-r from-slate-900/40 to-slate-800/40 hover:from-slate-800/60 hover:to-slate-700/60 border-2 border-slate-600/50 hover:border-slate-400 rounded-2xl text-slate-300 hover:text-white font-extrabold tracking-widest transition-all duration-300 shadow-2xl shadow-slate-900/20 hover:shadow-slate-500/40 flex items-center justify-center gap-4 w-full sm:w-auto uppercase text-sm md:text-lg hover:scale-105 transform"
           >
@@ -113,6 +117,8 @@ export default function LandingPage({
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
             Download APK
           </a>
+
+
         </div>
       </main>
 
