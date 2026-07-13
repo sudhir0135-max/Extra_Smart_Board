@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-07-13] - Definitive Fix: Translucent/Faint Text in Student Panel
+
+### Fixed
+- **Faint/translucent text on lessons with many pages** (`Workspace.tsx`, `index.css`): Root cause identified as TinyMCE's `content_css: 'dark'` editor baking near-white inline colour styles (e.g. `style="color: rgb(226,232,240)"`) into saved HTML. These are invisible on light student themes (Parchment, Mono). Previous CSS `!important` and post-render DOM-stripping fixes were insufficient because React's reconciler only replaces DOM nodes when the HTML **string** changes; if `onSnapshot` re-fires with the same raw HTML the DOM is never updated and `useLayoutEffect` sees nothing to fix.
+  - **Definitive fix**: Added `stripInlineStyles()` utility (using `DOMParser`) that sanitises the HTML string *before* `dangerouslySetInnerHTML` ever sees it. Hooked into a `useMemo` keyed on `activeLesson.id` so DOMParser only runs when the lesson changes, not on every re-render.
+  - Removed inline `color`, `background-color`, `background`, `opacity`, `mix-blend-mode`, and `filter` from all elements, preserving KaTeX internals and `lesson-annotation` spans.
+  - Retained the CSS belt-and-suspenders rules (`.reader-content * { color: inherit !important }`) as a fallback.
+
+
 ## [2026-07-04] - Multi-profile Switcher, Native APK Alignment, XLSX Uploaders, Tablet Simulator, & Git Purge
 
 ### Added

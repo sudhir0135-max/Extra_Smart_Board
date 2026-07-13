@@ -33,20 +33,46 @@ html, body, #root {
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
 }
 
-/* Custom continuous page layouts & callouts */
-.reader-content p,
-.reader-content h1,
-.reader-content h2,
-.reader-content h3,
-.reader-content h4,
-.reader-content h5,
-.reader-content h6,
-.reader-content li,
-.reader-content span,
-.reader-content div {
-  color: inherit;
-  font-family: inherit;
+/* ── Content Color Normalization ───────────────────────────────────────────
+   ROOT CAUSE: TinyMCE's 'dark' content_css bakes inline color styles into
+   saved HTML (e.g. style="color: rgb(226,232,240)") that are invisible on
+   light student themes (parchment, mono).
+
+   FIX: Force every descendant of .reader-content to inherit the theme's
+   text color — which cascades down from the Tailwind theme class on the
+   parent container (e.g. text-[#2a1f0e] for parchment).
+   The !important is required to beat inline styles added by TinyMCE.
+   ─────────────────────────────────────────────────────────────────────────── */
+.reader-content,
+.reader-content * {
+  color: inherit !important;
+  background-color: transparent !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
 }
+
+/* Restore callout box background stripped by the rule above */
+.reader-content .callout {
+  background-color: rgba(59, 130, 246, 0.08) !important;
+  border-left-color: #3b82f6 !important;
+}
+
+/* Restore table cell borders for readability */
+.reader-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+.reader-content td,
+.reader-content th {
+  border: 1px solid rgba(128, 128, 128, 0.3) !important;
+  padding: 0.4rem 0.75rem;
+  background-color: transparent !important;
+}
+.reader-content th {
+  font-weight: 700;
+}
+
 
 /* ── List styles ────────────────────────────────────────────────────────────
    Tailwind Preflight resets list-style to none on all ul/ol.

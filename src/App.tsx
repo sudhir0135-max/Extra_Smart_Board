@@ -22,7 +22,7 @@ import ImageFrame from './components/ImageFrame';
 import { Wifi, WifiOff, Cloud, CheckCircle2, AlertCircle, RefreshCw, Layers, Database, X, Menu, Upload, Palette, Undo, Trash2, Circle, Home, ArrowLeft, BookOpenCheck } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { externalizeBookImages } from './lib/imageExternalizer';
 import AuthModal from './components/AuthModal';
 import { Capacitor } from '@capacitor/core';
@@ -159,10 +159,15 @@ export default function App() {
 
     // Save lessons chapter-wise to avoid 1MB limit and show granular progress
     if (firestoreBook.lessons) {
-      for (let i = 0; i < firestoreBook.lessons.length; i++) {
-        const lesson = firestoreBook.lessons[i];
-        await setDoc(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), lesson);
-        addToast(`Lesson ${i + 1}/${firestoreBook.lessons.length} synchronized.`, 'cloud');
+      const BATCH_SIZE = 20;
+      for (let i = 0; i < firestoreBook.lessons.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = firestoreBook.lessons.slice(i, i + BATCH_SIZE);
+        chunk.forEach(lesson => {
+          batch.set(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), lesson);
+        });
+        await batch.commit();
+        addToast(`Lessons ${i + 1}-${Math.min(i + BATCH_SIZE, firestoreBook.lessons.length)} synchronized.`, 'cloud');
       }
     }
 
@@ -247,23 +252,21 @@ export default function App() {
             const newBooks = [...prev];
             newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
             
-            // Auto-select the first lesson if none is active or it's invalid for this book
-            if (sanitizedLessons.length > 0) {
-               const isValidLesson = sanitizedLessons.some((l: any) => l.id === activeLessonId);
-               if (!isValidLesson) {
-                 setActiveLessonId(sanitizedLessons[0].id);
-               }
-            }
-            
             return newBooks;
           });
+          
+          // Move setActiveLessonId out of the state updater to prevent React render conflicts
+          const isValidLesson = subLessons.some(l => l.id === activeLessonId);
+          if (subLessons.length > 0 && !isValidLesson) {
+            setActiveLessonId(subLessons[0].id);
+          }
         }
       } catch (err) {
         console.error(`Error loading subcollection lessons for book ${selectedBookId}`, err);
       }
     };
     fetchSubcollectionLessons();
-  }, [selectedBookId, activeLessonId]);
+  }, [selectedBookId]); // Removed activeLessonId from dependencies to prevent re-fetching on every chapter change
 
   // Master list of book editors with persistent local storage caching
   const [editors, setEditors] = useState<BookEditor[]>(() => {

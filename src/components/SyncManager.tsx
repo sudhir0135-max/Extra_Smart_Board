@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dbLocal } from '../lib/db';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, writeBatch, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Cloud, CheckCircle2, AlertCircle, RefreshCw, Upload } from 'lucide-react';
 
@@ -23,11 +23,20 @@ export default function SyncManager() {
 
     for (const b of pendingBooks) {
       try {
-        // Omitting sync_status, we only need to update the lessons array on the cloud book
-        const { sync_status, ...rest } = b;
-        
-        // Push the entire updated lessons array for this book to Firebase
-        await setDoc(doc(db, 'books', b.bookId.toString()), { lessons: b.lessons }, { merge: true });
+        const bookIdStr = b.bookId.toString();
+        const lessons = b.lessons || [];
+
+        // Batch write lessons into the subcollection to avoid 1MB limit
+        const BATCH_SIZE = 20;
+        for (let i = 0; i < lessons.length; i += BATCH_SIZE) {
+          const batch = writeBatch(db);
+          const chunk = lessons.slice(i, i + BATCH_SIZE);
+          chunk.forEach((lesson) => {
+            const lessonRef = doc(collection(db, 'books', bookIdStr, 'lessons'), lesson.id);
+            batch.set(lessonRef, lesson);
+          });
+          await batch.commit();
+        }
         
         // Remove local cache to allow Firebase state to override
         await dbLocal.offline_lessons.delete(b.bookId);

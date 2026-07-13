@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
@@ -15,6 +15,43 @@ import renderMathInElement from 'katex/contrib/auto-render';
 import ImageFrame from './ImageFrame';
 import CachedImage from './CachedImage';
 import { getLocalImageSrc } from '../lib/imageCache';
+
+/**
+ * Strips inline CSS properties that TinyMCE's dark editor bakes into saved HTML.
+ * The dark editor (background:#03060c, color:#e2e8f0) stores near-white inline
+ * color styles that become invisible on light student themes (parchment, mono).
+ *
+ * This runs on the HTML STRING before React ever sets dangerouslySetInnerHTML,
+ * so the virtual DOM and real DOM are both clean from the start — no CSS
+ * specificity fight, no post-render DOM manipulation timing window.
+ */
+function stripInlineStyles(html: string): string {
+  if (!html || typeof html !== 'string') return html ?? '';
+
+  // Use DOMParser so we handle nested, malformed, and complex HTML correctly.
+  // Only elements that actually have a style attribute are touched — fast.
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll<HTMLElement>('[style]').forEach(el => {
+    // Never touch KaTeX elements — they manage their own colours internally.
+    if (el.closest('.katex')) return;
+    // Never touch lesson-annotation spans — they have intentional coloured underlines.
+    if (el.classList.contains('lesson-annotation')) return;
+
+    el.style.removeProperty('color');
+    el.style.removeProperty('background-color');
+    el.style.removeProperty('background');
+    el.style.removeProperty('opacity');
+    el.style.removeProperty('mix-blend-mode');
+    el.style.removeProperty('filter');
+
+    // Clean up empty style attributes left behind
+    if (!el.getAttribute('style')?.trim()) {
+      el.removeAttribute('style');
+    }
+  });
+
+  return doc.body.innerHTML;
+}
 
 interface WorkspaceProps {
   selectedBook: Book | null;
@@ -62,6 +99,22 @@ export default function Workspace({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+
+  /**
+   * Pre-sanitize ALL page content strings for the active lesson.
+   * Keyed on activeLesson.id so this only re-runs DOMParser when the lesson
+   * actually changes, NOT on every incidental re-render (theme change, etc.).
+   * The _cleanContent property is used by the render below instead of raw .content.
+   */
+  const sanitizedPages = useMemo(() => {
+    if (!activeLesson?.pages) return [];
+    return activeLesson.pages.map(page => ({
+      ...page,
+      _cleanContent: stripInlineStyles((page as any).content ?? '')
+    }));
+  }, [activeLesson?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
 
   // Text-only annotation speech bubble
   const [activeAnnotation, setActiveAnnotation] = useState<{
@@ -151,10 +204,31 @@ export default function Workspace({
         // silently ignore parse errors in individual lessons
       }
 
+      // ── Strip TinyMCE dark-editor inline colors (belt-and-suspenders) ──────
+      // Root cause: TinyMCE with content_css:'dark' bakes inline color styles
+      // like style="color: rgb(226,232,240)" into saved HTML. These light colors
+      // are invisible on the student's light Parchment/Mono themes.
+      // We remove them from the DOM so the theme's CSS color cascades in cleanly.
+      el.querySelectorAll<HTMLElement>('*').forEach(child => {
+        // Preserve KaTeX's own internal color handling
+        if (child.closest('.katex') || child.closest('.katex-display')) return;
+        // Preserve .lesson-annotation colored underlines
+        if (child.classList.contains('lesson-annotation')) return;
+        
+        child.style.removeProperty('color');
+        child.style.removeProperty('background-color');
+        child.style.removeProperty('background');
+        child.style.removeProperty('opacity');
+        child.style.removeProperty('mix-blend-mode');
+      });
+
+
       // Offline Image translation for rich text content
-      if (typeof (window as any).Capacitor !== 'undefined') {
-        const imgs = el.querySelectorAll('img');
-        imgs.forEach(async (img) => {
+      const imgs = el.querySelectorAll('img');
+      
+      imgs.forEach(async (img) => {
+        // 1. Handle Capacitor offline loading
+        if (typeof (window as any).Capacitor !== 'undefined') {
           const originalSrc = img.getAttribute('src');
           if (originalSrc && originalSrc.startsWith('http') && !img.hasAttribute('data-offline-loaded')) {
             const localSrc = await getLocalImageSrc(originalSrc);
@@ -163,8 +237,26 @@ export default function Workspace({
             }
             img.setAttribute('data-offline-loaded', 'true');
           }
-        });
-      }
+        }
+        
+        // 2. Handle broken images (often caused by pasting images with OCR alt text)
+        // If an image breaks, the browser renders its alt text very faintly with an icon, 
+        // looking like a translucent layer over the text. We replace it with a normal span.
+        const handleBrokenImage = () => {
+          if (img.alt && img.alt.length > 10) {
+            const span = document.createElement('span');
+            span.className = "recovered-alt-text";
+            span.textContent = img.alt;
+            img.replaceWith(span);
+          }
+        };
+
+        if (img.complete) {
+          if (img.naturalWidth === 0 && img.naturalHeight === 0) handleBrokenImage();
+        } else {
+          img.addEventListener('error', handleBrokenImage, { once: true });
+        }
+      });
     });
   }); // run on every layout phase to ensure math is perfectly formatted before user sees it
 
@@ -409,7 +501,7 @@ export default function Workspace({
                   lineWidth={lineWidth}
                   isHighlighter={isHighlighter}
                 />
-                {activeLesson.pages.map((page, index) => (
+                {sanitizedPages.map((page, index) => (
                   <div
                     key={index}
                     id={`pdf-page-${page.pageNumber}`}
@@ -490,10 +582,12 @@ export default function Workspace({
                               />
                             </div>
                           )}
+                          {/* Sanitize page content before injecting — strips TinyMCE dark-editor
+                              inline color styles that appear invisible on light student themes */}
                           <div
                             className="font-serif leading-loose space-y-6 text-[16px] lg:text-[17px] min-[3840px]:text-[34px] min-[3840px]:leading-loose tracking-wide reader-content relative"
                             id={`page-paragraph-content-${page.pageNumber}`}
-                            dangerouslySetInnerHTML={{ __html: page.content }}
+                            dangerouslySetInnerHTML={{ __html: page._cleanContent ?? page.content }}
                             onClick={handleContentClick}
                           />
                         </div>
