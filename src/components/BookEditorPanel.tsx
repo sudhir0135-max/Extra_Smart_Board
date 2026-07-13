@@ -555,7 +555,15 @@ export default function BookEditorPanel({
                       }
 
                       const bookIdStr = assignedBook.id.toString();
-                      const lessons: any[] = offlineBook.lessons ?? [];
+                      const rawLessons: any[] = offlineBook.lessons ?? [];
+
+                      setIsSaving(true);
+                      
+                      // 0. Externalize base64 images to Firebase Storage to prevent 1MB Firestore limit crash
+                      const { externalizeLessonImages } = await import('../lib/imageExternalizer');
+                      const lessons = (await Promise.all(
+                        rawLessons.map(lesson => externalizeLessonImages(lesson, assignedBook.id))
+                      )).map(l => JSON.parse(JSON.stringify(l)));
 
                       // 1. Write lightweight metadata doc (no lessons array = stays tiny)
                       await setDoc(doc(db, 'editor_submissions', bookIdStr), {
@@ -582,14 +590,17 @@ export default function BookEditorPanel({
                         await batch.commit();
                       }
 
+                      setIsSaving(false);
                       alert("Successfully submitted to Admin for review!");
                     } catch (err: any) {
+                      setIsSaving(false);
                       alert("Failed to submit to Admin: " + err.message);
                     }
                   }}
-                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-2 px-3 rounded-lg text-xs font-bold select-none cursor-pointer transition-all shadow-lg shadow-indigo-900/50 mr-2"
+                  disabled={isSaving}
+                  className={`flex items-center gap-1.5 ${isSaving ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'} text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all shadow-lg shadow-indigo-900/50 mr-2`}
                 >
-                  <Cloud className="w-3.5 h-3.5" /> Submit to Admin
+                  <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> {isSaving ? 'Uploading Images...' : 'Submit to Admin'}
                 </button>
               </>
             )}

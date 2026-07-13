@@ -134,7 +134,7 @@ function QuestionItem({ item }: { item: string | InquiryQuestionObj }) {
     <div
       ref={containerRef}
       onContextMenu={(e) => e.preventDefault()}
-      className="group relative p-6 md:p-8 rounded-xl border border-slate-900 bg-slate-950 text-slate-300 text-xl md:text-3xl leading-relaxed select-none shadow-md"
+      className="group relative p-6 md:p-8 rounded-xl border border-slate-900 bg-slate-950 text-slate-300 text-[16px] lg:text-[17px] min-[3840px]:text-[34px] leading-relaxed select-none shadow-md"
       style={{ minHeight: minHeight > 0 ? `${minHeight}px` : undefined }}
     >
       <div className="flex justify-between items-start gap-4">

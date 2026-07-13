@@ -4,6 +4,7 @@
  */
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
@@ -53,6 +54,75 @@ function stripInlineStyles(html: string): string {
   return doc.body.innerHTML;
 }
 
+const MATH_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '$', right: '$', display: false },
+  { left: '\\(', right: '\\)', display: false },
+  { left: '\\[', right: '\\]', display: true },
+];
+
+function VirtualPageWrapper({ virtualRow, measureElement, pageContentHash, children }: any) {
+  const ref = useRef<HTMLDivElement>(null);
+  
+  // Use useLayoutEffect to run synchronously before browser paints to eliminate KaTeX flicker
+  React.useLayoutEffect(() => {
+    if (!ref.current) return;
+    try {
+      renderMathInElement(ref.current, { delimiters: MATH_DELIMITERS, throwOnError: false });
+    } catch {
+      // silently ignore parse errors in individual lessons
+    }
+
+    const imgs = ref.current.querySelectorAll('img');
+    imgs.forEach(async (img) => {
+      // 1. Handle Capacitor offline loading
+      if (typeof (window as any).Capacitor !== 'undefined') {
+        const originalSrc = img.getAttribute('src');
+        if (originalSrc && originalSrc.startsWith('http') && !img.hasAttribute('data-offline-loaded')) {
+          const localSrc = await getLocalImageSrc(originalSrc);
+          if (localSrc !== originalSrc) img.src = localSrc;
+          img.setAttribute('data-offline-loaded', 'true');
+        }
+      }
+      
+      // 2. Handle broken images (often caused by pasting images with OCR alt text)
+      const handleBrokenImage = () => {
+        if (img.alt && img.alt.length > 10) {
+          const span = document.createElement('span');
+          span.className = "recovered-alt-text";
+          span.textContent = img.alt;
+          img.replaceWith(span);
+        }
+      };
+
+      if (img.complete) {
+        if (img.naturalWidth === 0 && img.naturalHeight === 0) handleBrokenImage();
+      } else {
+        img.addEventListener('error', handleBrokenImage, { once: true });
+      }
+    });
+  }, [pageContentHash]);
+
+  return (
+    <div
+      ref={(el) => {
+        ref.current = el;
+        measureElement(el);
+      }}
+      data-index={virtualRow.index}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        transform: `translateY(${virtualRow.start}px)`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 interface WorkspaceProps {
   selectedBook: Book | null;
   activeLesson: Lesson | null;
@@ -97,6 +167,38 @@ export default function Workspace({
   isOnline,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: activeLesson?.pages?.length ?? 0,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 1200,
+    overscan: 2,
+  });
+
+  useEffect(() => {
+    if (!activeLesson?.id) return;
+    const timer = setTimeout(() => {
+      try {
+        const pages = document.querySelectorAll('#seamless-pdf-stack > div[id^="pdf-page-"]');
+        const data = Array.from(pages).map((p) => {
+          return {
+            page: p.id,
+            height: Math.round(p.getBoundingClientRect().height),
+            nodes: p.querySelectorAll('*').length,
+            images: p.querySelectorAll('img').length,
+            katex: p.querySelectorAll('.katex').length
+          };
+        });
+        fetch('http://localhost:3005/report', { 
+          method: 'POST', 
+          body: JSON.stringify(data)
+        }).catch(() => {});
+      } catch (e) {}
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [activeLesson?.id]);
+
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
 
@@ -187,78 +289,7 @@ export default function Workspace({
     }
   }, [activeAnnotation]);
 
-  // Use useLayoutEffect to run synchronously before browser paints to eliminate KaTeX flicker
-  React.useLayoutEffect(() => {
-    const MATH_DELIMITERS = [
-      { left: '$$', right: '$$', display: true },
-      { left: '$', right: '$', display: false },
-      { left: '\\(', right: '\\)', display: false },
-      { left: '\\[', right: '\\]', display: true },
-    ];
-    
-    const containers = document.querySelectorAll<HTMLElement>('.reader-content');
-    containers.forEach(el => {
-      try {
-        renderMathInElement(el, { delimiters: MATH_DELIMITERS, throwOnError: false });
-      } catch {
-        // silently ignore parse errors in individual lessons
-      }
-
-      // ── Strip TinyMCE dark-editor inline colors (belt-and-suspenders) ──────
-      // Root cause: TinyMCE with content_css:'dark' bakes inline color styles
-      // like style="color: rgb(226,232,240)" into saved HTML. These light colors
-      // are invisible on the student's light Parchment/Mono themes.
-      // We remove them from the DOM so the theme's CSS color cascades in cleanly.
-      el.querySelectorAll<HTMLElement>('*').forEach(child => {
-        // Preserve KaTeX's own internal color handling
-        if (child.closest('.katex') || child.closest('.katex-display')) return;
-        // Preserve .lesson-annotation colored underlines
-        if (child.classList.contains('lesson-annotation')) return;
-        
-        child.style.removeProperty('color');
-        child.style.removeProperty('background-color');
-        child.style.removeProperty('background');
-        child.style.removeProperty('opacity');
-        child.style.removeProperty('mix-blend-mode');
-      });
-
-
-      // Offline Image translation for rich text content
-      const imgs = el.querySelectorAll('img');
-      
-      imgs.forEach(async (img) => {
-        // 1. Handle Capacitor offline loading
-        if (typeof (window as any).Capacitor !== 'undefined') {
-          const originalSrc = img.getAttribute('src');
-          if (originalSrc && originalSrc.startsWith('http') && !img.hasAttribute('data-offline-loaded')) {
-            const localSrc = await getLocalImageSrc(originalSrc);
-            if (localSrc !== originalSrc) {
-              img.src = localSrc;
-            }
-            img.setAttribute('data-offline-loaded', 'true');
-          }
-        }
-        
-        // 2. Handle broken images (often caused by pasting images with OCR alt text)
-        // If an image breaks, the browser renders its alt text very faintly with an icon, 
-        // looking like a translucent layer over the text. We replace it with a normal span.
-        const handleBrokenImage = () => {
-          if (img.alt && img.alt.length > 10) {
-            const span = document.createElement('span');
-            span.className = "recovered-alt-text";
-            span.textContent = img.alt;
-            img.replaceWith(span);
-          }
-        };
-
-        if (img.complete) {
-          if (img.naturalWidth === 0 && img.naturalHeight === 0) handleBrokenImage();
-        } else {
-          img.addEventListener('error', handleBrokenImage, { once: true });
-        }
-      });
-    });
-  }); // run on every layout phase to ensure math is perfectly formatted before user sees it
+  // KaTeX rendering moved to VirtualPageWrapper
 
   const handleContentClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -482,14 +513,15 @@ export default function Workspace({
             {/* ── PAGE MODE: render lesson pages as before ── */}
             <div
               id="content-scroll"
-              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root transition-all duration-300"
+              ref={scrollParentRef}
+              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root"
               style={{
                 marginRight: 'max(3%, 28px)', // Always keep strip space only, allowing expanded board to overlay
               }}
             >
               <div
-                className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} transition-all duration-300 rounded-xl pdf-shadow overflow-hidden relative`}
-                style={{ fontSize: `${fontSizeScale}rem` }}
+                className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} rounded-xl relative`}
+                style={{ fontSize: `${fontSizeScale}rem`, height: `${rowVirtualizer.getTotalSize()}px` }}
                 id="seamless-pdf-stack"
               >
                 <ScribbleOverlay
@@ -501,9 +533,17 @@ export default function Workspace({
                   lineWidth={lineWidth}
                   isHighlighter={isHighlighter}
                 />
-                {sanitizedPages.map((page, index) => (
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const page = sanitizedPages[virtualRow.index];
+                  if (!page) return null;
+                  return (
+                  <VirtualPageWrapper
+                    key={page.id || virtualRow.index}
+                    virtualRow={virtualRow}
+                    measureElement={rowVirtualizer.measureElement}
+                    pageContentHash={page._cleanContent}
+                  >
                   <div
-                    key={index}
                     id={`pdf-page-${page.pageNumber}`}
                     className="relative px-[2%] py-6"
                   >
@@ -626,7 +666,9 @@ export default function Workspace({
                       </div>
                     )}
                   </div>
-                ))}
+                  </VirtualPageWrapper>
+                  );
+                })}
               </div>
             </div>
         </>
