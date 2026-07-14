@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Recursive APK bloat recurred**: `public/ExtraPadhai.apk` (68.5 MB) was present in the source `public/` folder, causing Capacitor to bundle the entire previous APK as a static web asset inside every new build. Deleted the file from `public/` and from `android/app/src/main/assets/public/`.
-- **LandingPage download button reverted to local path**: The APK download `href` in `LandingPage.tsx` had been changed back to `/ExtraPadhai.apk` (a local path), breaking the web download and forcing the APK to be bundled. Restored the Firebase Storage URL: `https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=e151bb0e-75ef-4863-9989-472208131430`.
+- **LandingPage download button reverted to local path**: The APK download `href` in `LandingPage.tsx` had been changed back to `/ExtraPadhai.apk` (a local path), breaking the web download and forcing the APK to be bundled. Restored the Firebase Storage URL: `https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=77397704-0cbf-483b-95d4-7d1d72347412`.
 - **Verified no app assets were removed**: `smartboard1img.webp`, `teacher_smartboard.png`, all KaTeX fonts, TinyMCE, JS bundles, CSS, and splash screens are all intact in the new APK.
 - **Firebase Storage URL confirmed in bundle**: `firebasestorage.googleapis.com` present in `index-CS7Wq_Rd.js`; old `/ExtraPadhai.apk` local path absent.
 
