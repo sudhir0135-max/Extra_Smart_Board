@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-07-14] - Android APK Rebuilt with stripInlineStyles Fix
+
+### Fixed
+- **Android APK was using stale pre-fix assets**: The Android `assets/public/` directory contained the Jul 13 10:08 AM build (`index-CgtTAfLD.js`) which predated the `stripInlineStyles` definitive fix. Confirmed Chapter 4 rendering issue was caused by this stale bundle being baked into the APK.
+- **Build pipeline**: Ran fresh `npm run build` → manual asset sync (Capacitor CLI requires Node ≥22, system has v20, so assets were manually copied from `dist/`) → `gradlew assembleDebug`.
+- **Verified fix presence in bundle**: `DOMParser`, `removeProperty`, and `lesson-annotation` guard all confirmed present in `index-CHqNV7RQ.js` inside the APK.
+- **APK details**: 78.85 MB debug APK built Jul 14 2026 07:16 — contains the `stripInlineStyles` fix that sanitises TinyMCE inline `color`/`background-color` styles before `dangerouslySetInnerHTML` so Chapter 4 (and all other lessons) render correctly on Android.
+
 ## [2026-07-13] - Definitive Fix: Translucent/Faint Text in Student Panel
 
 ### Fixed
