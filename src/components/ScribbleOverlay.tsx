@@ -36,7 +36,7 @@ export default function ScribbleOverlay({
 }: ScribbleOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
-  const [currentStroke, setCurrentStroke] = useState<DrawingStroke | null>(null);
+  const currentStrokeRef = useRef<DrawingStroke | null>(null);
   const isDrawing = useRef(false);
 
   // Reset sketches on mount/lesson rotation
@@ -140,45 +140,80 @@ export default function ScribbleOverlay({
     if (!coords) return;
 
     isDrawing.current = true;
-    const newStroke: DrawingStroke = {
+    currentStrokeRef.current = {
       points: [coords],
       color: selectedColor,
       width: lineWidth,
       isHighlighter,
     };
-    setCurrentStroke(newStroke);
+
+    // Draw the initial dot for the stroke
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.beginPath();
+        ctx.fillStyle = selectedColor;
+        ctx.globalAlpha = isHighlighter ? 0.45 : 1.0;
+        ctx.arc(coords.x, coords.y, lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+      }
+    }
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawing.current || !currentStroke || !isDrawingMode) return;
+    if (!isDrawing.current || !currentStrokeRef.current || !isDrawingMode) return;
     e.preventDefault();
 
     const coords = getCoordinates(e);
     if (!coords) return;
 
-    const nextStroke = {
-      ...currentStroke,
-      points: [...currentStroke.points, coords],
-    };
-    setCurrentStroke(nextStroke);
+    const currentStroke = currentStrokeRef.current;
+    const lastPoint = currentStroke.points[currentStroke.points.length - 1];
+    
+    currentStroke.points.push(coords);
 
-    // Live display drawing
+    // Live display drawing (incremental)
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        redrawStrokes(ctx, [...strokes, nextStroke]);
+        ctx.beginPath();
+        ctx.strokeStyle = currentStroke.color;
+        ctx.lineWidth = currentStroke.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.globalAlpha = currentStroke.isHighlighter ? 0.45 : 1.0;
+
+        ctx.moveTo(lastPoint.x, lastPoint.y);
+        ctx.lineTo(coords.x, coords.y);
+        ctx.stroke();
+
+        ctx.globalAlpha = 1.0;
       }
     }
   };
 
   const endDrawing = () => {
-    if (!isDrawing.current || !currentStroke) return;
+    if (!isDrawing.current || !currentStrokeRef.current) return;
     isDrawing.current = false;
 
-    const finalStrokes = [...strokes, currentStroke];
+    // Commit to React state ONLY when stroke ends
+    const finalStrokes = [...strokes, currentStrokeRef.current];
     setStrokes(finalStrokes);
-    setCurrentStroke(null);
+    currentStrokeRef.current = null;
+    
+    // For highlighter, we redrew incrementally which creates darker dots at segment joints
+    // due to alpha overlap. Let's do a single clean redraw of the final path to make it perfect.
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        redrawStrokes(ctx, finalStrokes);
+      }
+    }
+    
     saveStrokes(finalStrokes);
   };
 
