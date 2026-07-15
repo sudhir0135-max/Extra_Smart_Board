@@ -3,7 +3,7 @@ import { Save, Eye, FileText } from 'lucide-react';
 import { Editor } from '@tinymce/tinymce-react';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
 import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
-import renderMathInElement from 'katex/contrib/auto-render';
+import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 import 'katex/dist/katex.min.css';
 
 export interface RichTextEditorProps {
@@ -22,21 +22,27 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
   const [previewContent, setPreviewContent] = useState(initialValue);
 
   useEffect(() => {
-    if (activeSubTab === 'preview' && previewContainerRef.current) {
-      try {
-        renderMathInElement(previewContainerRef.current, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false },
-            { left: '\\(', right: '\\)', display: false },
-            { left: '\\[', right: '\\]', display: true },
-          ],
-          throwOnError: false,
-        });
-      } catch (err) {
-        console.error("Failed to render math inside preview", err);
+    setTimeout(() => {
+      if (previewContainerRef.current) {
+        try {
+          const renderFunc = typeof renderMathInElement === 'function' ? renderMathInElement : (renderMathInElement as any).default;
+          if (typeof renderFunc === 'function') {
+            renderFunc(previewContainerRef.current, {
+              delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+              ],
+              throwOnError: false,
+              ignoredTags: ["script", "noscript", "style", "textarea", "option"]
+            });
+          }
+        } catch (e) {
+          console.error("Katex rendering failed:", e);
+        }
       }
-    }
+    }, 50);
   }, [previewContent, activeSubTab]);
 
   const handleTabSwitch = (tab: 'edit' | 'preview') => {

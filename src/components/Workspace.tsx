@@ -10,9 +10,9 @@ import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
 import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X } from 'lucide-react';
-import { BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
-import renderMathInElement from 'katex/contrib/auto-render';
+import katex from 'katex';
+import { BlockMath } from 'react-katex';
 import ImageFrame from './ImageFrame';
 import CachedImage from './CachedImage';
 import { getLocalImageSrc } from '../lib/imageCache';
@@ -54,24 +54,98 @@ function stripInlineStyles(html: string): string {
   return doc.body.innerHTML;
 }
 
-const MATH_DELIMITERS = [
-  { left: '$$', right: '$$', display: true },
-  { left: '$', right: '$', display: false },
-  { left: '\\(', right: '\\)', display: false },
-  { left: '\\[', right: '\\]', display: true },
-];
+/**
+ * Pre-renders LaTeX math in an HTML string to KaTeX HTML.
+ * Handles: $$...$$, $...$, \[...\], \(...\)
+ *
+ * Operates on TEXT NODES via DOMParser so it never corrupts HTML attributes
+ * or already-rendered KaTeX spans. Runs during the sanitizedPages memo phase
+ * so math is baked into the HTML string before dangerouslySetInnerHTML fires.
+ */
+function renderMathInHtml(html: string): string {
+  if (!html || typeof html !== 'string') return html ?? '';
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // Tags whose text content we should never process for math
+  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'OPTION', 'CODE', 'PRE']);
+
+  // Walk all text nodes in the document body
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = (node as Text).parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      // Skip already-rendered KaTeX content
+      if (parent.closest('.katex, .math-tex')) return NodeFilter.FILTER_REJECT;
+      // Skip technical/code tags
+      if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  const textNodes: Text[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    textNodes.push(node as Text);
+  }
+
+  // Delimiter patterns — ordered: block before inline to avoid conflicts
+  const patterns: Array<{ regex: RegExp; display: boolean }> = [
+    { regex: /\$\$([\s\S]+?)\$\$/g,          display: true  }, // $$...$$
+    { regex: /\\\[([\s\S]+?)\\\]/g,           display: true  }, // \[...\]
+    { regex: /\\\(([\s\S]+?)\\\)/g,           display: false }, // \(...\)
+    { regex: /\$(?!\$)([^$\n]+?)\$/g,        display: false }, // $...$
+  ];
+
+  for (const textNode of textNodes) {
+    let text = textNode.textContent ?? '';
+    let changed = false;
+
+    for (const { regex, display } of patterns) {
+      regex.lastIndex = 0; // reset stateful regex
+      if (!regex.test(text)) continue;
+      regex.lastIndex = 0;
+
+      text = text.replace(regex, (_match, latex) => {
+        changed = true;
+        try {
+          return katex.renderToString(latex.trim(), { throwOnError: false, displayMode: display });
+        } catch {
+          return _match;
+        }
+      });
+    }
+
+    if (changed) {
+      // Replace text node with a span containing rendered KaTeX HTML
+      const span = doc.createElement('span');
+      span.classList.add('katex-inline-wrapper');
+      span.innerHTML = text;
+      textNode.parentNode?.replaceChild(span, textNode);
+    }
+  }
+
+  return doc.body.innerHTML;
+}
 
 function VirtualPageWrapper({ virtualRow, measureElement, pageContentHash, children }: any) {
   const ref = useRef<HTMLDivElement>(null);
   
-  // Use useLayoutEffect to run synchronously before browser paints to eliminate KaTeX flicker
+  // Math is pre-rendered in the HTML string by renderMathInHtml() during sanitizedPages memo.
+  // No post-render DOM walk needed here — keeping useLayoutEffect lean.
   React.useLayoutEffect(() => {
     if (!ref.current) return;
-    try {
-      renderMathInElement(ref.current, { delimiters: MATH_DELIMITERS, throwOnError: false });
-    } catch {
-      // silently ignore parse errors in individual lessons
-    }
+
+    // ── Strip TinyMCE dark-editor inline colors (belt-and-suspenders) ──────
+    ref.current.querySelectorAll<HTMLElement>('*').forEach(child => {
+      if (child.closest('.katex') || child.closest('.katex-display')) return;
+      if (child.classList.contains('lesson-annotation')) return;
+      child.style.removeProperty('color');
+      child.style.removeProperty('background-color');
+      child.style.removeProperty('background');
+      child.style.removeProperty('opacity');
+      child.style.removeProperty('mix-blend-mode');
+    });
 
     const imgs = ref.current.querySelectorAll('img');
     imgs.forEach(async (img) => {
@@ -212,9 +286,12 @@ export default function Workspace({
     if (!activeLesson?.pages) return [];
     return activeLesson.pages.map(page => ({
       ...page,
-      _cleanContent: stripInlineStyles((page as any).content ?? '')
+      // 1. Strip TinyMCE dark-editor inline colour styles first
+      // 2. Pre-render LaTeX ($, $$, \(, \[) to KaTeX HTML so math is in the DOM
+      //    from the very first paint — no unreliable post-render DOM walk needed.
+      _cleanContent: renderMathInHtml(stripInlineStyles((page as any).content ?? ''))
     }));
-  }, [activeLesson?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeLesson?.id, activeLesson?.pages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
@@ -724,22 +801,30 @@ export default function Workspace({
         </div>
       )}
 
-      {/* ANNOTATION UI: Speech Bubble (Popover) */}
+      {/* ANNOTATION UI: Speech Bubble (Popover) — always landscape rectangle */}
       {activeAnnotation && activeAnnotation.mediaType === 'none' && (
         <>
           <div className="fixed inset-0 z-40 bg-transparent cursor-pointer" onClick={() => setActiveAnnotation(null)} />
           <div 
             ref={annotationBubbleRef}
-            className="fixed z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl p-5 min-w-[200px] max-w-[90vw] md:max-w-md transition-opacity duration-200"
+            className="fixed z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl p-5 transition-opacity duration-200"
             style={{
+              /* Always landscape: min-width much wider than max-height allows it to grow tall */
+              minWidth: 'min(560px, 90vw)',
+              maxWidth: 'min(720px, 92vw)',
+              maxHeight: '38vh',
               top: Math.max(10, activeAnnotation.rect.bottom + 10),
-              left: Math.max(10, Math.min(window.innerWidth - 300, activeAnnotation.rect.left + activeAnnotation.rect.width / 2 - 150))
+              /* Re-centre based on the wider 560px bubble */
+              left: Math.max(10, Math.min(window.innerWidth - Math.min(560, window.innerWidth * 0.9) - 10,
+                activeAnnotation.rect.left + activeAnnotation.rect.width / 2 - Math.min(560, window.innerWidth * 0.9) / 2))
             }}
           >
+            {/* Tail arrow */}
             <div className="absolute -top-2 left-1/2 -ml-2 w-4 h-4 bg-slate-900 border-l border-t border-slate-700 transform rotate-45"></div>
+            {/* Scrollable text area — ensures bubble never grows taller than 38vh */}
             <div 
-              className="relative text-slate-200 font-serif leading-loose"
-              style={{ fontSize: activeAnnotation.fontSize }}
+              className="relative text-slate-200 font-serif leading-loose overflow-y-auto"
+              style={{ fontSize: activeAnnotation.fontSize, maxHeight: 'calc(38vh - 40px)' }}
             >
               {activeAnnotation.text}
             </div>

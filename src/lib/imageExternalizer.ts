@@ -10,8 +10,7 @@
  *  - lesson.pages[].leftImage / centerImage / rightImage
  *  - lesson.inquiryQuestions[].image / answerImage
  *  - lesson.inquiryQuestions[].text / answerText  (TinyMCE HTML)
- *
- * Flash-question text is plain text (no images), so it is skipped.
+ *  - lesson.flashQuestions[].question / answer    (TinyMCE HTML)
  */
 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -139,10 +138,21 @@ export async function externalizeLessonImages(lesson: Lesson, bookId: number): P
     })
   );
 
+  const processedFlash = await Promise.all(
+    (lesson.flashQuestions ?? []).map(async (q) => {
+      const [question, answer] = await Promise.all([
+        externalizeHtml(q.question ?? '', basePath),
+        externalizeHtml(q.answer ?? '', basePath),
+      ]);
+      return { ...q, question, answer };
+    })
+  );
+
   return {
     ...lesson,
     pages: processedPages,
     inquiryQuestions: processedInquiry,
+    flashQuestions: processedFlash,
   };
 }
 

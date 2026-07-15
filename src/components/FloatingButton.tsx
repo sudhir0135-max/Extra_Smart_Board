@@ -29,15 +29,23 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
 
   useEffect(() => {
     if (contentRef.current) {
-      renderMathInElement(contentRef.current, {
-        delimiters: [
-          {left: '$$', right: '$$', display: true},
-          {left: '$', right: '$', display: false},
-          {left: '\\(', right: '\\)', display: false},
-          {left: '\\[', right: '\\]', display: true}
-        ],
-        throwOnError: false
-      });
+      try {
+        const renderFunc = typeof renderMathInElement === 'function' ? renderMathInElement : (renderMathInElement as any).default;
+        if (typeof renderFunc === 'function') {
+          renderFunc(contentRef.current, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\(', right: '\\)', display: false},
+              {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false,
+            ignoredTags: ["script", "noscript", "style", "textarea", "option"]
+          });
+        }
+      } catch (e) {
+        console.error("Katex failed:", e);
+      }
     }
   }, [item]);
 
@@ -75,15 +83,23 @@ const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: 
 
   useEffect(() => {
     if (contentRef.current) {
-      renderMathInElement(contentRef.current, {
-        delimiters: [
-          {left: '$$', right: '$$', display: true},
-          {left: '$', right: '$', display: false},
-          {left: '\\(', right: '\\)', display: false},
-          {left: '\\[', right: '\\]', display: true}
-        ],
-        throwOnError: false
-      });
+      try {
+        const renderFunc = typeof renderMathInElement === 'function' ? renderMathInElement : (renderMathInElement as any).default;
+        if (typeof renderFunc === 'function') {
+          renderFunc(contentRef.current, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\(', right: '\\)', display: false},
+              {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false,
+            ignoredTags: ["script", "noscript", "style", "textarea", "option"]
+          });
+        }
+      } catch (e) {
+        console.error("Katex failed:", e);
+      }
     }
   }, [contentText]);
 
@@ -708,7 +724,7 @@ export default function FloatingButton({
         </div>
       )}      {/* 2. FLASH QUESTIONS ACTIVE RETRIEVAL CARDS */}
       {activePanel === 'questions' && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[95vw] sm:w-[800px] max-h-[90vh] bg-[#0b0f19] text-slate-100 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-slate-800/80 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans" id="panel-flashcards">
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[95vw] sm:w-[800px] max-h-[85vh] bg-[#0b0f19] text-slate-100 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-slate-800/80 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans" id="panel-flashcards">
           <div className="bg-slate-950 p-4 px-6 flex items-center justify-between border-b border-slate-900 shrink-0">
             <div className="flex items-center gap-2 text-amber-500 font-bold">
               <HelpCircle className="w-4 h-4" />
@@ -719,21 +735,22 @@ export default function FloatingButton({
             </button>
           </div>
 
-          <div className="p-4 flex-1">
+          <div className="p-3 sm:p-4 flex-1 overflow-y-auto min-h-0">
             {activeQuestion ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Visual Flipped Deck and question detail */}
                 <div
                   id="flash-deck-card"
                   onClick={() => setIsFlipped(!isFlipped)}
-                  className={`aspect-[16/10] w-full max-w-2xl mx-auto rounded-xl relative cursor-pointer select-none transition-all duration-300 border p-4.5 flex flex-col justify-between ${
+                  className={`w-full max-w-2xl mx-auto rounded-xl relative cursor-pointer select-none transition-all duration-300 border p-3 sm:p-4 flex flex-col justify-between ${
                     isFlipped
-                      ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-xl justify-center text-center scale-[1.01]'
+                      ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-xl text-center scale-[1.01]'
                       : 'bg-slate-900 border-slate-800 text-slate-100 hover:border-slate-700'
                   }`}
+                  style={{ minHeight: '120px', maxHeight: '38vh' }}
                 >
                   {/* Status header */}
-                  <div className="flex justify-between items-center text-[8px] font-sans font-bold uppercase tracking-widest opacity-70">
+                  <div className="flex justify-between items-center text-[8px] font-sans font-bold uppercase tracking-widest opacity-70 shrink-0">
                     <span>Card {currentQuestionIdx + 1} of {currentLesson?.flashQuestions.length}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${activeQuestion.difficulty === 'Easy' ? 'bg-emerald-500/20 text-emerald-400' : activeQuestion.difficulty === 'Medium' ? 'bg-amber-500/20 text-amber-500' : 'bg-rose-500/20 text-rose-400'}`}>
                       {activeQuestion.difficulty}
@@ -741,7 +758,7 @@ export default function FloatingButton({
                   </div>
 
                   {/* Body textual block */}
-                  <div className="my-4 font-sans text-[27px] leading-relaxed">
+                  <div className="my-2 font-sans text-base sm:text-xl leading-relaxed overflow-y-auto flex-1">
                     <FlashcardContent 
                       contentText={isFlipped ? activeQuestion.answer : activeQuestion.question}
                       isFlipped={isFlipped}
@@ -749,7 +766,7 @@ export default function FloatingButton({
                   </div>
 
                   {/* Flip Prompt Footer */}
-                  <div className="text-[8px] font-sans font-bold text-center uppercase tracking-widest opacity-60">
+                  <div className="text-[8px] font-sans font-bold text-center uppercase tracking-widest opacity-60 shrink-0">
                     {isFlipped ? 'Reveal active question prompts' : 'Tap cardboard to flip and reveal answer keys'}
                   </div>
                 </div>
