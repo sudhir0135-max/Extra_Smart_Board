@@ -3,7 +3,7 @@ import { Save, Eye, FileText } from 'lucide-react';
 import { Editor } from '@tinymce/tinymce-react';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
 import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
-import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
+import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
 
 export interface RichTextEditorProps {
@@ -21,29 +21,6 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [previewContent, setPreviewContent] = useState(initialValue);
 
-  useEffect(() => {
-    setTimeout(() => {
-      if (previewContainerRef.current) {
-        try {
-          const renderFunc = typeof renderMathInElement === 'function' ? renderMathInElement : (renderMathInElement as any).default;
-          if (typeof renderFunc === 'function') {
-            renderFunc(previewContainerRef.current, {
-              delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false},
-                {left: '\\(', right: '\\)', display: false},
-                {left: '\\[', right: '\\]', display: true}
-              ],
-              throwOnError: false,
-              ignoredTags: ["script", "noscript", "style", "textarea", "option"]
-            });
-          }
-        } catch (e) {
-          console.error("Katex rendering failed:", e);
-        }
-      }
-    }, 50);
-  }, [previewContent, activeSubTab]);
 
   const handleTabSwitch = (tab: 'edit' | 'preview') => {
     if (tab === 'preview' && editorRef.current) {
@@ -149,7 +126,7 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
                 <div 
                   ref={previewContainerRef}
                   className="reader-content prose prose-invert prose-sm font-sans text-slate-200 leading-relaxed space-y-3"
-                  dangerouslySetInnerHTML={{ __html: previewContent }}
+                  dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(previewContent) }}
                 />
               ) : (
                 <span className="text-slate-600 font-mono text-xs italic">Nothing written yet. Add some HTML/paragraphs or upload an image to visualize dynamic preview rendering.</span>

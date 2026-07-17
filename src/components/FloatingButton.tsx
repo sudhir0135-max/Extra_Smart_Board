@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff } from 'lucide-react';
 import { Book, AcademicSubject, Lesson, FlashQuestion, Note, InquiryQuestionObj } from '../types';
-import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
+import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
 import ScribbleOverlay from './ScribbleOverlay';
 
@@ -27,27 +27,7 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
   const image = isAdvanced ? item.image : null;
   const pos = isAdvanced ? item.imagePosition || 'right' : 'right';
 
-  useEffect(() => {
-    if (contentRef.current) {
-      try {
-        const renderFunc = typeof renderMathInElement === 'function' ? renderMathInElement : (renderMathInElement as any).default;
-        if (typeof renderFunc === 'function') {
-          renderFunc(contentRef.current, {
-            delimiters: [
-              {left: '$$', right: '$$', display: true},
-              {left: '$', right: '$', display: false},
-              {left: '\\(', right: '\\)', display: false},
-              {left: '\\[', right: '\\]', display: true}
-            ],
-            throwOnError: false,
-            ignoredTags: ["script", "noscript", "style", "textarea", "option"]
-          });
-        }
-      } catch (e) {
-        console.error("Katex failed:", e);
-      }
-    }
-  }, [item]);
+
 
   return (
     <div className="flex-1 min-w-0 pointer-events-auto" ref={contentRef}>
@@ -64,9 +44,9 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
         
         <div className="flex-1 font-medium">
           {isAdvanced ? (
-            <div className="reader-content prose prose-invert prose-emerald max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl" dangerouslySetInnerHTML={{ __html: item.text }} />
+            <div className="reader-content prose prose-invert prose-emerald max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.text) }} />
           ) : (
-            <span>{item}</span>
+            <span dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item) }} />
           )}
         </div>
 
@@ -81,28 +61,6 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
 const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: string, isFlipped: boolean }) => {
   const contentRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (contentRef.current) {
-      try {
-        const renderFunc = typeof renderMathInElement === 'function' ? renderMathInElement : (renderMathInElement as any).default;
-        if (typeof renderFunc === 'function') {
-          renderFunc(contentRef.current, {
-            delimiters: [
-              {left: '$$', right: '$$', display: true},
-              {left: '$', right: '$', display: false},
-              {left: '\\(', right: '\\)', display: false},
-              {left: '\\[', right: '\\]', display: true}
-            ],
-            throwOnError: false,
-            ignoredTags: ["script", "noscript", "style", "textarea", "option"]
-          });
-        }
-      } catch (e) {
-        console.error("Katex failed:", e);
-      }
-    }
-  }, [contentText]);
-
   return (
     <div ref={contentRef} className="flex items-start gap-4">
       <div className={`font-black shrink-0 mt-2 select-none ${isFlipped ? 'text-slate-900/60' : 'text-amber-500/70'}`}>
@@ -110,7 +68,7 @@ const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: 
       </div>
       <div 
         className={`flex-1 reader-content prose max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl ${isFlipped ? 'font-extrabold text-shadow-sm text-slate-950 prose-p:text-slate-950 prose-headings:text-slate-950 prose-strong:text-slate-950 prose-em:text-slate-950' : 'prose-invert prose-emerald font-semibold text-slate-100 prose-p:text-slate-100 prose-headings:text-slate-100'}`}
-        dangerouslySetInnerHTML={{ __html: contentText }} 
+        dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(contentText) }} 
       />
     </div>
   );

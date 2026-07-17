@@ -154,8 +154,24 @@ export default function App() {
     const firestoreBook: Book = JSON.parse(JSON.stringify(cleanBook));
     
     // Save metadata without lessons to the main document
-    const bookMeta = { ...firestoreBook, lessons: [] };
+    const bookMeta = { ...firestoreBook, lessons: [], lessonCount: firestoreBook.lessons?.length || 0 };
     await setDoc(doc(db, 'books', firestoreBook.id.toString()), bookMeta);
+    // Clean up orphaned lessons in the subcollection before saving new ones
+    const { collection, getDocs } = await import('firebase/firestore');
+    const existingLessonsSnap = await getDocs(collection(db, 'books', firestoreBook.id.toString(), 'lessons'));
+    const currentLessonIds = new Set(firestoreBook.lessons?.map(l => l.id) || []);
+    
+    let deleteBatch = writeBatch(db);
+    let deleteCount = 0;
+    existingLessonsSnap.docs.forEach(d => {
+      if (!currentLessonIds.has(d.id)) {
+        deleteBatch.delete(d.ref);
+        deleteCount++;
+      }
+    });
+    if (deleteCount > 0) {
+      await deleteBatch.commit();
+    }
 
     // Save lessons chapter-wise to avoid 1MB limit and show granular progress
     if (firestoreBook.lessons) {
@@ -200,7 +216,7 @@ export default function App() {
     let batch = writeBatch(db);
     let count = 0;
     for (const b of cleanBooks) {
-      const bookMeta = { ...b, lessons: [] };
+      const bookMeta = { ...b, lessons: [], lessonCount: b.lessons?.length || 0 };
       batch.set(doc(db, 'books', b.id.toString()), bookMeta);
       count++;
       if (b.lessons) {
@@ -221,51 +237,58 @@ export default function App() {
     setFirebaseBooks(cleanBooks);
   };
 
+  const fetchBookLessons = async (bookId: number) => {
+    try {
+      const { collection, getDocs } = await import('firebase/firestore');
+      const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
+      
+      if (!lessonsSnap.empty) {
+        const subLessons = lessonsSnap.docs.map(ld => ld.data());
+        let fetchedValidLesson = false;
+        
+        setFirebaseBooks(prev => {
+          const bookIndex = prev.findIndex(b => b.id === bookId);
+          if (bookIndex === -1) return prev;
+          
+          const book = prev[bookIndex];
+          const allLessons = [...book.lessons, ...subLessons];
+          const dedupedLessons = Array.from(new Map(allLessons.map((l: any) => [l.id, l])).values());
+          
+          const sanitizedLessons = dedupedLessons
+            .filter((l: any) => l !== null && l !== undefined)
+            .map((l: any) => ({
+              ...l,
+              pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+              flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
+            }));
+            
+          const newBooks = [...prev];
+          newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
+          
+          // Move setActiveLessonId out of the state updater to prevent React render conflicts
+          const isValidLesson = sanitizedLessons.some(l => l.id === activeLessonId);
+          if (sanitizedLessons.length > 0 && !isValidLesson) {
+             fetchedValidLesson = true;
+          }
+
+          return newBooks;
+        });
+        
+        if (fetchedValidLesson) {
+           setActiveLessonId(subLessons[0]?.id);
+        }
+      }
+    } catch (err) {
+      console.error(`Error loading subcollection lessons for book ${bookId}`, err);
+    }
+  };
+
   const [selectedBookId, setSelectedBookId] = useState<number>(1);
   const [activeLessonId, setActiveLessonId] = useState<string>('think-1');
 
   useEffect(() => {
     if (!selectedBookId) return;
-    const fetchSubcollectionLessons = async () => {
-      try {
-        const { collection, getDocs } = await import('firebase/firestore');
-        const lessonsSnap = await getDocs(collection(db, 'books', selectedBookId.toString(), 'lessons'));
-        
-        if (!lessonsSnap.empty) {
-          const subLessons = lessonsSnap.docs.map(ld => ld.data());
-          setFirebaseBooks(prev => {
-            const bookIndex = prev.findIndex(b => b.id === selectedBookId);
-            if (bookIndex === -1) return prev;
-            
-            const book = prev[bookIndex];
-            const allLessons = [...book.lessons, ...subLessons];
-            const dedupedLessons = Array.from(new Map(allLessons.map((l: any) => [l.id, l])).values());
-            
-            const sanitizedLessons = dedupedLessons
-              .filter((l: any) => l !== null && l !== undefined)
-              .map((l: any) => ({
-                ...l,
-                pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
-                flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
-              }));
-              
-            const newBooks = [...prev];
-            newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
-            
-            return newBooks;
-          });
-          
-          // Move setActiveLessonId out of the state updater to prevent React render conflicts
-          const isValidLesson = subLessons.some(l => l.id === activeLessonId);
-          if (subLessons.length > 0 && !isValidLesson) {
-            setActiveLessonId(subLessons[0].id);
-          }
-        }
-      } catch (err) {
-        console.error(`Error loading subcollection lessons for book ${selectedBookId}`, err);
-      }
-    };
-    fetchSubcollectionLessons();
+    fetchBookLessons(selectedBookId);
   }, [selectedBookId]); // Removed activeLessonId from dependencies to prevent re-fetching on every chapter change
 
   // Master list of book editors with persistent local storage caching
@@ -934,6 +957,7 @@ export default function App() {
         saveBookToFirebase={saveBookToFirebase}
         deleteBookFromFirebase={deleteBookFromFirebase}
         bulkUpdateBooksInFirebase={bulkUpdateBooksInFirebase}
+        fetchBookLessons={fetchBookLessons}
         onClose={() => setActiveScreen('landing')}
         academicClasses={academicClasses}
         academicSubjects={academicSubjects}
@@ -1003,6 +1027,7 @@ export default function App() {
         globalLogo={globalLogo}
         books={books}
         saveBookToFirebase={saveBookToFirebase}
+        fetchBookLessons={fetchBookLessons}
         editors={editors}
         onClose={() => {
           if (previewSubmissionBookId !== null) {

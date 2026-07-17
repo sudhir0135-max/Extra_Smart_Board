@@ -16,6 +16,8 @@ import { BlockMath } from 'react-katex';
 import ImageFrame from './ImageFrame';
 import CachedImage from './CachedImage';
 import { getLocalImageSrc } from '../lib/imageCache';
+import { renderMathInRawHtml } from '../lib/mathPreprocessor';
+import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 
 /**
  * Strips inline CSS properties that TinyMCE's dark editor bakes into saved HTML.
@@ -37,10 +39,19 @@ function stripInlineStyles(html: string): string {
     if (el.closest('.katex')) return;
     // Never touch lesson-annotation spans — they have intentional coloured underlines.
     if (el.classList.contains('lesson-annotation')) return;
+    const col = el.style.color;
+    const bg = el.style.backgroundColor;
+    
+    if (col === 'rgb(226, 232, 240)' || col === '#e2e8f0') {
+      el.style.removeProperty('color');
+    }
+    if (bg === 'rgb(3, 6, 12)' || bg === '#03060c' || bg === 'rgba(0, 0, 0, 0)') {
+      el.style.removeProperty('background-color');
+    }
+    if (el.style.background === 'rgb(3, 6, 12)' || el.style.background === '#03060c') {
+      el.style.removeProperty('background');
+    }
 
-    el.style.removeProperty('color');
-    el.style.removeProperty('background-color');
-    el.style.removeProperty('background');
     el.style.removeProperty('opacity');
     el.style.removeProperty('mix-blend-mode');
     el.style.removeProperty('filter');
@@ -54,79 +65,7 @@ function stripInlineStyles(html: string): string {
   return doc.body.innerHTML;
 }
 
-/**
- * Pre-renders LaTeX math in an HTML string to KaTeX HTML.
- * Handles: $$...$$, $...$, \[...\], \(...\)
- *
- * Operates on TEXT NODES via DOMParser so it never corrupts HTML attributes
- * or already-rendered KaTeX spans. Runs during the sanitizedPages memo phase
- * so math is baked into the HTML string before dangerouslySetInnerHTML fires.
- */
-function renderMathInHtml(html: string): string {
-  if (!html || typeof html !== 'string') return html ?? '';
 
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-
-  // Tags whose text content we should never process for math
-  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'OPTION', 'CODE', 'PRE']);
-
-  // Walk all text nodes in the document body
-  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = (node as Text).parentElement;
-      if (!parent) return NodeFilter.FILTER_REJECT;
-      // Skip already-rendered KaTeX content
-      if (parent.closest('.katex, .math-tex')) return NodeFilter.FILTER_REJECT;
-      // Skip technical/code tags
-      if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    }
-  });
-
-  const textNodes: Text[] = [];
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    textNodes.push(node as Text);
-  }
-
-  // Delimiter patterns — ordered: block before inline to avoid conflicts
-  const patterns: Array<{ regex: RegExp; display: boolean }> = [
-    { regex: /\$\$([\s\S]+?)\$\$/g,          display: true  }, // $$...$$
-    { regex: /\\\[([\s\S]+?)\\\]/g,           display: true  }, // \[...\]
-    { regex: /\\\(([\s\S]+?)\\\)/g,           display: false }, // \(...\)
-    { regex: /\$(?!\$)([^$\n]+?)\$/g,        display: false }, // $...$
-  ];
-
-  for (const textNode of textNodes) {
-    let text = textNode.textContent ?? '';
-    let changed = false;
-
-    for (const { regex, display } of patterns) {
-      regex.lastIndex = 0; // reset stateful regex
-      if (!regex.test(text)) continue;
-      regex.lastIndex = 0;
-
-      text = text.replace(regex, (_match, latex) => {
-        changed = true;
-        try {
-          return katex.renderToString(latex.trim(), { throwOnError: false, displayMode: display });
-        } catch {
-          return _match;
-        }
-      });
-    }
-
-    if (changed) {
-      // Replace text node with a span containing rendered KaTeX HTML
-      const span = doc.createElement('span');
-      span.classList.add('katex-inline-wrapper');
-      span.innerHTML = text;
-      textNode.parentNode?.replaceChild(span, textNode);
-    }
-  }
-
-  return doc.body.innerHTML;
-}
 
 function VirtualPageWrapper({ virtualRow, measureElement, pageContentHash, children }: any) {
   const ref = useRef<HTMLDivElement>(null);
@@ -140,11 +79,19 @@ function VirtualPageWrapper({ virtualRow, measureElement, pageContentHash, child
     ref.current.querySelectorAll<HTMLElement>('*').forEach(child => {
       if (child.closest('.katex') || child.closest('.katex-display')) return;
       if (child.classList.contains('lesson-annotation')) return;
-      child.style.removeProperty('color');
-      child.style.removeProperty('background-color');
-      child.style.removeProperty('background');
-      child.style.removeProperty('opacity');
-      child.style.removeProperty('mix-blend-mode');
+      const col = child.style.color;
+      const bg = child.style.backgroundColor;
+      
+      // Strip ONLY the default TinyMCE dark theme colors that get accidentally baked in
+      if (col === 'rgb(226, 232, 240)' || col === '#e2e8f0') {
+        child.style.removeProperty('color');
+      }
+      if (bg === 'rgb(3, 6, 12)' || bg === '#03060c' || bg === 'rgba(0, 0, 0, 0)') {
+        child.style.removeProperty('background-color');
+      }
+      if (child.style.background === 'rgb(3, 6, 12)' || child.style.background === '#03060c') {
+        child.style.removeProperty('background');
+      }
     });
 
     const imgs = ref.current.querySelectorAll('img');
@@ -170,9 +117,9 @@ function VirtualPageWrapper({ virtualRow, measureElement, pageContentHash, child
       };
 
       if (img.complete) {
-        if (img.naturalWidth === 0 && img.naturalHeight === 0) handleBrokenImage();
+        if (img.naturalHeight === 0) handleBrokenImage();
       } else {
-        img.addEventListener('error', handleBrokenImage, { once: true });
+        img.addEventListener('error', handleBrokenImage);
       }
     });
   }, [pageContentHash]);
@@ -287,9 +234,8 @@ export default function Workspace({
     return activeLesson.pages.map(page => ({
       ...page,
       // 1. Strip TinyMCE dark-editor inline colour styles first
-      // 2. Pre-render LaTeX ($, $$, \(, \[) to KaTeX HTML so math is in the DOM
-      //    from the very first paint — no unreliable post-render DOM walk needed.
-      _cleanContent: renderMathInHtml(stripInlineStyles((page as any).content ?? ''))
+      // 2. Pre-render LaTeX to KaTeX HTML
+      _cleanContent: renderMathInRawHtml(stripInlineStyles((page as any).content ?? ''))
     }));
   }, [activeLesson?.id, activeLesson?.pages]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -351,22 +297,7 @@ export default function Workspace({
     onBlackboardToggle?.(false);
   };
 
-  // Auto-render math inside speech-bubble annotation popups
-  React.useEffect(() => {
-    if (activeAnnotation && annotationBubbleRef.current) {
-      renderMathInElement(annotationBubbleRef.current, {
-        delimiters: [
-          {left: '$$', right: '$$', display: true},
-          {left: '$', right: '$', display: false},
-          {left: '\\(', right: '\\)', display: false},
-          {left: '\\[', right: '\\]', display: true}
-        ],
-        throwOnError: false
-      });
-    }
-  }, [activeAnnotation]);
 
-  // KaTeX rendering moved to VirtualPageWrapper
 
   const handleContentClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -825,9 +756,8 @@ export default function Workspace({
             <div 
               className="relative text-slate-200 font-serif leading-loose overflow-y-auto"
               style={{ fontSize: activeAnnotation.fontSize, maxHeight: 'calc(38vh - 40px)' }}
-            >
-              {activeAnnotation.text}
-            </div>
+              dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(activeAnnotation.text) }}
+            />
           </div>
         </>
       )}

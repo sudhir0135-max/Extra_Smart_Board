@@ -62,12 +62,14 @@ interface BookEditorPanelProps {
   isPreviewMode?: boolean;
   previewBookId?: number | null;
   onApproveSubmission?: (bookId: number, lessons: Lesson[]) => Promise<void>;
+  fetchBookLessons?: (bookId: number) => Promise<void>;
 }
 
 export default function BookEditorPanel({
   books,
   saveBookToFirebase,
   editors,
+  fetchBookLessons,
   onClose,
   globalLogo,
   currentUser,
@@ -107,6 +109,12 @@ export default function BookEditorPanel({
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (assignedBookId && fetchBookLessons) {
+      fetchBookLessons(assignedBookId);
+    }
+  }, [assignedBookId, fetchBookLessons]);
 
   // Selected Chapter / Page index for deep editing
   const [flashSuccess, setFlashSuccess] = useState<string | null>(null);
@@ -1031,6 +1039,7 @@ export default function BookEditorPanel({
                       <div className="space-y-1">
                         <span className="text-[8px] font-mono uppercase text-[#707a6c] block">Rich Content Text Block (Supports standard dynamic markup):</span>
                         <RichTextEditor
+                          key={`${assignedBookId}-${selectedLessonId}-${selectedPageIndex}`}
                           initialValue={pageContentDraft}
                           onSave={(content) => handleUpdatePage(selectedPageIndex, content)}
                           isSaving={isSaving}

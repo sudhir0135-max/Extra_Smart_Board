@@ -55,6 +55,7 @@ export interface Book {
   coverImage?: string | null;
   classId?: string | null;
   subjectId?: string | null;
+  lessonCount?: number;
   lessons: Lesson[];
 }
 

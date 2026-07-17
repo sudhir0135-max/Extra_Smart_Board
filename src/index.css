@@ -43,12 +43,9 @@ html, body, #root {
    parent container (e.g. text-[#2a1f0e] for parchment).
    The !important is required to beat inline styles added by TinyMCE.
    ─────────────────────────────────────────────────────────────────────────── */
-.reader-content,
-.reader-content * {
-  color: inherit !important;
-  background-color: transparent !important;
-  opacity: 1 !important;
-  mix-blend-mode: normal !important;
+.reader-content {
+  color: inherit;
+  background-color: transparent;
 }
 
 /* Restore callout box background stripped by the rule above */

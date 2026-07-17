@@ -54,6 +54,7 @@ export interface AdminPanelProps {
   globalLogo?: string | null;
   editorSubmissions?: EditorSubmission[];
   onReviewSubmission?: (bookId: number) => void;
+  fetchBookLessons?: (bookId: number) => Promise<void>;
 }
 
 export default function AdminPanel({
@@ -61,6 +62,7 @@ export default function AdminPanel({
   saveBookToFirebase,
   deleteBookFromFirebase,
   bulkUpdateBooksInFirebase,
+  fetchBookLessons,
   onClose,
   academicClasses,
   academicSubjects,
@@ -99,6 +101,14 @@ export default function AdminPanel({
 
   // Selected entities for deep editing
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
+
+  useEffect(() => {
+    if (selectedBookId && fetchBookLessons) {
+      fetchBookLessons(selectedBookId);
+    }
+  }, [selectedBookId, fetchBookLessons]);
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number | null>(null);
 
@@ -599,14 +609,12 @@ export default function AdminPanel({
     }
   };
 
-  const handleUpdatePage = async (index: number) => {
-    if (!activeBook || !activeLesson) return;
+  const handleUpdatePage = async (index: number | null, overrideContent?: string) => {
+    if (!activeBook || !activeLesson || index === null) return;
     
-    // Parse equations text back into array
-    const eqsArray = pageEquationsDraft
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
+    // Auto-extract equations to ensure they sync properly on save
+    const rawEquations = pageEquationsDraft.split('\n').map(eq => eq.trim()).filter(eq => eq !== '');
+    const eqsArray = rawEquations.length > 0 ? rawEquations : [];
 
     try {
       const modifiedBook = {
@@ -619,7 +627,7 @@ export default function AdminPanel({
                 if (pIdx === index) {
                   return {
                     ...p,
-                    content: pageContentDraft,
+                    content: overrideContent !== undefined ? overrideContent : pageContentDraft,
                     figure: pageFigureCaption ? { caption: pageFigureCaption, svgType: pageFigureType } : null,
                     equations: eqsArray.length > 0 ? eqsArray : null,
                     leftImage: pageLeftImageDraft || null,
@@ -862,7 +870,7 @@ export default function AdminPanel({
                   <div className="bg-[#0d1323] border border-slate-800 rounded-xl p-4.5">
                     <span className="text-[8.5px] uppercase font-mono tracking-widest text-[#707a6c] block">Total Book Chapters</span>
                     <span className="text-2xl font-serif font-bold text-emerald-450 block mt-1">
-                      {books.reduce((acc, b) => acc + (b.lessons?.length || 0), 0)}
+                      {books.reduce((acc, b) => acc + (b.lessonCount ?? b.lessons?.length ?? 0), 0)}
                     </span>
                     <span className="text-[10px] font-sans text-slate-400">Continuous Lessons</span>
                   </div>
@@ -996,7 +1004,7 @@ export default function AdminPanel({
                                       <div className="w-2 h-5 rounded-sm flex-shrink-0" style={{ backgroundColor: b.color || '#4a3060' }} />
                                       <div>
                                         <span className="font-bold text-slate-200 block">{b.title}</span>
-                                        <span className="text-[9px] text-slate-450 block">by {b.author} • {b.lessons?.length || 0} Ch</span>
+                                        <span className="text-[9px] text-slate-450 block">by {b.author} • {b.lessonCount ?? b.lessons?.length ?? 0} Ch</span>
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -1140,7 +1148,7 @@ export default function AdminPanel({
                                       <div className="w-2 h-5 rounded-sm flex-shrink-0" style={{ backgroundColor: b.color || '#4a3060' }} />
                                       <div>
                                         <span className="font-bold text-slate-200 block">{b.title}</span>
-                                        <span className="text-[9px] text-slate-450 block font-mono">by {b.author} • {b.lessons?.length || 0} Ch • Class {b.classId ? academicClasses.find(c => c.id === b.classId)?.name : 'unassigned'}</span>
+                                        <span className="text-[9px] text-slate-450 block font-mono">by {b.author} • {b.lessonCount ?? b.lessons?.length ?? 0} Ch • Class {b.classId ? academicClasses.find(c => c.id === b.classId)?.name : 'unassigned'}</span>
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -1329,10 +1337,30 @@ export default function AdminPanel({
               {/* COL 2: BOOKS VERTICAL RAIL TRACK LIST */}
               <div className="w-[320px] bg-[#060a13] border-r border-slate-900 flex flex-col overflow-hidden select-none flex-shrink-0">
                 <div className="flex-1 overflow-y-auto p-2 space-y-1.5 no-scrollbar" id="books-crud-scroll-track">
-                  <span className="text-[8px] font-mono tracking-widest text-[#707a6c] uppercase block p-2">
-                    RECORDS IN DIRECTORY ({books.length})
-                  </span>
-                  {books.map(b => {
+                  <div className="p-2 space-y-2">
+                    <span className="text-[8px] font-mono tracking-widest text-[#707a6c] uppercase block">
+                      RECORDS IN DIRECTORY ({books.filter(b => (selectedClassFilter === 'all' || b.classId === selectedClassFilter) && (selectedSubjectFilter === 'all' || b.subjectId === selectedSubjectFilter)).length})
+                    </span>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedClassFilter}
+                        onChange={e => setSelectedClassFilter(e.target.value)}
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-1 py-1 text-[10px] text-slate-300 focus:outline-none"
+                      >
+                        <option value="all">All Classes</option>
+                        {academicClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <select
+                        value={selectedSubjectFilter}
+                        onChange={e => setSelectedSubjectFilter(e.target.value)}
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-1 py-1 text-[10px] text-slate-300 focus:outline-none"
+                      >
+                        <option value="all">All Subjects</option>
+                        {academicSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {books.filter(b => (selectedClassFilter === 'all' || b.classId === selectedClassFilter) && (selectedSubjectFilter === 'all' || b.subjectId === selectedSubjectFilter)).map(b => {
                     const isActive = selectedBookId === b.id;
                     const bClass = academicClasses.find(c => c.id === b.classId);
                     const bSubject = academicSubjects.find(s => s.id === b.subjectId);
@@ -1420,7 +1448,7 @@ export default function AdminPanel({
                           <span className="italic block max-w-[130px] truncate">by {b.author}</span>
                           <div className="flex items-center gap-2">
                             <span className="text-indigo-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">Click to Edit</span>
-                            <span className="bg-slate-950 border border-slate-900 px-1.5 rounded font-mono font-extrabold block">{b.lessons?.length || 0} Ch</span>
+                            <span className="bg-slate-950 border border-slate-900 px-1.5 rounded font-mono font-extrabold block">{b.lessonCount ?? b.lessons?.length ?? 0} Ch</span>
                           </div>
                         </div>
                       </div>
@@ -1661,9 +1689,12 @@ export default function AdminPanel({
                                         Page HTML Rich-text Paragraphs Content:
                                       </span>
                                       <RichTextEditor
-                                        value={pageContentDraft}
-                                        onChange={setPageContentDraft}
-                                        onSave={() => handleUpdatePage(selectedPageIndex)}
+                                        key={`${selectedLessonId}-${selectedPageIndex}`}
+                                        initialValue={pageContentDraft}
+                                        onSave={(content) => {
+                                          setPageContentDraft(content);
+                                          handleUpdatePage(selectedPageIndex, content);
+                                        }}
                                         leftImage={pageLeftImageDraft}
                                         rightImage={pageRightImageDraft}
                                       />
