@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpen, ShieldAlert, GraduationCap, PenTool, ArrowRight, Settings, Sparkles } from 'lucide-react';
+import { storage } from '../lib/firebase';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 interface LandingPageProps {
   onEnterStudents: () => void;
@@ -33,6 +35,14 @@ export default function LandingPage({
   editorsCount,
   globalLogo,
 }: LandingPageProps) {
+  const [apkUrl, setApkUrl] = useState<string>("https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=77397704-0cbf-483b-95d4-7d1d72347412");
+
+  useEffect(() => {
+    getDownloadURL(ref(storage, 'apk/ExtraPadhai.apk'))
+      .then((url) => setApkUrl(url))
+      .catch((err) => console.error("Failed to fetch APK URL:", err));
+  }, []);
+
   return (
     <div className="min-h-screen w-full bg-[#070b13] text-slate-100 flex flex-col justify-between font-sans relative overflow-hidden" id="landing-page-container">
       {/* Dynamic Grid Background Accent */}
@@ -109,7 +119,7 @@ export default function LandingPage({
           </button>
 
           <a
-            href="https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=77397704-0cbf-483b-95d4-7d1d72347412"
+            href={apkUrl}
             download="ExtraPadhai.apk"
             className="group relative px-8 py-5 bg-gradient-to-r from-slate-900/40 to-slate-800/40 hover:from-slate-800/60 hover:to-slate-700/60 border-2 border-slate-600/50 hover:border-slate-400 rounded-2xl text-slate-300 hover:text-white font-extrabold tracking-widest transition-all duration-300 shadow-2xl shadow-slate-900/20 hover:shadow-slate-500/40 flex items-center justify-center gap-4 w-full sm:w-auto uppercase text-sm md:text-lg hover:scale-105 transform"
           >
