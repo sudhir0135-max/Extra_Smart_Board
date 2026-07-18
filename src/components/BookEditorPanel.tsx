@@ -139,6 +139,7 @@ export default function BookEditorPanel({
   const [pageLeftImageDraft, setPageLeftImageDraft] = useState('');
   const [pageCenterImageDraft, setPageCenterImageDraft] = useState('');
   const [pageRightImageDraft, setPageRightImageDraft] = useState('');
+  const [pageIframeUrlDraft, setPageIframeUrlDraft] = useState('');
   const [pageFigureCaption, setPageFigureCaption] = useState('');
   const [pageFigureType, setPageFigureType] = useState<'brain' | 'river' | 'ecosystem' | 'math' | 'music' | 'language' | 'fairness'>('brain');
   const [pageEquationsDraft, setPageEquationsDraft] = useState('');
@@ -184,6 +185,7 @@ export default function BookEditorPanel({
         setPageLeftImageDraft((page as any).leftImage || '');
         setPageCenterImageDraft((page as any).centerImage || '');
         setPageRightImageDraft((page as any).rightImage || '');
+        setPageIframeUrlDraft(page.iframeUrl || '');
         setPageFigureCaption(page.figure?.caption || '');
         setPageFigureType(page.figure?.svgType || 'brain');
         setPageEquationsDraft(page.equations ? page.equations.join('\n') : '');
@@ -193,10 +195,12 @@ export default function BookEditorPanel({
       setPageLeftImageDraft('');
       setPageCenterImageDraft('');
       setPageRightImageDraft('');
+      setPageIframeUrlDraft('');
       setPageFigureCaption('');
       setPageEquationsDraft('');
     }
-  }, [selectedPageIndex, selectedLessonId, assignedBook, isSaving]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPageIndex, selectedLessonId]);
 
   // 1. LESSON CRUD OPERATIONS
   const handleAddLesson = async () => {
@@ -366,6 +370,7 @@ export default function BookEditorPanel({
                   return {
                     ...p,
                     content: finalContent,
+                    iframeUrl: pageIframeUrlDraft || null,
                     leftImage: pageLeftImageDraft || null,
                     centerImage: pageCenterImageDraft || null,
                     rightImage: pageRightImageDraft || null,
@@ -609,6 +614,17 @@ export default function BookEditorPanel({
                   className={`flex items-center gap-1.5 ${isSaving ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'} text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all shadow-lg shadow-indigo-900/50 mr-2`}
                 >
                   <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> {isSaving ? 'Uploading Images...' : 'Submit to Admin'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (window.confirm("Are you sure you want to discard your local draft and sync from the server? This will erase any unpublished changes you have made.")) {
+                      await dbLocal.offline_lessons.where('bookId').equals(activeBook.id).delete();
+                      window.location.reload();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 bg-red-600/90 hover:bg-red-500 cursor-pointer text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all mr-2"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Discard Local Draft
                 </button>
               </>
             )}
@@ -1066,6 +1082,25 @@ export default function BookEditorPanel({
                             onChange={e => setPageEquationsDraft(e.target.value)}
                             rows={3}
                             placeholder="A \rightarrow B (Do not include double slashes. Write raw LaTeX parameters)"
+                            className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
+                          />
+                        </div>
+
+                        {/* IFRAME / CUSTOM HTML URL */}
+                        <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2 md:col-span-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
+                              Iframe URL (Interactive HTML)
+                            </span>
+                            <span className="text-[8px] font-mono text-slate-500 select-none bg-slate-950 p-0.5 rounded px-1">
+                              Overrides Text Editor
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            value={pageIframeUrlDraft}
+                            onChange={e => setPageIframeUrlDraft(e.target.value)}
+                            placeholder="https://firebasestorage.googleapis.com/.../your-custom-mindmap.html"
                             className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
                           />
                         </div>

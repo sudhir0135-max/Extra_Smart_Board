@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Book, Lesson, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject, EditorSubmission } from './types';
 import { BOOKS_DATA } from './data/books';
 import BookShelf from './components/BookShelf';
@@ -136,7 +136,16 @@ export default function App() {
         }
         
         loadedBooks.sort((a,b) => a.id - b.id);
-        setFirebaseBooks(loadedBooks);
+        setFirebaseBooks(prev => {
+          const newBooks = loadedBooks.map(lb => {
+            const existingBook = prev.find(p => p.id === lb.id);
+            if (existingBook && existingBook.lessons && existingBook.lessons.length > 0 && (!lb.lessons || lb.lessons.length === 0)) {
+              return { ...lb, lessons: existingBook.lessons };
+            }
+            return lb;
+          });
+          return newBooks;
+        });
         setIsBooksLoaded(true);
       }
     });
@@ -237,7 +246,10 @@ export default function App() {
     setFirebaseBooks(cleanBooks);
   };
 
-  const fetchBookLessons = async (bookId: number) => {
+  const [selectedBookId, setSelectedBookId] = useState<number>(1);
+  const [activeLessonId, setActiveLessonId] = useState<string>('think-1');
+
+  const fetchBookLessons = useCallback(async (bookId: number) => {
     try {
       const { collection, getDocs } = await import('firebase/firestore');
       const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
@@ -281,10 +293,7 @@ export default function App() {
     } catch (err) {
       console.error(`Error loading subcollection lessons for book ${bookId}`, err);
     }
-  };
-
-  const [selectedBookId, setSelectedBookId] = useState<number>(1);
-  const [activeLessonId, setActiveLessonId] = useState<string>('think-1');
+  }, [activeLessonId]);
 
   useEffect(() => {
     if (!selectedBookId) return;
@@ -346,7 +355,33 @@ export default function App() {
     return firebaseBooks.map(b => {
       const offline = offlineBookLessons.find(ol => ol.bookId === b.id);
       if (offline && offline.sync_status !== 'deleted') {
-        return { ...b, lessons: offline.lessons };
+        // Merge offline and live lessons deeply: 
+        // 1. Map through offline lessons and pull in missing nested data (like flashQuestions) from live.
+        // 2. Append any live lessons that don't exist in the offline draft at all.
+        let mergedLessons = offline.lessons.map(ol => {
+          const liveL = b.lessons?.find(l => l.id === ol.id);
+          if (liveL) {
+            return {
+              ...liveL, // base is live (has all new properties)
+              ...ol,    // offline overrides live (keeps local edits)
+              // explicitly prefer live arrays if offline arrays are empty or missing
+              flashQuestions: (ol.flashQuestions && ol.flashQuestions.length > 0) ? ol.flashQuestions : (liveL.flashQuestions || []),
+              inquiryQuestions: (ol.inquiryQuestions && ol.inquiryQuestions.length > 0) ? ol.inquiryQuestions : (liveL.inquiryQuestions || []),
+              pages: (ol.pages && ol.pages.length > 0) ? ol.pages : (liveL.pages || [])
+            };
+          }
+          return ol;
+        });
+        
+        if (b.lessons) {
+          b.lessons.forEach(liveLesson => {
+            if (!mergedLessons.find(ol => ol.id === liveLesson.id)) {
+              mergedLessons.push(liveLesson);
+            }
+          });
+        }
+        
+        return { ...b, lessons: mergedLessons };
       }
       return b;
     });

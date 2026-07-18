@@ -21,6 +21,7 @@ export interface Lesson {
   pages: {
     pageNumber: number;
     content: string; // HTML-like rich-text or formatted text
+    iframeUrl?: string | null;
     leftImage?: string | null;
     centerImage?: string | null;
     rightImage?: string | null;

@@ -90,8 +90,9 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
               skin: 'oxide-dark',
               content_css: 'dark',
               plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
-              toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | table link image | removeformat | help',
-              content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:14px; background-color: #03060c; color: #e2e8f0; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #94a3b8; font-style: italic; margin: 12px 0; } ${tinymceMathContentStyle}`
+              toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | media table link image | removeformat | help',
+              extended_valid_elements: 'iframe[src|width|height|name|align|allow|allowfullscreen|frameborder|style]',
+              content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:14px; background-color: #03060c; color: #e2e8f0; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #94a3b8; font-style: italic; margin: 12px 0; } iframe { border: 1px solid #334155; border-radius: 8px; max-width: 100%; } ${tinymceMathContentStyle}`
             }}
           />
         </div>

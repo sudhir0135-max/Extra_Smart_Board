@@ -559,7 +559,17 @@ export default function Workspace({
                       {page.pageNumber}
                     </div>
 
-                    {isLessonContentLess ? (
+                    {(page as any).iframeUrl ? (
+                      <div className="w-full mt-8 flex items-center justify-center">
+                        <iframe 
+                          src={(page as any).iframeUrl} 
+                          title={`Interactive Page ${page.pageNumber}`} 
+                          className="w-full min-h-[85vh] border-0 rounded-2xl shadow-xl bg-white" 
+                          sandbox="allow-scripts allow-same-origin allow-popups"
+                          allowFullScreen
+                        />
+                      </div>
+                    ) : isLessonContentLess ? (
                       imageViewMode === 'two' ? (
                         <div className="flex flex-row w-full gap-6 mt-4">
                           {((page as any).leftImage || (page as any).rightImage) && (
@@ -633,7 +643,7 @@ export default function Workspace({
                           {/* Sanitize page content before injecting — strips TinyMCE dark-editor
                               inline color styles that appear invisible on light student themes */}
                           <div
-                            className="font-serif leading-loose space-y-6 text-[16px] lg:text-[17px] min-[3840px]:text-[34px] min-[3840px]:leading-loose tracking-wide reader-content relative"
+                            className="font-serif leading-loose space-y-6 text-[clamp(16px,0.8vw+12px,42px)] tracking-wide reader-content relative"
                             id={`page-paragraph-content-${page.pageNumber}`}
                             dangerouslySetInnerHTML={{ __html: page._cleanContent ?? page.content }}
                             onClick={handleContentClick}
