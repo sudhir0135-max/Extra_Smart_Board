@@ -2350,6 +2350,7 @@ export default function AdminPanel({
 
       <AssetLibraryModal 
         isOpen={isAssetLibraryOpen} 
+        subjects={academicSubjects}
         onClose={() => setIsAssetLibraryOpen(false)} 
       />
     </div>

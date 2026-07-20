@@ -5,7 +5,7 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor } from '../types';
+import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor, InteractiveImageDef } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
@@ -257,6 +257,7 @@ export default function Workspace({
 
   // Image Frame state for fullscreen annotations
   const [imageFrameSrc, setImageFrameSrc] = useState<string | null>(null);
+  const [imageFrameDef, setImageFrameDef] = useState<InteractiveImageDef | undefined>(undefined);
   const [boardMediaUrl, setBoardMediaUrl]   = useState<string | undefined>(undefined);
   const [boardMediaType, setBoardMediaType] = useState<'image' | 'video' | undefined>(undefined);
   const [boardMediaText, setBoardMediaText] = useState<string | undefined>(undefined);
@@ -306,7 +307,7 @@ export default function Workspace({
       const text = decodeURIComponent(annotationSpan.getAttribute('data-annotation-text') || '');
       const mediaType = annotationSpan.getAttribute('data-annotation-media-type') || 'none';
       let mediaUrl = annotationSpan.getAttribute('data-annotation-media-url') || '';
-
+      
       // Fix YouTube URLs for iframe embedding
       if (mediaUrl.includes('youtube.com/watch?v=')) {
         mediaUrl = mediaUrl.replace('watch?v=', 'embed/');
@@ -318,10 +319,26 @@ export default function Workspace({
         if (queryIndex !== -1) mediaUrl = mediaUrl.substring(0, queryIndex);
       }
 
-      if (mediaType === 'image-frame' && mediaUrl) {
+      if (mediaType === 'interactive-image') {
+        if (!mediaUrl) {
+          alert('Debugging: This annotation was saved without selecting a map from the dropdown. Please edit the tag and select a map.');
+          return;
+        }
+        // Here mediaUrl stores the interactive map ID
+        const mapDef = activeLesson.interactiveImages?.find(m => m.id === mediaUrl);
+        if (mapDef) {
+          setActiveAnnotation(null);
+          setImageFrameSrc(mapDef.rootImage);
+          setImageFrameDef(mapDef);
+        } else {
+          console.warn(`Interactive map ${mediaUrl} not found in this lesson.`);
+          alert(`Debugging: The tagged map (ID: ${mediaUrl}) could not be found in the current lesson's data. Are you sure you saved the map sequence before tagging?`);
+        }
+      } else if (mediaType === 'image-frame' && mediaUrl) {
         // ── Fullscreen Image Frame ──────────
         setActiveAnnotation(null);
         setImageFrameSrc(mediaUrl);
+        setImageFrameDef(undefined);
       } else if ((mediaType === 'image' || mediaType === 'video') && mediaUrl) {
         // ── Media annotation → open greenboard in media mode ──────────
         setActiveAnnotation(null);   // close any open speech bubble
@@ -775,9 +792,13 @@ export default function Workspace({
       {/* Fullscreen Image Frame for Annotations */}
       <ImageFrame 
         isOpen={!!imageFrameSrc}
-        onClose={() => setImageFrameSrc(null)}
+        onClose={() => {
+          setImageFrameSrc(null);
+          setImageFrameDef(undefined);
+        }}
         src={imageFrameSrc || ''}
         alt="Annotation Media"
+        interactiveDef={imageFrameDef}
       />
     </div>
   );

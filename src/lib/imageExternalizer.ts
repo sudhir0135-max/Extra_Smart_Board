@@ -15,7 +15,7 @@
 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase';
-import type { Book, Lesson, InquiryQuestionObj } from '../types';
+import type { Book, Lesson, InquiryQuestionObj, InteractiveImageDef, ImageHotspot } from '../types';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -102,13 +102,37 @@ async function externalizeField(
   return uploadBase64(value, storagePath);
 }
 
+// ─── interactive images externalizer ────────────────────────────────────────
+
+async function externalizeHotspots(hotspots: ImageHotspot[] | undefined, storagePath: string): Promise<ImageHotspot[]> {
+  if (!hotspots || hotspots.length === 0) return [];
+  return Promise.all(
+    hotspots.map(async (hotspot) => {
+      const targetImage = await externalizeField(hotspot.targetImage, storagePath) ?? hotspot.targetImage;
+      const processedChildHotspots = await externalizeHotspots(hotspot.hotspots, storagePath);
+      return { ...hotspot, targetImage, hotspots: processedChildHotspots.length > 0 ? processedChildHotspots : undefined };
+    })
+  );
+}
+
+async function externalizeInteractiveImages(interactiveImages: InteractiveImageDef[] | undefined, storagePath: string): Promise<InteractiveImageDef[] | undefined> {
+  if (!interactiveImages || interactiveImages.length === 0) return undefined;
+  return Promise.all(
+    interactiveImages.map(async (imgDef) => {
+      const rootImage = await externalizeField(imgDef.rootImage, storagePath) ?? imgDef.rootImage;
+      const processedHotspots = await externalizeHotspots(imgDef.hotspots, storagePath);
+      return { ...imgDef, rootImage, hotspots: processedHotspots };
+    })
+  );
+}
+
 // ─── public API ─────────────────────────────────────────────────────────────
 
 /**
  * Process a single lesson: upload any embedded base64 images to Storage
  * and return a new Lesson object with all base64 replaced by URLs.
  */
-export async function externalizeLessonImages(lesson: Lesson, bookId: number): Promise<Lesson> {
+export async function externalizeLessonImages(lesson: Lesson, bookId: number, subjectName?: string): Promise<Lesson> {
   const basePath = `books/${bookId}/lessons/${lesson.id}/images`;
 
   const processedPages = await Promise.all(
@@ -148,11 +172,15 @@ export async function externalizeLessonImages(lesson: Lesson, bookId: number): P
     })
   );
 
+  const interactiveBasePath = subjectName ? `images/subjects/${subjectName}` : basePath;
+  const processedInteractive = await externalizeInteractiveImages(lesson.interactiveImages, interactiveBasePath);
+
   return {
     ...lesson,
     pages: processedPages,
     inquiryQuestions: processedInquiry,
     flashQuestions: processedFlash,
+    interactiveImages: processedInteractive,
   };
 }
 

@@ -49,11 +49,13 @@ import {
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
 import InquiryQuestionManager from './InquiryQuestionManager';
+import InteractiveImageManager from './InteractiveImageManager';
 import ProfilePanel from './ProfilePanel';
 import AssetLibraryModal from './AssetLibraryModal';
 
 interface BookEditorPanelProps {
   books: Book[];
+  academicSubjects?: any[];
   saveBookToFirebase: (book: Book) => Promise<void>;
   editors: BookEditor[];
   onClose: () => void;
@@ -67,6 +69,7 @@ interface BookEditorPanelProps {
 
 export default function BookEditorPanel({
   books,
+  academicSubjects = [],
   saveBookToFirebase,
   editors,
   fetchBookLessons,
@@ -124,7 +127,7 @@ export default function BookEditorPanel({
   
   // Asset Library State
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
-  const [assetLibraryTarget, setAssetLibraryTarget] = useState<'left' | 'center' | 'right' | null>(null);
+  const [assetLibraryCallback, setAssetLibraryCallback] = useState<((url: string) => void) | null>(null);
 
   // Status visual feedback
   const [successMsg, setSuccessMsg] = useState('');
@@ -535,7 +538,7 @@ export default function BookEditorPanel({
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              setAssetLibraryTarget(null);
+              setAssetLibraryCallback(null);
               setIsAssetLibraryOpen(true);
             }}
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-2 px-3 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all mr-2"
@@ -983,7 +986,7 @@ export default function BookEditorPanel({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setAssetLibraryTarget('left');
+                                  setAssetLibraryCallback(() => (url: string) => setPageLeftImageDraft(url));
                                   setIsAssetLibraryOpen(true);
                                 }}
                                 className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
@@ -1034,7 +1037,7 @@ export default function BookEditorPanel({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setAssetLibraryTarget('center');
+                                  setAssetLibraryCallback(() => (url: string) => setPageCenterImageDraft(url));
                                   setIsAssetLibraryOpen(true);
                                 }}
                                 className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
@@ -1085,7 +1088,7 @@ export default function BookEditorPanel({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setAssetLibraryTarget('right');
+                                  setAssetLibraryCallback(() => (url: string) => setPageRightImageDraft(url));
                                   setIsAssetLibraryOpen(true);
                                 }}
                                 className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
@@ -1107,6 +1110,7 @@ export default function BookEditorPanel({
                           leftImage={pageLeftImageDraft}
                           centerImage={pageCenterImageDraft}
                           rightImage={pageRightImageDraft}
+                          interactiveMaps={activeLesson.interactiveImages || []}
                         />
                       </div>
 
@@ -1235,6 +1239,31 @@ export default function BookEditorPanel({
                     }
                   }}
                 />
+
+                {/* Sub-Layout: Interactive Deep-dive Maps */}
+                <InteractiveImageManager
+                  sequences={activeLesson.interactiveImages || []}
+                  onRequestAssetLibrary={(callback) => {
+                    setAssetLibraryCallback(() => callback);
+                    setIsAssetLibraryOpen(true);
+                  }}
+                  onSequencesUpdate={async (newSequences) => {
+                    if (!assignedBook || !activeLesson) return;
+                    try {
+                      const modifiedBook = {
+                        ...assignedBook,
+                        lessons: assignedBook.lessons.map(l => {
+                          if (l.id !== activeLesson.id) return l;
+                          return { ...l, interactiveImages: newSequences };
+                        })
+                      };
+                      await saveBookLocally(modifiedBook);
+                      flashMessage('Interactive maps synced to Firebase.');
+                    } catch (err) {
+                      alert('Failed to sync interactive maps to Firebase.');
+                    }
+                  }}
+                />
               </div>
             ) : (
               <div className="flex-grow flex flex-col items-center justify-center p-12 text-center select-none h-full">
@@ -1247,23 +1276,28 @@ export default function BookEditorPanel({
             )}
           </div>
         </div>
-      {profileOpen && (
-        <ProfilePanel onClose={() => setProfileOpen(false)} />
-      )}
-      
-      <AssetLibraryModal
-        isOpen={isAssetLibraryOpen}
-        onClose={() => {
-          setIsAssetLibraryOpen(false);
-          setAssetLibraryTarget(null);
-        }}
-        onSelect={assetLibraryTarget ? (url) => {
-          if (assetLibraryTarget === 'left') setPageLeftImageDraft(url);
-          else if (assetLibraryTarget === 'center') setPageCenterImageDraft(url);
-          else if (assetLibraryTarget === 'right') setPageRightImageDraft(url);
-        } : undefined}
+        {profileOpen && (
+          <ProfilePanel onClose={() => setProfileOpen(false)} />
+        )}
+        
+        <AssetLibraryModal
+          isOpen={isAssetLibraryOpen}
+          folderPath={(() => {
+            if (!assignedBook?.subjectId || !academicSubjects.length) return 'images';
+            const subject = academicSubjects.find(s => s.id === assignedBook.subjectId);
+            return subject ? `images/subjects/${subject.name}` : 'images';
+          })()}
+          onClose={() => {
+            setIsAssetLibraryOpen(false);
+            setAssetLibraryCallback(null);
+          }}
+          onSelect={assetLibraryCallback ? (url) => {
+            assetLibraryCallback(url);
+          } : undefined}
       />
     </div>
   );
+
+
 }
 

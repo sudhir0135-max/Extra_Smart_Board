@@ -1,4 +1,4 @@
-export const setupTinyMceAnnotation = (editor: any) => {
+export const setupTinyMceAnnotation = (editor: any, getInteractiveMaps: () => {id: string, title: string}[] = () => []) => {
   editor.ui.registry.addButton('annotation', {
     text: 'Tag',
     tooltip: 'Add Interactive Annotation',
@@ -42,20 +42,31 @@ export const setupTinyMceAnnotation = (editor: any) => {
                 { text: 'None (Speech Bubble)', value: 'none' },
                 { text: 'Image (Bottom Sheet)', value: 'image' },
                 { text: 'Image (Fullscreen Frame)', value: 'image-frame' },
+                { text: 'Interactive Map (Deep-dive)', value: 'interactive-image' },
                 { text: 'Video (Bottom Sheet)', value: 'video' }
               ]
             },
             {
               type: 'input',
               name: 'mediaUrl',
-              label: 'Media URL (Optional)'
+              label: 'Media URL (For normal images/videos)'
+            },
+            {
+              type: 'selectbox',
+              name: 'interactiveMapId',
+              label: 'Select Interactive Map (Only if above is Interactive Map)',
+              items: [
+                { text: 'Select a Map...', value: '' },
+                ...getInteractiveMaps().map(m => ({ text: m.title, value: m.id }))
+              ]
             }
           ]
         },
         initialData: {
           text: initialText,
           mediaType: initialMediaType,
-          mediaUrl: initialMediaUrl
+          mediaUrl: initialMediaType === 'interactive-image' ? '' : initialMediaUrl,
+          interactiveMapId: initialMediaType === 'interactive-image' ? initialMediaUrl : ''
         },
         buttons: [
           { type: 'cancel', text: 'Cancel' },
@@ -68,8 +79,10 @@ export const setupTinyMceAnnotation = (editor: any) => {
             return;
           }
           
+          
+          const finalMediaUrl = data.mediaType === 'interactive-image' ? data.interactiveMapId : data.mediaUrl.trim();
           const encodedText = encodeURIComponent(data.text.trim());
-          const html = `<span class="lesson-annotation mceNonEditable" style="color: #34d399; font-weight: bold; border-bottom: 2px dashed #34d399; cursor: pointer; padding: 0 2px; border-radius: 4px;" data-annotation-id="ann-${Date.now()}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${data.mediaUrl.trim()}">${selectedText}</span>`;
+          const html = `<span class="lesson-annotation mceNonEditable" style="color: #34d399; font-weight: bold; border-bottom: 2px dashed #34d399; cursor: pointer; padding: 0 2px; border-radius: 4px;" data-annotation-id="ann-${Date.now()}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${finalMediaUrl}">${selectedText}</span>`;
           
           editor.insertContent(html);
           api.close();
@@ -107,6 +120,7 @@ export const setupTinyMceAnnotation = (editor: any) => {
                 { text: 'None (Speech Bubble)', value: 'none' },
                 { text: 'Image (Bottom Sheet)', value: 'image' },
                 { text: 'Image (Fullscreen Frame)', value: 'image-frame' },
+                { text: 'Interactive Map (Deep-dive)', value: 'interactive-image' },
                 { text: 'Video (Bottom Sheet)', value: 'video' }
               ]
             },
@@ -114,13 +128,23 @@ export const setupTinyMceAnnotation = (editor: any) => {
               type: 'input',
               name: 'mediaUrl',
               label: 'Media URL'
+            },
+            {
+              type: 'selectbox',
+              name: 'interactiveMapId',
+              label: 'Select Interactive Map (Only if above is Interactive Map)',
+              items: [
+                { text: 'Select a Map...', value: '' },
+                ...getInteractiveMaps().map(m => ({ text: m.title, value: m.id }))
+              ]
             }
           ]
         },
         initialData: {
           text: text,
           mediaType: mediaType,
-          mediaUrl: mediaUrl
+          mediaUrl: mediaType === 'interactive-image' ? '' : mediaUrl,
+          interactiveMapId: mediaType === 'interactive-image' ? mediaUrl : ''
         },
         buttons: [
           { type: 'custom', name: 'delete', text: 'Remove Tag', buttonType: 'secondary' },
@@ -141,8 +165,9 @@ export const setupTinyMceAnnotation = (editor: any) => {
             return;
           }
           
+          const finalMediaUrl = data.mediaType === 'interactive-image' ? data.interactiveMapId : data.mediaUrl.trim();
           const encodedText = encodeURIComponent(data.text.trim());
-          const html = `<span class="lesson-annotation mceNonEditable" style="color: #34d399; font-weight: bold; border-bottom: 2px dashed #34d399; cursor: pointer; padding: 0 2px; border-radius: 4px;" data-annotation-id="${annotationSpan.getAttribute('data-annotation-id')}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${data.mediaUrl.trim()}">${innerText}</span>`;
+          const html = `<span class="lesson-annotation mceNonEditable" style="color: #34d399; font-weight: bold; border-bottom: 2px dashed #34d399; cursor: pointer; padding: 0 2px; border-radius: 4px;" data-annotation-id="${annotationSpan.getAttribute('data-annotation-id')}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${finalMediaUrl}">${innerText}</span>`;
           
           annotationSpan.outerHTML = html;
           api.close();

@@ -3,6 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface ImageHotspot {
+  id: string;
+  x: number; // percentage (0 to 100)
+  y: number; // percentage (0 to 100)
+  width: number; // percentage (0 to 100)
+  height: number; // percentage (0 to 100)
+  targetImage: string; // Base64 locally, URL in Firebase
+  description?: string;
+  hotspots?: ImageHotspot[]; // Recursion for deep-dive
+}
+
+export interface InteractiveImageDef {
+  id: string;
+  title: string;
+  rootImage: string;
+  description?: string;
+  hotspots: ImageHotspot[];
+}
+
 export interface InquiryQuestionObj {
   id: string;
   text: string;
@@ -35,6 +54,7 @@ export interface Lesson {
   videoUrls?: string[];
   flashQuestions: FlashQuestion[];
   inquiryQuestions?: (string | InquiryQuestionObj)[];
+  interactiveImages?: InteractiveImageDef[];
 }
 
 

@@ -4,11 +4,14 @@ import { fetchAllUploadedImages, uploadImageToStorage, deleteFileFromStorage } f
 
 interface AssetLibraryModalProps {
   isOpen: boolean;
+  folderPath?: string;
+  subjects?: any[];
   onClose: () => void;
   onSelect?: (url: string) => void;
 }
 
-export default function AssetLibraryModal({ isOpen, onClose, onSelect }: AssetLibraryModalProps) {
+export default function AssetLibraryModal({ isOpen, folderPath = 'images', subjects, onClose, onSelect }: AssetLibraryModalProps) {
+  const [currentFolder, setCurrentFolder] = useState<string>(folderPath);
   const [images, setImages] = useState<{ url: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -17,14 +20,20 @@ export default function AssetLibraryModal({ isOpen, onClose, onSelect }: AssetLi
 
   useEffect(() => {
     if (isOpen) {
+      setCurrentFolder(folderPath);
+    }
+  }, [isOpen, folderPath]);
+
+  useEffect(() => {
+    if (isOpen) {
       loadImages();
     }
-  }, [isOpen]);
+  }, [isOpen, currentFolder]);
 
   const loadImages = async () => {
     setLoading(true);
     try {
-      const items = await fetchAllUploadedImages('images');
+      const items = await fetchAllUploadedImages(currentFolder);
       // Sort by name descending (since we prefix with timestamp)
       items.sort((a, b) => b.name.localeCompare(a.name));
       setImages(items);
@@ -41,7 +50,7 @@ export default function AssetLibraryModal({ isOpen, onClose, onSelect }: AssetLi
 
     setUploading(true);
     try {
-      const url = await uploadImageToStorage(file, 'images');
+      const url = await uploadImageToStorage(file, currentFolder);
       setImages(prev => [{ url, name: file.name }, ...prev]);
       if (onSelect) {
         onSelect(url);
@@ -94,11 +103,30 @@ export default function AssetLibraryModal({ isOpen, onClose, onSelect }: AssetLi
             <div className="p-2 bg-indigo-500/20 rounded-lg">
               <ImageIcon className="w-5 h-5 text-indigo-400" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-100">Asset Library</h2>
-              <p className="text-sm text-slate-400">
-                {onSelect ? 'Select an image to use, or upload a new one.' : 'Manage your uploaded images or upload new assets.'}
-              </p>
+            <div className="flex items-center gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-100">Asset Library</h2>
+                <p className="text-sm text-slate-400">
+                  {onSelect ? 'Select an image to use, or upload a new one.' : 'Manage your uploaded images or upload new assets.'}
+                </p>
+              </div>
+              
+              {subjects && subjects.length > 0 && (
+                <div className="ml-4 border-l border-slate-700 pl-4">
+                  <select
+                    value={currentFolder}
+                    onChange={(e) => setCurrentFolder(e.target.value)}
+                    className="bg-slate-800 text-sm text-slate-200 rounded px-3 py-1.5 border border-slate-700 outline-none focus:border-indigo-500"
+                  >
+                    <option value="images">Global Assets (Root)</option>
+                    {subjects.map(s => (
+                      <option key={s.id} value={`images/subjects/${s.name}`}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">

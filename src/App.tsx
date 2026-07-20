@@ -1061,6 +1061,7 @@ export default function App() {
       <BookEditorPanel
         globalLogo={globalLogo}
         books={books}
+        academicSubjects={academicSubjects}
         saveBookToFirebase={saveBookToFirebase}
         fetchBookLessons={fetchBookLessons}
         editors={editors}

@@ -13,14 +13,20 @@ export interface RichTextEditorProps {
   leftImage?: string;
   centerImage?: string;
   rightImage?: string;
+  interactiveMaps?: {id: string, title: string}[];
 }
 
-export default function RichTextEditor({ initialValue, onSave, isSaving = false, leftImage, centerImage, rightImage }: RichTextEditorProps) {
+export default function RichTextEditor({ initialValue, onSave, isSaving = false, leftImage, centerImage, rightImage, interactiveMaps = [] }: RichTextEditorProps) {
   const [activeSubTab, setActiveSubTab] = useState<'edit' | 'preview'>('edit');
   const editorRef = useRef<any>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [previewContent, setPreviewContent] = useState(initialValue);
 
+  // Use a ref to always provide the latest interactiveMaps to TinyMCE's dialog without needing to re-init
+  const interactiveMapsRef = useRef(interactiveMaps);
+  useEffect(() => {
+    interactiveMapsRef.current = interactiveMaps;
+  }, [interactiveMaps]);
 
   const handleTabSwitch = (tab: 'edit' | 'preview') => {
     if (tab === 'preview' && editorRef.current) {
@@ -79,7 +85,7 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
             onInit={(_evt, editor) => {
               editorRef.current = editor;
               setupTinyMceMath(editor);
-              setupTinyMceAnnotation(editor);
+              setupTinyMceAnnotation(editor, () => interactiveMapsRef.current);
             }}
             tinymceScriptSrc="/tinymce/tinymce.min.js"
             initialValue={initialValue}

@@ -175,10 +175,26 @@ export function extractImagesFromLesson(lesson: Lesson): string[] {
 
   if (lesson.inquiryQuestions) {
     lesson.inquiryQuestions.forEach(q => {
+      if (typeof q === 'string') return;
       extractFromHtml(q.text);
       extractFromHtml(q.answerText);
       if (q.image) urls.add(q.image);
       if (q.answerImage) urls.add(q.answerImage);
+    });
+  }
+
+  if (lesson.interactiveImages) {
+    const traverseHotspots = (hotspots: any[]) => {
+      hotspots.forEach(hs => {
+        if (hs.targetImage) urls.add(hs.targetImage);
+        if (hs.hotspots) traverseHotspots(hs.hotspots);
+      });
+    };
+    
+    lesson.interactiveImages.forEach(mapDef => {
+      if (mapDef.rootImage) urls.add(mapDef.rootImage);
+      extractFromHtml(mapDef.description);
+      if (mapDef.hotspots) traverseHotspots(mapDef.hotspots);
     });
   }
 
