@@ -196,24 +196,27 @@ export default function FloatingButton({
 
   // Dynamic videos list based on currentLesson
   const activeVideos = React.useMemo(() => {
-    if (currentLesson && currentLesson.videoUrl) {
+    if (!currentLesson) return [];
+    
+    // Combine new array and legacy single URL
+    const urlsToProcess = currentLesson.videoUrls && currentLesson.videoUrls.length > 0 
+      ? currentLesson.videoUrls 
+      : (currentLesson.videoUrl ? [currentLesson.videoUrl] : []);
+
+    return urlsToProcess.map((url, idx) => {
       // Try to extract youtube ID, or just use the raw URL if it's already an embed
-      const youtubeIdMatch = currentLesson.videoUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+      const youtubeIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
       const youtubeId = youtubeIdMatch ? youtubeIdMatch[1] : '';
       
-      const lessonVideo = {
-        id: 'lesson-video-primary',
-        title: currentLesson.title + ' (Active Chapter)',
+      return {
+        id: `lesson-video-${idx}`,
+        title: currentLesson.title + (urlsToProcess.length > 1 ? ` (Part ${idx + 1})` : ' (Active Chapter)'),
         channel: 'Chapter Lecture',
         youtubeId: youtubeId,
-        rawUrl: currentLesson.videoUrl, // Use this directly if youtubeId extraction fails
-        duration: 'Current'
+        rawUrl: url, // Use this directly if youtubeId extraction fails
+        duration: urlsToProcess.length > 1 ? `Part ${idx + 1}` : 'Current'
       };
-      
-      // Just return the active lesson's video. No mock data.
-      return [lessonVideo];
-    }
-    return [];
+    });
   }, [currentLesson]);
 
   useEffect(() => {

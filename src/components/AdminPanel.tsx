@@ -1606,15 +1606,54 @@ export default function AdminPanel({
                                   className="bg-transparent border border-transparent focus:border-slate-850 rounded text-slate-350 focus:bg-[#03060c] px-1 w-64"
                                 />
                               </div>
-                              <div className="flex items-center gap-3 mt-1.5 text-[9.5px]">
-                                <span className="text-[#e2a850] font-sans font-extrabold">Lecture Embed (Youtube / Video MP4):</span>
-                                <input
-                                  type="text"
-                                  value={activeLesson.videoUrl || ''}
-                                  onChange={e => handleUpdateLessonMeta({ videoUrl: e.target.value })}
-                                  placeholder="Mock Embed (e.g. https://www.youtube.com/embed/dQw4w9WgXcQ)"
-                                  className="bg-slate-950 border border-slate-850 rounded px-1.5 py-0.5 mt-0.5 text-slate-300 w-96 font-mono focus:outline-none"
-                                />
+                              <div className="flex flex-col gap-1.5 mt-1.5 text-[9.5px]">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[#e2a850] font-sans font-extrabold">Lecture Embed (Youtube / Video MP4):</span>
+                                  <button
+                                    onClick={() => {
+                                      const currentUrls = (activeLesson.videoUrls && activeLesson.videoUrls.length > 0) ? activeLesson.videoUrls : (activeLesson.videoUrl ? [activeLesson.videoUrl] : []);
+                                      handleUpdateLessonMeta({ videoUrls: [...currentUrls, ''] });
+                                    }}
+                                    className="text-[#e2a850] hover:text-[#ffd699] font-sans font-extrabold text-[8px] uppercase tracking-wider px-1.5 py-0.5 bg-[#e2a850]/10 rounded cursor-pointer"
+                                  >
+                                    + Add
+                                  </button>
+                                </div>
+                                
+                                {(() => {
+                                  const urls = (activeLesson.videoUrls && activeLesson.videoUrls.length > 0) 
+                                    ? activeLesson.videoUrls 
+                                    : (activeLesson.videoUrl ? [activeLesson.videoUrl] : []);
+                                    
+                                  if (urls.length === 0) {
+                                    return <div className="text-slate-500 italic">No videos attached</div>;
+                                  }
+                                  
+                                  return urls.map((url, idx) => (
+                                    <div key={idx} className="flex gap-2 items-center">
+                                      <input
+                                        type="text"
+                                        value={url}
+                                        onChange={e => {
+                                          const next = [...urls];
+                                          next[idx] = e.target.value;
+                                          handleUpdateLessonMeta({ videoUrls: next });
+                                        }}
+                                        placeholder="Mock Embed (e.g. https://www.youtube.com/embed/dQw4w9WgXcQ)"
+                                        className="flex-1 bg-slate-950 border border-slate-850 rounded px-1.5 py-0.5 text-slate-300 font-mono focus:outline-none"
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          const next = urls.filter((_, i) => i !== idx);
+                                          handleUpdateLessonMeta({ videoUrls: next });
+                                        }}
+                                        className="text-rose-500 hover:text-rose-400 p-0.5 cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ));
+                                })()}
                               </div>
                             </div>
                           </div>

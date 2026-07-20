@@ -32,6 +32,7 @@ export interface Lesson {
     } | null;
   }[];
   videoUrl?: string | null;
+  videoUrls?: string[];
   flashQuestions: FlashQuestion[];
   inquiryQuestions?: (string | InquiryQuestionObj)[];
 }

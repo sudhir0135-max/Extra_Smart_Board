@@ -148,7 +148,7 @@ export default function BookEditorPanel({
   // Active Lesson Metadata drafts
   const [activeLessonTitleDraft, setActiveLessonTitleDraft] = useState('');
   const [activeLessonSubtitleDraft, setActiveLessonSubtitleDraft] = useState('');
-  const [activeLessonVideoDraft, setActiveLessonVideoDraft] = useState('');
+  const [activeLessonVideoDrafts, setActiveLessonVideoDrafts] = useState<string[]>([]);
   const flashMessage = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 3000);
@@ -175,7 +175,15 @@ export default function BookEditorPanel({
     if (activeLesson) {
       setActiveLessonTitleDraft(activeLesson.title);
       setActiveLessonSubtitleDraft(activeLesson.subtitle || '');
-      setActiveLessonVideoDraft(activeLesson.videoUrl || '');
+      
+      // Migrate legacy videoUrl to videoUrls if needed
+      if (activeLesson.videoUrls && activeLesson.videoUrls.length > 0) {
+        setActiveLessonVideoDrafts(activeLesson.videoUrls);
+      } else if (activeLesson.videoUrl) {
+        setActiveLessonVideoDrafts([activeLesson.videoUrl]);
+      } else {
+        setActiveLessonVideoDrafts([]);
+      }
     }
 
     if (activeLesson && selectedPageIndex !== null) {
@@ -244,7 +252,7 @@ export default function BookEditorPanel({
     }
   };
 
-  const handleUpdateLessonMeta = async (fields: Partial<Lesson>) => {
+  const handleUpdateLessonMeta = async (fields: Partial<Lesson>, silent: boolean = false) => {
     if (!assignedBook || !selectedLessonId) return;
     
     if (fields.title) {
@@ -253,7 +261,7 @@ export default function BookEditorPanel({
         l.title.toLowerCase() === fields.title!.trim().toLowerCase()
       );
       if (isDuplicate) {
-        alert('A chapter with this exact title already exists in this textbook. Please use a unique title.');
+        if (!silent) alert('A chapter with this exact title already exists in this textbook. Please use a unique title.');
         return;
       }
     }
@@ -264,9 +272,9 @@ export default function BookEditorPanel({
         lessons: assignedBook.lessons.map(l => (l.id === selectedLessonId ? { ...l, ...fields } : l))
       };
       await saveBookLocally(modifiedBook);
-      flashMessage('Chapter metadata updated in Firebase.');
+      if (!silent) flashMessage('Chapter metadata updated in Firebase.');
     } catch (err) {
-      alert('Failed to update chapter metadata.');
+      if (!silent) alert('Failed to update chapter metadata.');
     }
   };
 
@@ -560,6 +568,9 @@ export default function BookEditorPanel({
                   onClick={async () => {
                     if (!assignedBook || !currentUser) return;
                     try {
+                      // Ensure any un-saved text inputs (like Video URL) are captured right before submit
+                      await handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts }, true);
+                      
                       const { doc, setDoc, collection, writeBatch } = await import('firebase/firestore');
                       const offlineBook = await dbLocal.offline_lessons.get(assignedBook.id);
                       if (!offlineBook) {
@@ -618,7 +629,7 @@ export default function BookEditorPanel({
                 <button
                   onClick={async () => {
                     if (window.confirm("Are you sure you want to discard your local draft and sync from the server? This will erase any unpublished changes you have made.")) {
-                      await dbLocal.offline_lessons.where('bookId').equals(activeBook.id).delete();
+                      await dbLocal.offline_lessons.where('bookId').equals(assignedBook.id).delete();
                       window.location.reload();
                     }
                   }}
@@ -770,7 +781,7 @@ export default function BookEditorPanel({
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrl: activeLessonVideoDraft })}
+                        onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts })}
                         className="p-1 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
                       >
                         <Save className="w-3.5 h-3.5" /> Save Meta
@@ -820,16 +831,50 @@ export default function BookEditorPanel({
                     </button>
                   </div>
 
-                  {/* Chapter Video URL */}
+                  {/* Chapter Video URLs */}
                   <div className="pb-2 border-b border-slate-800/50">
-                    <span className="text-[8.5px] uppercase font-mono text-slate-400 block mb-1">Chapter Lecture Video URL:</span>
-                    <input
-                      type="text"
-                      value={activeLessonVideoDraft}
-                      onChange={e => setActiveLessonVideoDraft(e.target.value)}
-                      placeholder="e.g. https://www.youtube.com/embed/..."
-                      className="w-full bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
-                    />
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[8.5px] uppercase font-mono text-slate-400">Chapter Lecture Video URLs:</span>
+                      <button
+                        onClick={() => setActiveLessonVideoDrafts([...activeLessonVideoDrafts, ''])}
+                        className="text-[8px] bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600/50 px-1.5 py-0.5 rounded font-bold uppercase cursor-pointer"
+                      >
+                        + Add Video
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {activeLessonVideoDrafts.map((vidUrl, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={vidUrl}
+                            onChange={e => {
+                              const next = [...activeLessonVideoDrafts];
+                              next[idx] = e.target.value;
+                              setActiveLessonVideoDrafts(next);
+                            }}
+                            onBlur={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts }, true)}
+                            placeholder="e.g. https://www.youtube.com/embed/..."
+                            className="flex-1 bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
+                          />
+                          <button
+                            onClick={() => {
+                              const next = activeLessonVideoDrafts.filter((_, i) => i !== idx);
+                              setActiveLessonVideoDrafts(next);
+                              handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: next }, true);
+                            }}
+                            className="bg-rose-600/20 text-rose-500 hover:bg-rose-600/40 p-2 rounded cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {activeLessonVideoDrafts.length === 0 && (
+                        <div className="text-xs text-slate-500 italic p-2 border border-dashed border-slate-800 rounded text-center">
+                          No videos attached to this chapter.
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Horizontal index dots of current pages */}
