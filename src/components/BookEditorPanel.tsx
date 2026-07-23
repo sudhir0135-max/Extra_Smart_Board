@@ -146,6 +146,8 @@ export default function BookEditorPanel({
   const [pageFigureCaption, setPageFigureCaption] = useState('');
   const [pageFigureType, setPageFigureType] = useState<'brain' | 'river' | 'ecosystem' | 'math' | 'music' | 'language' | 'fairness'>('brain');
   const [pageEquationsDraft, setPageEquationsDraft] = useState('');
+  const [pageIsCollapsible, setPageIsCollapsible] = useState(false);
+  const [pageSummaryContent, setPageSummaryContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   // Active Lesson Metadata drafts
@@ -200,6 +202,8 @@ export default function BookEditorPanel({
         setPageFigureCaption(page.figure?.caption || '');
         setPageFigureType(page.figure?.svgType || 'brain');
         setPageEquationsDraft(page.equations ? page.equations.join('\n') : '');
+        setPageIsCollapsible(page.isCollapsible || false);
+        setPageSummaryContent(page.summaryContent || '');
       }
     } else {
       setPageContentDraft('');
@@ -209,6 +213,8 @@ export default function BookEditorPanel({
       setPageIframeUrlDraft('');
       setPageFigureCaption('');
       setPageEquationsDraft('');
+      setPageIsCollapsible(false);
+      setPageSummaryContent('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPageIndex, selectedLessonId]);
@@ -381,6 +387,8 @@ export default function BookEditorPanel({
                   return {
                     ...p,
                     content: finalContent,
+                    isCollapsible: pageIsCollapsible,
+                    summaryContent: pageSummaryContent,
                     iframeUrl: pageIframeUrlDraft || null,
                     leftImage: pageLeftImageDraft || null,
                     centerImage: pageCenterImageDraft || null,
@@ -1133,6 +1141,34 @@ export default function BookEditorPanel({
                             placeholder="A \rightarrow B (Do not include double slashes. Write raw LaTeX parameters)"
                             className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
                           />
+                        </div>
+
+                        {/* COLLAPSIBLE SETTINGS */}
+                        <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2 md:col-span-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
+                              Collapsible Page Settings
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[8px] font-mono text-slate-500 select-none uppercase">Enable Collapse</span>
+                              <button
+                                type="button"
+                                onClick={() => setPageIsCollapsible(!pageIsCollapsible)}
+                                className={`w-8 h-4 rounded-full relative transition-colors ${pageIsCollapsible ? 'bg-amber-500' : 'bg-slate-700'}`}
+                              >
+                                <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${pageIsCollapsible ? 'translate-x-4' : 'translate-x-0'}`} />
+                              </button>
+                            </div>
+                          </div>
+                          {pageIsCollapsible && (
+                            <input
+                              type="text"
+                              value={pageSummaryContent}
+                              onChange={e => setPageSummaryContent(e.target.value)}
+                              placeholder="Summary Title (e.g., Click here to read full text...)"
+                              className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300 mt-2"
+                            />
+                          )}
                         </div>
 
                         {/* IFRAME / CUSTOM HTML URL */}

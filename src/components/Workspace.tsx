@@ -9,7 +9,7 @@ import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor, InteractiveImageD
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
-import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X } from 'lucide-react';
+import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import { BlockMath } from 'react-katex';
@@ -222,6 +222,14 @@ export default function Workspace({
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+
+  const [expandedPages, setExpandedPages] = useState<Record<number, boolean>>({});
+  const togglePageExpand = (pageNumber: number) => {
+    setExpandedPages(prev => ({
+      ...prev,
+      [pageNumber]: !prev[pageNumber]
+    }));
+  };
 
   /**
    * Pre-sanitize ALL page content strings for the active lesson.
@@ -563,7 +571,7 @@ export default function Workspace({
                   if (!page) return null;
                   return (
                   <VirtualPageWrapper
-                    key={page.id || virtualRow.index}
+                    key={(page as any).id || page.pageNumber || virtualRow.index}
                     virtualRow={virtualRow}
                     measureElement={rowVirtualizer.measureElement}
                     pageContentHash={page._cleanContent}
@@ -576,7 +584,21 @@ export default function Workspace({
                       {page.pageNumber}
                     </div>
 
-                    {(page as any).iframeUrl ? (
+                    {(page as any).isCollapsible && (
+                      <button
+                        onClick={() => togglePageExpand(page.pageNumber)}
+                        className="w-full flex items-center justify-between bg-slate-100 dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors mb-4 mt-8 cursor-pointer"
+                      >
+                        <span className="font-serif font-medium text-lg text-slate-800 dark:text-slate-200">
+                          {(page as any).summaryContent || 'Expand Section...'}
+                        </span>
+                        <ChevronDown className={`w-6 h-6 text-slate-500 transition-transform ${expandedPages[page.pageNumber] ? 'rotate-180' : ''}`} />
+                      </button>
+                    )}
+
+                    {(!(page as any).isCollapsible || expandedPages[page.pageNumber]) && (
+                      <>
+                        {(page as any).iframeUrl ? (
                       <div className="w-full mt-8 flex items-center justify-center">
                         <iframe 
                           src={(page as any).iframeUrl} 
@@ -699,6 +721,8 @@ export default function Workspace({
                           {page.figure.caption}
                         </div>
                       </div>
+                    )}
+                      </>
                     )}
                   </div>
                   </VirtualPageWrapper>
