@@ -15,6 +15,8 @@ interface ScribbleOverlayProps {
   selectedColor?: string;
   lineWidth?: number;
   isHighlighter?: boolean;
+  initialStrokes?: DrawingStroke[];
+  onStrokesChange?: (strokes: DrawingStroke[]) => void;
 }
 
 const PALETTE_COLORS = [
@@ -33,19 +35,22 @@ export default function ScribbleOverlay({
   selectedColor = '#f59e0b',
   lineWidth = 4,
   isHighlighter = false,
+  initialStrokes,
+  onStrokesChange,
 }: ScribbleOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
+  const [strokes, setStrokes] = useState<DrawingStroke[]>(initialStrokes || []);
   const currentStrokeRef = useRef<DrawingStroke | null>(null);
   const isDrawing = useRef(false);
 
-  // Reset sketches on mount/lesson rotation
+  // Sync initialStrokes when lessonId or initialStrokes changes
   useEffect(() => {
-    setStrokes([]);
+    setStrokes(initialStrokes || []);
   }, [lessonId]);
 
-  // Save strokes to temporary state (Wiped on close)
+  // Save strokes to temporary state & notify parent listener
   const saveStrokes = (updatedStrokes: DrawingStroke[]) => {
+    onStrokesChange?.(updatedStrokes);
     if (canvasRef.current) {
       onStrokeSaved(canvasRef.current.toDataURL());
     }
@@ -62,19 +67,30 @@ export default function ScribbleOverlay({
     const resizeCanvas = () => {
       const parent = canvas.parentElement;
       if (parent) {
-        // Use scrollWidth and scrollHeight to cover the full length of the document,
-        // not just the visible viewport
-        canvas.width = parent.scrollWidth || 800;
-        canvas.height = parent.scrollHeight || 1200;
+        // Measure parent's full scrollable dimensions including expanded table height & width
+        const targetWidth = Math.max(parent.scrollWidth, parent.clientWidth, parent.offsetWidth, 800);
+        const targetHeight = Math.max(parent.scrollHeight, parent.clientHeight, parent.offsetHeight, 600);
+
+        if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          redrawStrokes(ctx, strokes);
+        }
       }
-      redrawStrokes(ctx, strokes);
     };
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
+    let observer: ResizeObserver | null = null;
+    if (canvas.parentElement) {
+      observer = new ResizeObserver(resizeCanvas);
+      observer.observe(canvas.parentElement);
+    }
+
     return () => {
       window.removeEventListener('resize', resizeCanvas);
+      if (observer) observer.disconnect();
     };
   }, [strokes]);
 

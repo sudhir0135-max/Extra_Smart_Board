@@ -565,14 +565,27 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  const [globalLogo, setGlobalLogo] = useState<string | null>(null);
+  const [globalLogo, setGlobalLogo] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('cached_global_logo') || null;
+    } catch (e) {
+      return null;
+    }
+  });
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'branding'), (docSnap) => {
       if (docSnap.exists() && docSnap.data().logoUrl) {
-        setGlobalLogo(docSnap.data().logoUrl);
+        const url = docSnap.data().logoUrl;
+        setGlobalLogo(url);
+        try {
+          localStorage.setItem('cached_global_logo', url);
+        } catch (e) {}
       } else {
         setGlobalLogo(null);
+        try {
+          localStorage.removeItem('cached_global_logo');
+        } catch (e) {}
       }
     });
     return () => unsub();

@@ -4,11 +4,13 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff } from 'lucide-react';
+import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator } from 'lucide-react';
 import { Book, AcademicSubject, Lesson, FlashQuestion, Note, InquiryQuestionObj } from '../types';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
 import ScribbleOverlay from './ScribbleOverlay';
+import AccountancyQuestionModal from './AccountancyQuestionModal';
+import CachedImage from './CachedImage';
 
 interface FloatingButtonProps {
   currentLesson: Lesson | null;
@@ -27,33 +29,39 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
   const image = isAdvanced ? item.image : null;
   const pos = isAdvanced ? item.imagePosition || 'right' : 'right';
 
+  const qText = isAdvanced ? item.text : item;
 
-
-  return (
-    <div className="flex-1 min-w-0 pointer-events-auto" ref={contentRef}>
-      {image && pos === 'center' && (
-        <div className="w-full flex justify-center mb-6">
-          <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" />
-        </div>
-      )}
-      
-      <div className="flex gap-6 items-start">
-        {image && pos === 'left' && (
-          <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
-        )}
-        
-        <div className="flex-1 font-medium">
-          {isAdvanced ? (
-            <div className="reader-content prose prose-invert prose-emerald max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.text) }} />
-          ) : (
-            <span dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item) }} />
-          )}
-        </div>
-
-        {image && pos === 'right' && (
-          <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
-        )}
+  if (!image) {
+    return (
+      <div className="w-full text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+        <div dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
+    );
+  }
+
+  if (pos === 'center') {
+    return (
+      <div className="w-full flex flex-col items-center gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+        <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" />
+        <div className="w-full" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+      </div>
+    );
+  }
+
+  if (pos === 'left') {
+    return (
+      <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+        <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
+        <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+      </div>
+    );
+  }
+
+  // default right
+  return (
+    <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+      <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+      <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
     </div>
   );
 });
@@ -74,8 +82,15 @@ const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: 
   );
 });
 
-function QuestionItem({ item }: { item: string | InquiryQuestionObj }) {
+function QuestionItem({ 
+  item, 
+  onOpenAccountancyWorkspace 
+}: { 
+  item: string | InquiryQuestionObj;
+  onOpenAccountancyWorkspace?: (item: string | InquiryQuestionObj) => void;
+}) {
   const [minHeight, setMinHeight] = useState<number>(0);
+  const [showAnswer, setShowAnswer] = useState<boolean>(false);
   const dragStartRef = useRef<{ y: number, startHeight: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -104,16 +119,88 @@ function QuestionItem({ item }: { item: string | InquiryQuestionObj }) {
     }
   };
 
+  const isAccountancyMode = typeof item !== 'string' && (item.displayMode === 'accountancy_tabs' || Boolean(item.tabs && item.tabs.length > 0));
+  const hasAnswer = typeof item !== 'string' && Boolean(item.answerText || item.answerImage);
+
   return (
     <div
       ref={containerRef}
       onContextMenu={(e) => e.preventDefault()}
-      className="group relative p-6 md:p-8 rounded-xl border border-slate-900 bg-slate-950 text-slate-300 text-[16px] lg:text-[17px] min-[3840px]:text-[34px] leading-relaxed select-none shadow-md"
+      className="group relative p-6 md:p-8 rounded-2xl border border-slate-800/40 bg-[#181e2a] text-slate-200 text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed select-none shadow-lg"
       style={{ minHeight: minHeight > 0 ? `${minHeight}px` : undefined }}
     >
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full mb-3 pb-3 border-b border-slate-900/80">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400" />
+          <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">Lesson Inquiry Question</span>
+          {isAccountancyMode && (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              Accountancy Workspace
+            </span>
+          )}
+        </div>
+
+        {isAccountancyMode && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenAccountancyWorkspace?.(item);
+            }}
+            className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 p-2 px-3 rounded-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95"
+            title="Screen Extender View"
+          >
+            <Calculator className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-bold font-mono">Screen Extender View</span>
+          </button>
+        )}
+      </div>
+
       <div className="flex justify-between items-start gap-4">
         <QuestionContent item={item} />
       </div>
+
+      {/* Show Answer Toggle Button & Answer Container */}
+      {hasAnswer && (
+        <div className="mt-6 pt-4 border-t border-slate-900 flex flex-col gap-4">
+          <button
+            onClick={() => setShowAnswer(prev => !prev)}
+            className={`self-start flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs md:text-sm lg:text-base transition-all border cursor-pointer ${
+              showAnswer
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md shadow-emerald-950/30'
+                : 'bg-slate-900/90 text-amber-300 border-amber-500/40 hover:bg-amber-500/10 hover:border-amber-500/60 shadow-sm'
+            }`}
+          >
+            {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-amber-400" />}
+            <span>{showAnswer ? 'Hide Solution Answer' : 'Show Solution Answer'}</span>
+          </button>
+
+          {showAnswer && typeof item !== 'string' && (
+            <div className="p-6 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl space-y-4 animate-fade-in">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs md:text-sm lg:text-base uppercase tracking-wider font-mono">
+                <Check className="w-4 h-4" />
+                <span>Verified Solution & Answer</span>
+              </div>
+
+              {item.answerText && (
+                <div
+                  dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.answerText) }}
+                  className="text-slate-200 text-base md:text-lg lg:text-xl xl:text-2xl 2xl:text-3xl min-[3840px]:text-4xl leading-relaxed font-serif"
+                />
+              )}
+
+              {item.answerImage && (
+                <div className={`flex ${item.answerImagePosition === 'left' ? 'justify-start' : item.answerImagePosition === 'right' ? 'justify-end' : 'justify-center'} mt-3`}>
+                  <img
+                    src={item.answerImage}
+                    alt="Solution Illustration"
+                    className="max-h-80 rounded-xl border border-emerald-500/30 shadow-lg object-contain"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Resize Handle at Bottom Left */}
       <div 
@@ -153,6 +240,11 @@ export default function FloatingButton({
   // Panels visibility options
   const [activePanel, setActivePanel] = useState<'video' | 'questions' | 'notes' | null>(null);
   const [maximizedVideoId, setMaximizedVideoId] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState(false);
+
+  useEffect(() => {
+    setLogoError(false);
+  }, [globalLogo]);
 
   // Full Screen Question Drawing State
   const [isListDrawingMode, setIsListDrawingMode] = useState(false);
@@ -193,6 +285,16 @@ export default function FloatingButton({
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Accountancy Multi-Tab Modal State
+  const [accountancyQuestion, setAccountancyQuestion] = useState<string | InquiryQuestionObj | null>(null);
+  const [isAccountancyModalOpen, setIsAccountancyModalOpen] = useState(false);
+
+  const handleOpenAccountancyWorkspace = (q: string | InquiryQuestionObj) => {
+    setActivePanel('notes');
+    setAccountancyQuestion(q);
+    setIsAccountancyModalOpen(true);
+  };
 
   // Dynamic videos list based on currentLesson
   const activeVideos = React.useMemo(() => {
@@ -502,8 +604,13 @@ export default function FloatingButton({
             {isMenuOpen ? (
               <X className="w-7 h-7" />
             ) : (
-              globalLogo ? (
-                <img src={globalLogo} alt="Logo" className="w-full h-full object-cover rounded-full pointer-events-none" />
+              globalLogo && !logoError ? (
+                <CachedImage 
+                  src={globalLogo} 
+                  alt="Logo" 
+                  onError={() => setLogoError(true)}
+                  className="w-full h-full object-cover rounded-full pointer-events-none" 
+                />
               ) : (
                 <Sparkles className="w-7 h-7" />
               )
@@ -924,12 +1031,25 @@ export default function FloatingButton({
                   <QuestionItem 
                     key={index}
                     item={qItem}
+                    onOpenAccountancyWorkspace={handleOpenAccountancyWorkspace}
                   />
                 ))
               )}
             </div>
           </div>
         </div>
+      )}
+
+      {accountancyQuestion && (
+        <AccountancyQuestionModal
+          question={accountancyQuestion}
+          isOpen={isAccountancyModalOpen}
+          onClose={() => {
+            setIsAccountancyModalOpen(false);
+            setAccountancyQuestion(null);
+            setActivePanel('notes');
+          }}
+        />
       )}
     </>
   );

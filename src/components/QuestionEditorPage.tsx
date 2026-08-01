@@ -359,9 +359,30 @@ export default function QuestionEditorPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <span className="text-[9px] font-mono text-slate-600 uppercase tracking-widest">
+                  <button
+                    onClick={() => {
+                      setQuestions(prev => prev.map((item, i) => {
+                        if (i === activeIdx) {
+                          return {
+                            ...item,
+                            displayMode: item.displayMode === 'accountancy_tabs' ? 'standard' : 'accountancy_tabs'
+                          };
+                        }
+                        return item;
+                      }));
+                    }}
+                    className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold transition-all border cursor-pointer ${
+                      activeQ?.displayMode === 'accountancy_tabs'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
+                    }`}
+                    title="Toggle Question Display Manner (Standard List vs Accountancy Multi-Tab)"
+                  >
+                    {activeQ?.displayMode === 'accountancy_tabs' ? '📊 Accountancy Mode' : '📄 Standard Mode'}
+                  </button>
+
+                  <span className="text-[9px] font-mono text-slate-600 uppercase tracking-widest hidden lg:inline">
                     {editorMode === 'question' ? 'Editing Q' : 'Editing Answer'}{activeIdx + 1}
-                    {editorMode === 'question' ? ' · Rich text · images · tables · LaTeX' : ' · Model answer for this question'}
                   </span>
                   <button
                     onClick={() => { flushEditor(); addQuestion(); }}

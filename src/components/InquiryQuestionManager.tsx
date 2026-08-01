@@ -248,7 +248,25 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
 
   const hasAnswer = (q: string | InquiryQuestionObj) => {
     if (typeof q === 'string') return false;
-    return !!(q.answerText && q.answerText.replace(/<[^>]+>/g, '').trim());
+    return !!(q.answerText?.trim() || q.answerImage);
+  };
+
+  const handleToggleDisplayMode = (qIdx: number) => {
+    const updated = [...questions];
+    const item = updated[qIdx];
+    if (typeof item === 'string') {
+      updated[qIdx] = {
+        id: `iq-${Date.now()}-${qIdx}`,
+        text: item,
+        displayMode: 'accountancy_tabs',
+      };
+    } else {
+      updated[qIdx] = {
+        ...item,
+        displayMode: item.displayMode === 'accountancy_tabs' ? 'standard' : 'accountancy_tabs',
+      };
+    }
+    onQuestionsUpdate(updated);
   };
 
   // The editor content to initialize when tab or question changes
@@ -463,7 +481,19 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                         </span>
                       </div>
                       {/* Question actions */}
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => handleToggleDisplayMode(qIdx)}
+                          className={`px-2 py-0.5 rounded text-[9.5px] font-bold font-mono transition-all cursor-pointer border ${
+                            typeof q !== 'string' && q.displayMode === 'accountancy_tabs'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                          }`}
+                          title="Toggle Question Display Manner (Standard List vs Accountancy Multi-Tab)"
+                        >
+                          {typeof q !== 'string' && q.displayMode === 'accountancy_tabs' ? '📊 Accountancy Mode' : '📄 Standard Mode'}
+                        </button>
+
                         <button
                           onClick={() => handleEditQuestion(q, qIdx)}
                           className="text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap"
