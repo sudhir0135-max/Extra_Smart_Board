@@ -140,14 +140,14 @@ function QuestionItem({
           )}
         </div>
 
-        {isAccountancyMode && (
+        {onOpenAccountancyWorkspace && (
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onOpenAccountancyWorkspace?.(item);
+              onOpenAccountancyWorkspace(item);
             }}
             className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 p-2 px-3 rounded-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95"
-            title="Screen Extender View"
+            title="Screen Extender View (Accountancy Tables)"
           >
             <Calculator className="w-4 h-4 text-emerald-400" />
             <span className="text-xs font-bold font-mono">Screen Extender View</span>
@@ -952,6 +952,19 @@ export default function FloatingButton({
             </div>
             
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  const questions = getLessonQuestions();
+                  const firstQ = questions[0] || { id: 'default-q', text: currentLesson?.title || 'Accountancy Workspace' };
+                  handleOpenAccountancyWorkspace(firstQ);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Open Accountancy Workspace Extender View"
+              >
+                <Calculator className="w-4 h-4 text-emerald-400" />
+                <span>Accountancy Workspace</span>
+              </button>
+
               <button
                 onClick={() => setIsListDrawingMode(!isListDrawingMode)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${
