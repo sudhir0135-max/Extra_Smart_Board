@@ -35,12 +35,12 @@ export default function LandingPage({
   editorsCount,
   globalLogo,
 }: LandingPageProps) {
-  const [apkUrl, setApkUrl] = useState<string>("https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media&token=77397704-0cbf-483b-95d4-7d1d72347412");
+  const [apkUrl, setApkUrl] = useState<string>("/ExtraPadhai.apk");
 
   useEffect(() => {
     getDownloadURL(ref(storage, 'apk/ExtraPadhai.apk'))
       .then((url) => setApkUrl(url))
-      .catch((err) => console.error("Failed to fetch APK URL:", err));
+      .catch((err) => console.error("Failed to fetch APK URL from storage, using local fallback:", err));
   }, []);
 
   return (
