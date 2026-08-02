@@ -20,9 +20,11 @@ interface AccountancyQuestionModalProps {
   onClose: () => void;
 }
 
-function formatIndianNumber(val: string): string {
-  if (!val) return '';
-  let cleaned = val.replace(/[^0-9.]/g, '');
+function formatIndianNumber(val: string | number | undefined): string {
+  if (val === undefined || val === null) return '';
+  const strVal = String(val);
+  if (!strVal) return '';
+  let cleaned = strVal.replace(/[^0-9.]/g, '');
   if (!cleaned) return '';
 
   const parts = cleaned.split('.');
@@ -40,9 +42,10 @@ function formatIndianNumber(val: string): string {
   return integerPart + decimalPart;
 }
 
-function parseNumericValue(val: string | undefined): number {
-  if (!val) return 0;
-  const cleaned = val.replace(/[^0-9.-]/g, '');
+function parseNumericValue(val: string | number | undefined): number {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/[^0-9.-]/g, '');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
 }
@@ -69,7 +72,8 @@ function isCellDisabledInRow(rRow: string[], cIdx: number, columns: AccountancyC
     let particularsVal = '';
     const pIdx = columns.findIndex(c => (c?.label || '').toLowerCase().includes('particular'));
     if (pIdx >= 0 && Array.isArray(rRow)) {
-      particularsVal = rRow[pIdx] || '';
+      const rawP = rRow[pIdx];
+      particularsVal = typeof rawP === 'string' ? rawP : (rawP !== undefined && rawP !== null ? String(rawP) : '');
     }
 
     const hasDr = /\bdr\.?/i.test(particularsVal);
@@ -161,13 +165,14 @@ function JournalCell({
     );
   }
 
-  const trimmedStart = value.trimStart();
+  const safeVal = typeof value === 'string' ? value : (value !== undefined && value !== null ? String(value) : '');
+  const trimmedStart = safeVal.trimStart();
   const hasTo = isJournal && !isNumeric && trimmedStart.toLowerCase().startsWith('to ');
 
   // Match "dr." or "dr" at the end of the text (case-insensitive)
-  const drMatch = (isJournal && !isNumeric) ? value.match(/^(.*?)(?:\s+)?(\bdr\.?)\s*$/i) : null;
+  const drMatch = (isJournal && !isNumeric) ? safeVal.match(/^(.*?)(?:\s+)?(\bdr\.?)\s*$/i) : null;
   const hasDr = Boolean(drMatch);
-  const mainPart = drMatch ? drMatch[1] : value;
+  const mainPart = drMatch ? drMatch[1] : safeVal;
   const drPart = drMatch ? 'Dr.' : '';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,13 +190,14 @@ function JournalCell({
     }
   };
 
-  const displayVal = isNumeric ? formatIndianNumber(value) : value;
+  const displayVal = isNumeric ? formatIndianNumber(safeVal) : safeVal;
 
   const hasSolutionChips = Boolean(solutionChips && solutionChips.length > 0);
 
   const displayedChips = useMemo(() => {
     const rawChips = hasSolutionChips ? (solutionChips || []) : (presetTerms || []);
     const cleanRaw = rawChips.filter((c) => {
+      if (!c || typeof c !== 'string') return false;
       const lower = c.trim().toLowerCase();
       return lower !== 'to' && lower !== 'by' && lower !== 'total';
     });
@@ -210,7 +216,9 @@ function JournalCell({
   }, [hasSolutionChips, solutionChips, presetTerms, isJournal, tableType, isLastDataRow]);
 
   const handleChipClick = (chipText: string) => {
-    let textToInsert = chipText.trim();
+    const textToInsertRaw = (chipText || '').trim();
+    if (!textToInsertRaw) return;
+    let textToInsert = textToInsertRaw;
 
     if (textToInsert.toLowerCase() === 'total') {
       if (onSelectTotalChip) {
@@ -221,13 +229,15 @@ function JournalCell({
       return;
     }
 
+    const currentCellVal = safeVal;
+
     if (textToInsert.toLowerCase() === 'to') {
       textToInsert = 'To';
     } else if (textToInsert.toLowerCase() === 'by') {
       textToInsert = 'By';
     } else if (isJournal) {
       // In Journal tab: if cell or chip starts with "To", don't append Dr., otherwise append Dr.
-      const cellAlreadyHasTo = /^to\b/i.test(value.trim());
+      const cellAlreadyHasTo = /^to\b/i.test(currentCellVal.trim());
       const chipStartsWithTo = /^to\b/i.test(textToInsert);
       const endsWithDr = /\bdr\.?$/i.test(textToInsert);
 
@@ -240,19 +250,19 @@ function JournalCell({
       const isDebitSide = (colIdx ?? 0) < numCols / 2;
 
       if (isDebitSide) {
-        const startsWithTo = /^to\b/i.test(textToInsert) || /^to\b/i.test(value.trim());
+        const startsWithTo = /^to\b/i.test(textToInsert) || /^to\b/i.test(currentCellVal.trim());
         if (!startsWithTo) {
           textToInsert = `To ${textToInsert}`;
         }
       } else {
-        const startsWithBy = /^by\b/i.test(textToInsert) || /^by\b/i.test(value.trim());
+        const startsWithBy = /^by\b/i.test(textToInsert) || /^by\b/i.test(currentCellVal.trim());
         if (!startsWithBy) {
           textToInsert = `By ${textToInsert}`;
         }
       }
     }
 
-    const newVal = value ? `${value} ${textToInsert}` : textToInsert;
+    const newVal = currentCellVal ? `${currentCellVal} ${textToInsert}` : textToInsert;
     onChange(newVal);
   };
 
@@ -319,7 +329,7 @@ function JournalCell({
       )}
 
       {/* Refresh & Clear Total Row Buttons (Rendered ONLY in cell containing 'Total') */}
-      {isTotalRow && value.trim().toLowerCase() === 'total' && (
+      {isTotalRow && safeVal.trim().toLowerCase() === 'total' && (
         <div className="absolute right-1.5 flex items-center gap-1 shrink-0 z-10">
           <button
             type="button"

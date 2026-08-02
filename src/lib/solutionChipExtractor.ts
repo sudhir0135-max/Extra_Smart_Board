@@ -60,24 +60,26 @@ export function extractSolutionChips(
   // 2. Extract from pre-filled solution tabs if available
   if (solutionTabs && Array.isArray(solutionTabs)) {
     solutionTabs.forEach((tab) => {
-      if (tab.rows && Array.isArray(tab.rows)) {
+      if (tab && tab.rows && Array.isArray(tab.rows)) {
         tab.rows.forEach((row) => {
-          row.forEach((cellVal) => {
-            if (cellVal && typeof cellVal === 'string') {
-              const cleaned = sanitizeChip(cellVal);
-              // If it looks like a Particulars entry (non-numeric, not a plain number or date)
-              if (
-                cleaned.length >= 3 &&
-                cleaned.length <= 45 &&
-                cleaned.toLowerCase() !== 'to' &&
-                !/^\d+$/.test(cleaned) &&
-                !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(cleaned) &&
-                !/^\d+[\d,.]*$/.test(cleaned)
-              ) {
-                chipsSet.add(cleaned);
+          if (Array.isArray(row)) {
+            row.forEach((cellVal) => {
+              if (cellVal && typeof cellVal === 'string') {
+                const cleaned = sanitizeChip(cellVal);
+                // If it looks like a Particulars entry (non-numeric, not a plain number or date)
+                if (
+                  cleaned.length >= 3 &&
+                  cleaned.length <= 45 &&
+                  cleaned.toLowerCase() !== 'to' &&
+                  !/^\d+$/.test(cleaned) &&
+                  !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(cleaned) &&
+                  !/^\d+[\d,.]*$/.test(cleaned)
+                ) {
+                  chipsSet.add(cleaned);
+                }
               }
-            }
-          });
+            });
+          }
         });
       }
     });
