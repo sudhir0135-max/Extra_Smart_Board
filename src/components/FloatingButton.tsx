@@ -22,7 +22,7 @@ interface FloatingButtonProps {
   globalLogo?: string | null;
 }
 
-const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionObj }) => {
+const QuestionContent = React.memo(({ item, isOnline }: { item: string | InquiryQuestionObj; isOnline: boolean }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   
   const isAdvanced = typeof item !== 'string';
@@ -30,6 +30,13 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
   const pos = isAdvanced ? item.imagePosition || 'right' : 'right';
 
   const qText = isAdvanced ? item.text : item;
+
+  const offlineImgPlaceholder = (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/50 bg-slate-900/60 text-slate-500 p-4" style={{ minWidth: '30%', minHeight: '80px' }}>
+      <WifiOff className="w-6 h-6 text-slate-600" />
+      <span className="text-xs text-slate-500 text-center">Image unavailable offline</span>
+    </div>
+  );
 
   if (!image) {
     return (
@@ -42,7 +49,7 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
   if (pos === 'center') {
     return (
       <div className="w-full flex flex-col items-center gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" />
+        {isOnline ? <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" /> : offlineImgPlaceholder}
         <div className="w-full" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
@@ -51,7 +58,7 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
   if (pos === 'left') {
     return (
       <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
+        {isOnline ? <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" /> : offlineImgPlaceholder}
         <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
@@ -61,7 +68,7 @@ const QuestionContent = React.memo(({ item }: { item: string | InquiryQuestionOb
   return (
     <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
       <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
-      <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" />
+      {isOnline ? <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" /> : offlineImgPlaceholder}
     </div>
   );
 });
@@ -84,9 +91,11 @@ const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: 
 
 function QuestionItem({ 
   item, 
+  isOnline,
   onOpenAccountancyWorkspace 
 }: { 
   item: string | InquiryQuestionObj;
+  isOnline: boolean;
   onOpenAccountancyWorkspace?: (item: string | InquiryQuestionObj) => void;
 }) {
   const [minHeight, setMinHeight] = useState<number>(0);
@@ -156,7 +165,7 @@ function QuestionItem({
       </div>
 
       <div className="flex justify-between items-start gap-4">
-        <QuestionContent item={item} />
+        <QuestionContent item={item} isOnline={isOnline} />
       </div>
 
       {/* Show Answer Toggle Button & Answer Container */}
@@ -1044,6 +1053,7 @@ export default function FloatingButton({
                   <QuestionItem 
                     key={index}
                     item={qItem}
+                    isOnline={isOnline}
                     onOpenAccountancyWorkspace={handleOpenAccountancyWorkspace}
                   />
                 ))

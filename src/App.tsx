@@ -565,6 +565,27 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Auto-detect real network connectivity changes
+  useEffect(() => {
+    const goOnline = () => {
+      setIsOnline(true);
+      addToast('Connection restored. Back online.', 'success');
+    };
+    const goOffline = () => {
+      setIsOnline(false);
+      addToast('No internet connection. Working in offline mode.', 'warn');
+    };
+    // Sync initial state with actual browser connectivity
+    setIsOnline(navigator.onLine);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [globalLogo, setGlobalLogo] = useState<string | null>(() => {
     try {
       return localStorage.getItem('cached_global_logo') || null;

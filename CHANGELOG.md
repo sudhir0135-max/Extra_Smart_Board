@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-08-02] - v5.0 APK — Offline Fixes, Accountancy Tables & APK Size Optimization
+
+### Added
+- **T-Shape Account (No Date)**: New 6-column accountancy table type with unnamed J.F. columns (index 1 & 4) that are active, numeric, and right-aligned. `To`/`By` chip selection shown manually — no auto-prefix. Auto-total excluded for unnamed J.F. columns.
+- **Company Balance Sheet (Schedule III)**: New balance sheet preset with Particulars (60%), Note No. (5%), Current Year (15%), Previous Year (15%) column widths.
+- **Refresh / Delete buttons on Total row**: Shown only in the cell containing the word `Total`. Refresh recalculates column totals; Delete clears the entire total row.
+- **`By` chip styling**: `By` chip now shown in distinct sky-blue color (separate from amber `To` chip) in T-Shape (No Date) table.
+- **Offline notice for `iframeUrl` pages** (`Workspace.tsx`): When offline, shows "Page Unavailable Offline" instead of blank iframe.
+- **Offline image placeholders** (`FloatingButton.tsx`): When offline, inquiry question images show a "Image unavailable offline" placeholder with `WifiOff` icon.
+
+### Fixed
+- **`App.tsx` `isOnline` auto-detection**: Wired to real `navigator.onLine` + `window.addEventListener('online'/'offline')` events. Previously was a manual toggle only — now automatically reflects real network changes.
+- **Journal tab blank screen**: Restored missing `solutionChips` memoization that caused a React crash.
+- **Column total calculation**: Excluded disabled cells (J.F./L.F.) and `Date` columns from summation.
+- **`isCellDisabledInRow` for T-Shape (No Date)**: Previously disabled ALL columns; now correctly only activates columns 1 & 4 (unnamed J.F.) and still disables named L.F./J.F. columns.
+- **Chip dropdown for `Note No.`, `Current Year`, `Previous Year`**: Excluded these column types from chip eligibility in `isTextColumnEligibleForChips`.
+- **Removed `localhost:3005` debug fetch** from `Workspace.tsx` (dead code in production, fired on every lesson change).
+
+### Changed
+- **APK version**: 4.0 → **5.0** (versionCode 4 → 5).
+- **Vite build**: Added `esbuild` minifier, `es2020` target, `sourcemap: false`, and `manualChunks` splitting for firebase, react, katex, tinymce, tanstack, lucide. Removes ~2-4 MB from production bundle.
+- **APK size**: **13.49 MB** (down from ~14.9 MB). The recurring APK-in-`public/` bloat bug was also fixed again (both `ExtraPadhai.apk` and `app-debug.apk` removed from `public/`).
+- **APK location**: New APKs stored in `releases/ExtraPadhai_v5.0.apk` — NOT in `public/` (to prevent recursive bloat).
+
+### Prevention Note
+- **NEVER** place APK files inside `public/`. They get copied verbatim into `dist/` by Vite and then into Android assets by the manual copy step, causing recursive APK bloat.
+- The `releases/` folder is the correct location for compiled APKs.
+
 ## [2026-07-14] - APK Size Reduced 82% (78.85 MB → 14.2 MB)
 
 ### Fixed

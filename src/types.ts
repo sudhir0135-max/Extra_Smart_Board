@@ -22,7 +22,7 @@ export interface InteractiveImageDef {
   hotspots: ImageHotspot[];
 }
 
-export type AccountancyTableType = 'journal' | 't_shape_ledger' | 'balance_sheet' | 'trial_balance' | 'custom';
+export type AccountancyTableType = 'journal' | 't_shape_ledger' | 't_shape_ledger_no_date' | 'balance_sheet' | 'balance_sheet_company' | 'trial_balance' | 'custom';
 
 export interface AccountancyColumn {
   id: string;

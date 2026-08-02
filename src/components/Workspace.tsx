@@ -197,28 +197,7 @@ export default function Workspace({
     overscan: 2,
   });
 
-  useEffect(() => {
-    if (!activeLesson?.id) return;
-    const timer = setTimeout(() => {
-      try {
-        const pages = document.querySelectorAll('#seamless-pdf-stack > div[id^="pdf-page-"]');
-        const data = Array.from(pages).map((p) => {
-          return {
-            page: p.id,
-            height: Math.round(p.getBoundingClientRect().height),
-            nodes: p.querySelectorAll('*').length,
-            images: p.querySelectorAll('img').length,
-            katex: p.querySelectorAll('.katex').length
-          };
-        });
-        fetch('http://localhost:3005/report', { 
-          method: 'POST', 
-          body: JSON.stringify(data)
-        }).catch(() => {});
-      } catch (e) {}
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [activeLesson?.id]);
+
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
@@ -600,13 +579,23 @@ export default function Workspace({
                       <>
                         {(page as any).iframeUrl ? (
                       <div className="w-full mt-8 flex items-center justify-center">
-                        <iframe 
-                          src={(page as any).iframeUrl} 
-                          title={`Interactive Page ${page.pageNumber}`} 
-                          className="w-full min-h-[85vh] border-0 rounded-2xl shadow-xl bg-white" 
-                          sandbox="allow-scripts allow-same-origin allow-popups"
-                          allowFullScreen
-                        />
+                        {isOnline === false ? (
+                          <div className="w-full min-h-[40vh] flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-700/50 bg-slate-900/60 text-slate-400 p-8">
+                            <svg className="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01M8.464 8.464A5 5 0 0115.536 8.464M8.464 15.536A5 5 0 0115.536 15.536" /></svg>
+                            <div className="text-center">
+                              <p className="font-bold text-slate-300 text-base">Page Unavailable Offline</p>
+                              <p className="text-sm text-slate-500 mt-1">This interactive page requires an internet connection.</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <iframe 
+                            src={(page as any).iframeUrl} 
+                            title={`Interactive Page ${page.pageNumber}`} 
+                            className="w-full min-h-[85vh] border-0 rounded-2xl shadow-xl bg-white" 
+                            sandbox="allow-scripts allow-same-origin allow-popups"
+                            allowFullScreen
+                          />
+                        )}
                       </div>
                     ) : isLessonContentLess ? (
                       imageViewMode === 'two' ? (
