@@ -20,6 +20,41 @@ interface AccountancyQuestionModalProps {
   onClose: () => void;
 }
 
+class ModalErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Accountancy Modal Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-slate-900/90 text-rose-300 rounded-2xl border border-rose-500/40 text-center my-4 shadow-xl">
+          <p className="font-bold text-base">An unexpected error occurred in the table workspace.</p>
+          <p className="text-xs font-mono text-rose-400 mt-2 bg-rose-950/60 p-2 rounded border border-rose-800/50 max-w-xl mx-auto overflow-x-auto">
+            {String(this.state.error?.stack || this.state.error?.message || this.state.error)}
+          </p>
+          <button 
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="mt-3 px-4 py-1.5 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/50 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer"
+          >
+            Reset Workspace View
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function formatIndianNumber(val: string | number | undefined): string {
   if (val === undefined || val === null) return '';
   const strVal = String(val);
@@ -76,7 +111,7 @@ function isCellDisabledInRow(rRow: string[], cIdx: number, columns: AccountancyC
       particularsVal = typeof rawP === 'string' ? rawP : (rawP !== undefined && rawP !== null ? String(rawP) : '');
     }
 
-    const hasDr = /\bdr\.?/i.test(particularsVal);
+    const hasDr = /(?:\bdr\.?\s*$)/i.test(particularsVal.trim());
     const hasTo = /^to\b/i.test(particularsVal.trim());
 
     const isDebitCol = colLabel.includes('debit');
@@ -157,17 +192,36 @@ function JournalCell({
 }) {
   const [isFocused, setIsFocused] = useState(false);
 
-  if (isDisabled) {
-    return (
-      <div className="w-full min-h-[32px] md:min-h-[40px] flex items-center justify-center bg-slate-950/40 rounded opacity-25 cursor-not-allowed select-none pointer-events-none p-1.5 md:p-2.5">
-        <span className="text-slate-600 text-xs md:text-sm font-mono font-bold">—</span>
-      </div>
-    );
-  }
+  const hasSolutionChips = Boolean(solutionChips && solutionChips.length > 0);
+
+  const displayedChips = useMemo(() => {
+    try {
+      const rawChips = hasSolutionChips ? (solutionChips || []) : (presetTerms || []);
+      const cleanRaw = rawChips.filter((c) => {
+        if (!c || typeof c !== 'string') return false;
+        const lower = c.trim().toLowerCase();
+        return lower !== 'to' && lower !== 'by' && lower !== 'total';
+      });
+      
+      const result: string[] = [];
+      if (isJournal) {
+        result.push('To');
+      } else if (tableType === 't_shape_ledger_no_date') {
+        result.push('To', 'By');
+      }
+      result.push(...cleanRaw);
+      if (isLastDataRow) {
+        result.push('Total');
+      }
+      return Array.from(new Set(result.filter(Boolean)));
+    } catch (e) {
+      return ['To', 'By', 'Total'];
+    }
+  }, [hasSolutionChips, solutionChips, presetTerms, isJournal, tableType, isLastDataRow]);
 
   const safeVal = typeof value === 'string' ? value : (value !== undefined && value !== null ? String(value) : '');
   const trimmedStart = safeVal.trimStart();
-  const hasTo = isJournal && !isNumeric && trimmedStart.toLowerCase().startsWith('to ');
+  const hasTo = isJournal && !isNumeric && (trimmedStart.toLowerCase().startsWith('to ') || trimmedStart.toLowerCase() === 'to');
 
   // Match "dr." or "dr" at the end of the text (case-insensitive)
   const drMatch = (isJournal && !isNumeric) ? safeVal.match(/^(.*?)(?:\s+)?(\bdr\.?)\s*$/i) : null;
@@ -186,34 +240,26 @@ function JournalCell({
       const formatted = formatIndianNumber(cleaned);
       onChange(formatted);
     } else {
-      onChange(rawVal);
+      if (isJournal && hasTo && rawVal.trim() && !rawVal.toLowerCase().startsWith('to ')) {
+        onChange(`To ${rawVal}`);
+      } else {
+        onChange(rawVal);
+      }
     }
   };
 
-  const displayVal = isNumeric ? formatIndianNumber(safeVal) : safeVal;
+  let displayVal = isNumeric ? formatIndianNumber(safeVal) : safeVal;
+  if (isJournal && !isNumeric && hasTo) {
+    displayVal = safeVal.replace(/^to\s*/i, '');
+  }
 
-  const hasSolutionChips = Boolean(solutionChips && solutionChips.length > 0);
-
-  const displayedChips = useMemo(() => {
-    const rawChips = hasSolutionChips ? (solutionChips || []) : (presetTerms || []);
-    const cleanRaw = rawChips.filter((c) => {
-      if (!c || typeof c !== 'string') return false;
-      const lower = c.trim().toLowerCase();
-      return lower !== 'to' && lower !== 'by' && lower !== 'total';
-    });
-    
-    const result: string[] = [];
-    if (isJournal) {
-      result.push('To');
-    } else if (tableType === 't_shape_ledger_no_date') {
-      result.push('To', 'By');
-    }
-    result.push(...cleanRaw);
-    if (isLastDataRow) {
-      result.push('Total');
-    }
-    return result;
-  }, [hasSolutionChips, solutionChips, presetTerms, isJournal, tableType, isLastDataRow]);
+  if (isDisabled) {
+    return (
+      <div className="w-full min-h-[32px] md:min-h-[40px] flex items-center justify-center bg-slate-950/40 rounded opacity-25 cursor-not-allowed select-none pointer-events-none p-1.5 md:p-2.5">
+        <span className="text-slate-600 text-xs md:text-sm font-mono font-bold">—</span>
+      </div>
+    );
+  }
 
   const handleChipClick = (chipText: string) => {
     const textToInsertRaw = (chipText || '').trim();
@@ -275,27 +321,40 @@ function JournalCell({
   const isRowTotal = Boolean(isTotalRow);
   const isTotalNumeric = isRowTotal && isNumeric;
 
-  if (isJournal && hasDr && !isFocused) {
+  if (isJournal && !isNumeric && !isFocused && safeVal.trim()) {
+    const textToShow = hasTo ? safeVal.replace(/^to\s*/i, '') : mainPart;
     return (
       <div
         onClick={() => {
           setIsFocused(true);
           onFocus();
         }}
-        className="w-full min-h-[32px] md:min-h-[40px] lg:min-h-[46px] xl:min-h-[54px] 2xl:min-h-[64px] flex items-center justify-between p-1.5 md:p-2.5 cursor-text rounded hover:bg-slate-900/80 transition-colors"
+        className="w-full min-h-[32px] md:min-h-[40px] lg:min-h-[46px] xl:min-h-[54px] 2xl:min-h-[64px] flex items-center justify-between p-1.5 md:p-2.5 cursor-text rounded hover:bg-slate-900/80 transition-colors relative"
       >
-        <span className={`text-[#f8fafc] text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl font-serif truncate ${hasTo ? 'pl-5 md:pl-8 lg:pl-12' : ''}`}>
-          {mainPart}
+        {hasTo && (
+          <span className="absolute left-8 md:left-12 lg:left-14 xl:left-16 text-[#f8fafc] text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl font-serif pointer-events-none select-none">
+            To
+          </span>
+        )}
+        <span className={`text-[#f8fafc] text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl font-serif truncate ${hasTo ? 'pl-16 md:pl-20 lg:pl-22 xl:pl-24' : ''}`}>
+          {textToShow}
         </span>
-        <span className="text-amber-400 font-bold font-mono text-[11px] md:text-xs lg:text-sm xl:text-base 2xl:text-lg min-[3840px]:text-xl shrink-0 ml-2 select-none">
-          {drPart}
-        </span>
+        {hasDr && (
+          <span className="text-amber-400 font-bold font-mono text-[11px] md:text-xs lg:text-sm xl:text-base 2xl:text-lg min-[3840px]:text-xl shrink-0 ml-2 select-none">
+            {drPart}
+          </span>
+        )}
       </div>
     );
   }
 
   return (
     <div className="relative w-full flex items-center">
+      {isJournal && hasTo && isFocused && (
+        <span className="absolute left-8 md:left-12 lg:left-14 xl:left-16 text-[#f8fafc] text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl font-serif pointer-events-none select-none">
+          To
+        </span>
+      )}
       <input
         type="text"
         value={displayVal}
@@ -309,10 +368,11 @@ function JournalCell({
         onChange={handleChange}
         placeholder="—"
         style={{
-          paddingLeft: hasTo ? '2.2rem' : '0.5rem',
           paddingRight: (isJournal && hasDr) ? '3rem' : '0.5rem',
         }}
         className={`w-full text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl p-1.5 md:p-2.5 outline-none rounded transition-all ${
+          hasTo ? 'pl-16 md:pl-20 lg:pl-22 xl:pl-24' : 'pl-2'
+        } ${
           isTotalNumeric && isTotalMismatch
             ? 'bg-rose-950/90 text-rose-100 font-mono font-black text-right border-2 border-rose-500 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.6)]'
             : isTotalNumeric
@@ -367,9 +427,9 @@ function JournalCell({
               <span>{hasSolutionChips ? 'Solution Chips' : 'Quick Account Terms'}</span>
             </div>
             <div className="flex flex-wrap gap-1">
-              {displayedChips.map((chip) => (
+              {displayedChips.map((chip, chipIdx) => (
                 <button
-                  key={`chip_${chip}`}
+                  key={`chip_${chip}_${chipIdx}`}
                   onClick={() => handleChipClick(chip)}
                   className={`px-2 py-1 rounded-md text-xs font-mono font-bold transition-all text-left truncate max-w-full cursor-pointer active:scale-95 border ${
                     chip.toLowerCase() === 'total'
@@ -730,6 +790,16 @@ export default function AccountancyQuestionModal({
     setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, rows: updatedRows } : t));
   };
 
+  // Active Tab Object
+  const activeTab = tabs.find(t => t.id === activeTabId);
+
+  // Dynamic Percentage Table Width
+  const totalTablePercent = useMemo(() => {
+    if (!activeTab || !activeTab.columns) return 100;
+    const sum = activeTab.columns.reduce((acc, col, cIdx) => acc + getEffectiveColumnPercentWidth(col, cIdx, activeTab.tableType), 0);
+    return Math.max(sum, 100);
+  }, [activeTab]);
+
   if (!isOpen) return null;
 
   // Add a new tab
@@ -769,18 +839,6 @@ export default function AccountancyQuestionModal({
     }
     setEditingTabId(null);
   };
-
-  // Active Tab Object
-  const activeTab = tabs.find(t => t.id === activeTabId);
-
-
-
-  // Dynamic Percentage Table Width
-  const totalTablePercent = useMemo(() => {
-    if (!activeTab || !activeTab.columns) return 100;
-    const sum = activeTab.columns.reduce((acc, col, cIdx) => acc + getEffectiveColumnPercentWidth(col, cIdx, activeTab.tableType), 0);
-    return Math.max(sum, 100);
-  }, [activeTab]);
 
   // Change Table Type for active tab
   const handleTableTypeChange = (newType: AccountancyTableType) => {
@@ -981,9 +1039,10 @@ export default function AccountancyQuestionModal({
   }, [activeTab]);
 
   return (
-    <div className="fixed inset-0 bg-[#030712]/90 backdrop-blur-md z-[110] flex flex-col animate-fade-in font-sans text-slate-100 selection:bg-amber-500/30">
-      
-      {/* ── MINIMAL TOP HEADER BAR ── */}
+    <ModalErrorBoundary>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in font-sans text-slate-100 selection:bg-amber-500/30">
+        <div className="w-full h-full flex flex-col bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
+          {/* ── MINIMAL TOP HEADER BAR ── */}
       <div className="bg-slate-950 border-b border-slate-800/80 px-4 py-2 flex items-center justify-between shrink-0 shadow-md">
         <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
           {questionNumber && totalQuestions && (
@@ -1123,18 +1182,52 @@ export default function AccountancyQuestionModal({
 
         {/* USER-CREATED ACCOUNTANCY TABLE TABS */}
         {activeTab && activeTabId !== 'q_tab' && (
-          <div className="flex-1 flex flex-col bg-slate-950/80 border border-slate-900 rounded-2xl overflow-hidden shadow-2xl relative z-10">
+          <ModalErrorBoundary>
+            <div className="flex-1 flex flex-col bg-slate-950/80 border border-slate-900 rounded-2xl overflow-hidden shadow-2xl relative z-10">
             
             {/* Interactive Grid Table Area */}
             <div className="flex-1 overflow-auto p-4 md:p-6 relative pointer-events-auto">
               {/* Dr. and Cr. Header Strip for T-Shape Ledger */}
               {(activeTab.tableType === 't_shape_ledger' || activeTab.tableType === 't_shape_ledger_no_date') && (
                 <div 
-                  className="flex items-center justify-between px-4 py-2 bg-slate-900 border-x border-t border-slate-800/90 rounded-t-xl font-mono text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl font-black select-none tracking-wider shadow-inner"
+                  className="flex items-center justify-between px-4 py-2 bg-slate-900 border-x border-t border-slate-800/90 rounded-t-xl font-mono text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl font-black tracking-wider shadow-inner"
                   style={{ width: `${totalTablePercent}%`, minWidth: '100%' }}
                 >
                   <span className="text-emerald-400 font-extrabold text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl">Dr.</span>
-                  <span className="text-slate-400 text-[11px] md:text-xs lg:text-sm xl:text-base 2xl:text-lg min-[3840px]:text-xl font-bold uppercase tracking-widest">{activeTab.title}</span>
+                  {editingTabId === activeTab.id ? (
+                    <div className="flex items-center gap-2 pointer-events-auto">
+                      <input
+                        type="text"
+                        value={editingTabTitle}
+                        onChange={(e) => setEditingTabTitle(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveTabRename(activeTab.id)}
+                        autoFocus
+                        className="bg-slate-950 text-white text-center font-bold px-2 py-0.5 rounded border border-emerald-400 text-xs md:text-sm lg:text-base outline-none max-w-[200px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSaveTabRename(activeTab.id);
+                        }}
+                        className="p-1 rounded bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 transition-all border border-emerald-500/30 cursor-pointer"
+                        title="Save rename"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div 
+                      onClick={(e) => handleStartRenameTab(activeTab, e)}
+                      className="flex items-center gap-1.5 cursor-pointer group pointer-events-auto"
+                      title="Click to rename account"
+                    >
+                      <span className="text-slate-400 group-hover:text-white transition-colors text-[11px] md:text-xs lg:text-sm xl:text-base 2xl:text-lg min-[3840px]:text-xl font-bold uppercase tracking-widest">
+                        {activeTab.title}
+                      </span>
+                      <Edit3 className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-colors shrink-0" />
+                    </div>
+                  )}
                   <span className="text-sky-400 font-extrabold text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl">Cr.</span>
                 </div>
               )}
@@ -1241,7 +1334,10 @@ export default function AccountancyQuestionModal({
                     let particularsVal = '';
                     if (activeTab.tableType === 'journal') {
                       const pIdx = (activeTab.columns || []).findIndex(c => (c?.label || '').toLowerCase().includes('particular'));
-                      if (pIdx >= 0) particularsVal = safeRow[pIdx] || '';
+                      if (pIdx >= 0) {
+                        const rawP = safeRow[pIdx];
+                        particularsVal = typeof rawP === 'string' ? rawP : (rawP !== undefined && rawP !== null ? String(rawP) : '');
+                      }
                     }
 
                     const hasDr = /\bdr\.?/i.test(particularsVal);
@@ -1250,7 +1346,8 @@ export default function AccountancyQuestionModal({
                     return (
                       <tr key={rowIdx} className="border-b border-slate-850 hover:bg-slate-900/30 transition-colors">
                         {(activeTab.columns || []).map((col, colIdx) => {
-                          const safeRowCell = safeRow[colIdx] || '';
+                          const rawCell = safeRow[colIdx];
+                          const safeRowCell = typeof rawCell === 'string' ? rawCell : (rawCell !== undefined && rawCell !== null ? String(rawCell) : '');
                           const pWidth = getEffectiveColumnPercentWidth(col, colIdx, activeTab.tableType);
                           const colLabel = (col?.label || '').toLowerCase().trim();
 
@@ -1306,6 +1403,7 @@ export default function AccountancyQuestionModal({
               </table>
             </div>
           </div>
+          </ModalErrorBoundary>
         )}
       </div>
 
@@ -1397,7 +1495,9 @@ export default function AccountancyQuestionModal({
             </select>
           )}
         </div>
+        </div>
       </div>
     </div>
+  </ModalErrorBoundary>
   );
 }
