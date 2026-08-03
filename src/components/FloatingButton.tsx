@@ -156,10 +156,10 @@ function QuestionItem({
               onOpenAccountancyWorkspace(item);
             }}
             className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 p-2 px-3 rounded-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95"
-            title="Screen Extender View (Accountancy Tables)"
+            title="Show Accounts/Journal Workspace"
           >
             <Calculator className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs font-bold font-mono">Screen Extender View</span>
+            <span className="text-xs font-bold font-mono">Show Accounts/Journal</span>
           </button>
         )}
       </div>
