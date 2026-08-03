@@ -180,7 +180,7 @@ function QuestionItem({
             }`}
           >
             {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-amber-400" />}
-            <span>{showAnswer ? 'Hide Solution Answer' : 'Show Solution Answer'}</span>
+            <span>{showAnswer ? 'Hide Solution/Answer' : 'Show Solution/Answer'}</span>
           </button>
 
           {showAnswer && typeof item !== 'string' && (

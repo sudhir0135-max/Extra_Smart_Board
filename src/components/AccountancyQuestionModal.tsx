@@ -1109,7 +1109,7 @@ export default function AccountancyQuestionModal({
                   }`}
                 >
                   {showAnswer ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  <span>{showAnswer ? 'Hide Solution Answer' : 'Show Solution Answer'}</span>
+                  <span>{showAnswer ? 'Hide Solution/Answer' : 'Show Solution/Answer'}</span>
                 </button>
               )}
             </div>
@@ -1145,7 +1145,7 @@ export default function AccountancyQuestionModal({
                     }`}
                   >
                     {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-amber-400" />}
-                    <span>{showAnswer ? 'Hide Solution Answer' : 'Show Solution Answer'}</span>
+                    <span>{showAnswer ? 'Hide Solution/Answer' : 'Show Solution/Answer'}</span>
                   </button>
                 </div>
               )}
