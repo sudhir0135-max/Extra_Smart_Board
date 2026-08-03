@@ -193,7 +193,7 @@ function QuestionItem({
               {item.answerText && (
                 <div
                   dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.answerText) }}
-                  className="text-slate-200 text-base md:text-lg lg:text-xl xl:text-2xl 2xl:text-3xl min-[3840px]:text-4xl leading-relaxed font-serif"
+                  className="text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed"
                 />
               )}
 
