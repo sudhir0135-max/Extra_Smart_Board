@@ -35,7 +35,7 @@ export default function LandingPage({
   editorsCount,
   globalLogo,
 }: LandingPageProps) {
-  const [apkUrl, setApkUrl] = useState<string>("/ExtraPadhai.apk");
+  const [apkUrl, setApkUrl] = useState<string>("https://firebasestorage.googleapis.com/v0/b/samrtboard.firebasestorage.app/o/apk%2FExtraPadhai.apk?alt=media");
 
   useEffect(() => {
     getDownloadURL(ref(storage, 'apk/ExtraPadhai.apk'))
