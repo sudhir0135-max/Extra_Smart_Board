@@ -358,6 +358,7 @@ function JournalCell({
       <input
         type="text"
         value={displayVal}
+        inputMode={isEligibleForChips && displayedChips.length > 0 ? "none" : (isNumeric ? "decimal" : undefined)}
         onFocus={() => {
           setIsFocused(true);
           onFocus();

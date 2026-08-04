@@ -962,29 +962,26 @@ export default function FloatingButton({
             
             <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  const questions = getLessonQuestions();
-                  const firstQ = questions[0] || { id: 'default-q', text: currentLesson?.title || 'Accountancy Workspace' };
-                  handleOpenAccountancyWorkspace(firstQ);
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-all cursor-pointer shadow-sm active:scale-95"
-                title="Open Accountancy Workspace Extender View"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-emerald-500/10 text-emerald-400/50 border border-emerald-500/20 cursor-default shadow-sm pointer-events-none opacity-60"
+                title="Accountancy Workspace (Disabled)"
               >
-                <Calculator className="w-4 h-4 text-emerald-400" />
+                <Calculator className="w-4 h-4 text-emerald-400/40" />
                 <span>Accountancy Workspace</span>
               </button>
 
-              <button
-                onClick={() => setIsListDrawingMode(!isListDrawingMode)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${
-                  isListDrawingMode
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-white'
-                }`}
-              >
-                <Palette className="w-4 h-4" />
-                {isListDrawingMode ? 'Drawing ON' : 'Enable Drawing'}
-              </button>
+              {!getLessonQuestions().some(q => typeof q !== 'string' && (q.displayMode === 'accountancy_tabs' || Boolean(q.tabs && q.tabs.length > 0))) && (
+                <button
+                  onClick={() => setIsListDrawingMode(!isListDrawingMode)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${
+                    isListDrawingMode
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-white'
+                  }`}
+                >
+                  <Palette className="w-4 h-4" />
+                  {isListDrawingMode ? 'Drawing ON' : 'Enable Drawing'}
+                </button>
+              )}
 
               {isListDrawingMode && (
                 <div className="flex items-center gap-2 bg-slate-900 p-1.5 px-3 rounded-lg border border-slate-800 animate-fade-in">
