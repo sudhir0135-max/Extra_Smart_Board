@@ -114,7 +114,7 @@ export default function GradeSelector({
                 key={book.id}
                 id={`selector-book-${book.id}`}
               onClick={() => onSelectBook(book.id)}
-              className="h-[32.3vh] min-h-[187px] max-h-[252px] relative cursor-pointer group transition-all duration-300 transform hover:-translate-y-1.5 shadow-md shadow-black/30 hover:shadow-xl hover:shadow-black/40 active:scale-95 border border-[#ebefe5] overflow-hidden flex flex-col justify-between p-3"
+              className="h-[38.8vh] min-h-[224px] max-h-[302px] relative cursor-pointer group transition-all duration-300 transform hover:-translate-y-1.5 shadow-xl shadow-black/50 hover:shadow-2xl hover:shadow-black/60 active:scale-95 border border-[#ebefe5] overflow-hidden flex flex-col justify-between p-3"
               style={{
                 background: `linear-gradient(135deg, ${book.color}e0, ${book.color}bb)`,
               }}
@@ -130,19 +130,22 @@ export default function GradeSelector({
               {/* Spine shadow overlay recreating a premium hardbound cover look */}
               <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-r from-black/40 to-transparent pointer-events-none z-10" />
               
+              {/* Spacer to push content to the lower half */}
+              <div className="flex-1 pointer-events-none" />
+
               {/* Book Details */}
-              <div className="pl-2 relative z-10">
+              <div className="pl-2 relative z-10 mb-2">
                 <span className="text-[8.5px] uppercase font-mono tracking-widest text-white/70 block">
                   Book 0{book.id}
                 </span>
-                <h3 className="font-display font-medium text-sm sm:text-base text-white tracking-tight leading-snug line-clamp-2 mt-1 decoration-yellow-400 group-hover:underline">
+                <h3 className={`font-display font-medium text-white tracking-tight leading-snug line-clamp-2 mt-1 decoration-yellow-400 group-hover:underline ${book.coverImage ? 'text-[10px] sm:text-xs' : 'text-sm sm:text-base'}`}>
                   {book.title}
                 </h3>
               </div>
 
               <div className="pl-2 flex items-end justify-between relative z-10">
-                <span className="text-[9.5px] font-serif italic text-white/80 line-clamp-1 max-w-[80px]">
-                  {book.author}
+                <span className="text-[9.5px] font-serif italic text-white/80 line-clamp-1 max-w-[120px]" title={book.author === 'ExtraPadhai AI' ? (book.source || 'ExtraPadhai AI') : book.author}>
+                  {book.author === 'ExtraPadhai AI' ? (book.source || 'ExtraPadhai AI') : book.author}
                 </span>
                 <span className="bg-black/30 backdrop-blur-sm text-[8px] font-bold text-white px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 border border-white/10">
                   <BookOpenCheck className="w-2.5 h-2.5" />

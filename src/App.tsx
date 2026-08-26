@@ -780,44 +780,104 @@ export default function App() {
   };
 
   // Action sync execution
-  const handleTriggerSync = () => {
+  const handleTriggerSync = async () => {
     if (!isOnline) {
-      addToast('Sync aborted. Offline state active.', 'warn');
+      addToast('To Syncronize, Connect to Net.', 'warn');
       return;
     }
 
-    const pendings = offlineQueue.filter(a => a.status === 'pending');
-    if (pendings.length === 0) {
-      addToast('Everything is synchronized.', 'success');
+    if (!selectedBookId) {
+      addToast('No textbook open to synchronize.', 'warn');
       return;
     }
 
     setIsSyncing(true);
-    addToast('Contacting school database repository...', 'cloud');
+    addToast('Checking school database repository...', 'cloud');
 
-    // Simulate step-by-step server commit
-    setTimeout(() => {
-      addToast(`Syncing ${pendings.length} pending local records chronologically...`, 'cloud');
+    try {
+      const { collection, getDocs } = await import('firebase/firestore');
+      const lessonsSnap = await getDocs(collection(db, 'books', selectedBookId.toString(), 'lessons'));
+      
+      const firestoreLessons = lessonsSnap.docs.map(ld => ld.data() as Lesson);
+      const sanitizedFirestoreLessons = firestoreLessons
+        .filter((l: any) => l !== null && l !== undefined)
+        .map((l: any) => ({
+          ...l,
+          pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+          flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
+        }));
 
-      setTimeout(() => {
-        // Push all local notes to Firestore
-        notes.forEach(note => {
-          setDoc(doc(db, 'notes', `${note.bookId}_${note.lessonId}`), note).catch(console.error);
-        });
+      const localBook = firebaseBooks.find(b => b.id === selectedBookId);
+      const localLessons = localBook?.lessons || [];
 
-        // Map all pending records to "synchronized"
-        const synchronizedQueue = offlineQueue.map(action => {
-          if (action.status === 'pending') {
-            return { ...action, status: 'synchronized' as const };
+      let hasSomethingNew = false;
+      if (sanitizedFirestoreLessons.length !== localLessons.length) {
+        hasSomethingNew = true;
+      } else {
+        for (const fl of sanitizedFirestoreLessons) {
+          const ll = localLessons.find(l => l.id === fl.id);
+          if (!ll) {
+            hasSomethingNew = true;
+            break;
           }
-          return action;
+          if (JSON.stringify(ll) !== JSON.stringify(fl)) {
+            hasSomethingNew = true;
+            break;
+          }
+        }
+      }
+
+      if (hasSomethingNew) {
+        setFirebaseBooks(prev => {
+          const bookIndex = prev.findIndex(b => b.id === selectedBookId);
+          if (bookIndex === -1) return prev;
+          
+          const newBooks = [...prev];
+          newBooks[bookIndex] = { ...prev[bookIndex], lessons: sanitizedFirestoreLessons };
+          return newBooks;
         });
 
-        updateOfflineQueueLocal(synchronizedQueue);
-        setIsSyncing(false);
-        addToast('Durable sync complete! Safe to reload or close smartboard.', 'success');
-      }, 1800);
-    }, 1000);
+        // Also sync any pending offline changes (notes/drawings) if they exist
+        const pendings = offlineQueue.filter(a => a.status === 'pending');
+        if (pendings.length > 0) {
+          notes.forEach(note => {
+            setDoc(doc(db, 'notes', `${note.bookId}_${note.lessonId}`), note).catch(console.error);
+          });
+          const synchronizedQueue = offlineQueue.map(action => {
+            if (action.status === 'pending') {
+              return { ...action, status: 'synchronized' as const };
+            }
+            return action;
+          });
+          updateOfflineQueueLocal(synchronizedQueue);
+        }
+
+        addToast('Curriculum synchronized and updated successfully!', 'success');
+      } else {
+        // If there's no new curriculum, let's see if we have local pending changes to sync
+        const pendings = offlineQueue.filter(a => a.status === 'pending');
+        if (pendings.length > 0) {
+          notes.forEach(note => {
+            setDoc(doc(db, 'notes', `${note.bookId}_${note.lessonId}`), note).catch(console.error);
+          });
+          const synchronizedQueue = offlineQueue.map(action => {
+            if (action.status === 'pending') {
+              return { ...action, status: 'synchronized' as const };
+            }
+            return action;
+          });
+          updateOfflineQueueLocal(synchronizedQueue);
+          addToast('Local changes synchronized successfully.', 'success');
+        } else {
+          addToast('Nothing New to Synchronize', 'success');
+        }
+      }
+    } catch (err: any) {
+      console.error('Sync failed:', err);
+      addToast(`Sync failed: ${err.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // Capture note addition offline and online

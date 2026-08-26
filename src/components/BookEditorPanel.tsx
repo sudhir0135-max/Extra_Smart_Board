@@ -981,7 +981,9 @@ export default function BookEditorPanel({
                                   onChange={async (e) => {
                                     if (e.target.files && e.target.files[0]) {
                                       try {
-                                        const url = await uploadImageToStorage(e.target.files[0]);
+                                        const subject = academicSubjects.find(s => s.id === assignedBook?.subjectId);
+                                        const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
+                                        const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                         setPageLeftImageDraft(url);
                                       } catch(err: any) {
                                         alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
@@ -1032,7 +1034,9 @@ export default function BookEditorPanel({
                                   onChange={async (e) => {
                                     if (e.target.files && e.target.files[0]) {
                                       try {
-                                        const url = await uploadImageToStorage(e.target.files[0]);
+                                        const subject = academicSubjects.find(s => s.id === assignedBook?.subjectId);
+                                        const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
+                                        const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                         setPageCenterImageDraft(url);
                                       } catch(err: any) {
                                         alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
@@ -1083,7 +1087,9 @@ export default function BookEditorPanel({
                                   onChange={async (e) => {
                                     if (e.target.files && e.target.files[0]) {
                                       try {
-                                        const url = await uploadImageToStorage(e.target.files[0]);
+                                        const subject = academicSubjects.find(s => s.id === assignedBook?.subjectId);
+                                        const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
+                                        const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                         setPageRightImageDraft(url);
                                       } catch(err: any) {
                                         alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
@@ -1318,6 +1324,7 @@ export default function BookEditorPanel({
         
         <AssetLibraryModal
           isOpen={isAssetLibraryOpen}
+          subjects={academicSubjects}
           folderPath={(() => {
             if (!assignedBook?.subjectId || !academicSubjects.length) return 'images';
             const subject = academicSubjects.find(s => s.id === assignedBook.subjectId);
