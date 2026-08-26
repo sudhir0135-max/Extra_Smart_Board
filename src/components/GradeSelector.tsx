@@ -114,7 +114,7 @@ export default function GradeSelector({
                 key={book.id}
                 id={`selector-book-${book.id}`}
               onClick={() => onSelectBook(book.id)}
-              className="h-[32.3vh] min-h-[187px] max-h-[252px] rounded-2xl relative cursor-pointer group transition-all duration-300 transform hover:-translate-y-1.5 hover:shadow-xl hover:shadow-[#0d631b]/10 active:scale-95 border border-[#ebefe5] overflow-hidden flex flex-col justify-between p-3"
+              className="h-[32.3vh] min-h-[187px] max-h-[252px] relative cursor-pointer group transition-all duration-300 transform hover:-translate-y-1.5 shadow-md shadow-black/30 hover:shadow-xl hover:shadow-black/40 active:scale-95 border border-[#ebefe5] overflow-hidden flex flex-col justify-between p-3"
               style={{
                 background: `linear-gradient(135deg, ${book.color}e0, ${book.color}bb)`,
               }}
@@ -122,13 +122,13 @@ export default function GradeSelector({
               {/* Book Cover Image (if available) */}
               {book.coverImage && (
                 <div className="absolute inset-0 z-0">
-                  <CachedImage src={book.coverImage} alt={book.title} className="w-full h-full object-cover rounded-2xl opacity-90 group-hover:opacity-100 transition-opacity" />
+                  <CachedImage src={book.coverImage} alt={book.title} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                 </div>
               )}
 
               {/* Spine shadow overlay recreating a premium hardbound cover look */}
-              <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-r from-black/40 to-transparent pointer-events-none rounded-l-2xl z-10" />
+              <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-r from-black/40 to-transparent pointer-events-none z-10" />
               
               {/* Book Details */}
               <div className="pl-2 relative z-10">
