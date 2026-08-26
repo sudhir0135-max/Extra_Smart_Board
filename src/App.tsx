@@ -125,8 +125,10 @@ export default function App() {
             .map((l: any) => ({
               ...l,
               pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
-              flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
+              flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+              inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
             }));
+
 
           loadedBooks.push({
             ...data,
@@ -271,8 +273,10 @@ export default function App() {
             .map((l: any) => ({
               ...l,
               pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
-              flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
+              flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+              inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
             }));
+
             
           const newBooks = [...prev];
           newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
@@ -804,73 +808,92 @@ export default function App() {
         .map((l: any) => ({
           ...l,
           pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
-          flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined)
+          flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+          inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
         }));
 
+      // Check IndexedDB offline storage
+      const offlineData = await dbLocal.offline_lessons.get(selectedBookId);
+      const offlineLessons = offlineData?.lessons || [];
       const localBook = firebaseBooks.find(b => b.id === selectedBookId);
       const localLessons = localBook?.lessons || [];
 
       let hasSomethingNew = false;
-      if (sanitizedFirestoreLessons.length !== localLessons.length) {
+      if (sanitizedFirestoreLessons.length !== localLessons.length || sanitizedFirestoreLessons.length !== offlineLessons.length) {
         hasSomethingNew = true;
       } else {
         for (const fl of sanitizedFirestoreLessons) {
           const ll = localLessons.find(l => l.id === fl.id);
-          if (!ll) {
+          const ol = offlineLessons.find(l => l.id === fl.id);
+          if (!ll || !ol) {
             hasSomethingNew = true;
             break;
           }
-          if (JSON.stringify(ll) !== JSON.stringify(fl)) {
+          if (JSON.stringify(ll) !== JSON.stringify(fl) || JSON.stringify(ol) !== JSON.stringify(fl)) {
             hasSomethingNew = true;
             break;
           }
         }
       }
 
-      if (hasSomethingNew) {
-        setFirebaseBooks(prev => {
-          const bookIndex = prev.findIndex(b => b.id === selectedBookId);
-          if (bookIndex === -1) return prev;
-          
-          const newBooks = [...prev];
-          newBooks[bookIndex] = { ...prev[bookIndex], lessons: sanitizedFirestoreLessons };
-          return newBooks;
+      // Always update both React state and IndexedDB storage when sync is executed
+      setFirebaseBooks(prev => {
+        const bookIndex = prev.findIndex(b => b.id === selectedBookId);
+        if (bookIndex === -1) return prev;
+        
+        const newBooks = [...prev];
+        newBooks[bookIndex] = { ...prev[bookIndex], lessons: sanitizedFirestoreLessons };
+        return newBooks;
+      });
+
+      await dbLocal.offline_lessons.put({
+        bookId: selectedBookId,
+        lessons: sanitizedFirestoreLessons,
+        sync_status: 'synced',
+        updated_at: new Date().toISOString()
+      });
+
+      // On native platform (Capacitor Android), download & cache any new images into local device filesystem
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const { downloadAndCacheImage, extractImagesFromLesson } = await import('./lib/imageCache');
+          let imageUrls: string[] = [];
+          for (const l of sanitizedFirestoreLessons) {
+            const urls = extractImagesFromLesson(l);
+            imageUrls.push(...urls);
+          }
+          imageUrls = Array.from(new Set(imageUrls));
+          const BATCH_SIZE = 3;
+          for (let i = 0; i < imageUrls.length; i += BATCH_SIZE) {
+            const chunk = imageUrls.slice(i, i + BATCH_SIZE);
+            await Promise.all(chunk.map(u => downloadAndCacheImage(u).catch(console.error)));
+          }
+        } catch (imgCacheErr) {
+          console.error('Native image caching during sync failed:', imgCacheErr);
+        }
+      }
+
+      // Also sync any pending offline changes (notes/drawings) if they exist
+      const pendings = offlineQueue.filter(a => a.status === 'pending');
+      if (pendings.length > 0) {
+        notes.forEach(note => {
+          setDoc(doc(db, 'notes', `${note.bookId}_${note.lessonId}`), note).catch(console.error);
         });
+        const synchronizedQueue = offlineQueue.map(action => {
+          if (action.status === 'pending') {
+            return { ...action, status: 'synchronized' as const };
+          }
+          return action;
+        });
+        updateOfflineQueueLocal(synchronizedQueue);
+      }
 
-        // Also sync any pending offline changes (notes/drawings) if they exist
-        const pendings = offlineQueue.filter(a => a.status === 'pending');
-        if (pendings.length > 0) {
-          notes.forEach(note => {
-            setDoc(doc(db, 'notes', `${note.bookId}_${note.lessonId}`), note).catch(console.error);
-          });
-          const synchronizedQueue = offlineQueue.map(action => {
-            if (action.status === 'pending') {
-              return { ...action, status: 'synchronized' as const };
-            }
-            return action;
-          });
-          updateOfflineQueueLocal(synchronizedQueue);
-        }
-
+      if (hasSomethingNew) {
         addToast('Curriculum synchronized and updated successfully!', 'success');
+      } else if (pendings.length > 0) {
+        addToast('Local changes synchronized successfully.', 'success');
       } else {
-        // If there's no new curriculum, let's see if we have local pending changes to sync
-        const pendings = offlineQueue.filter(a => a.status === 'pending');
-        if (pendings.length > 0) {
-          notes.forEach(note => {
-            setDoc(doc(db, 'notes', `${note.bookId}_${note.lessonId}`), note).catch(console.error);
-          });
-          const synchronizedQueue = offlineQueue.map(action => {
-            if (action.status === 'pending') {
-              return { ...action, status: 'synchronized' as const };
-            }
-            return action;
-          });
-          updateOfflineQueueLocal(synchronizedQueue);
-          addToast('Local changes synchronized successfully.', 'success');
-        } else {
-          addToast('Nothing New to Synchronize', 'success');
-        }
+        addToast('Curriculum verified — up to date.', 'success');
       }
     } catch (err: any) {
       console.error('Sync failed:', err);
@@ -879,6 +902,7 @@ export default function App() {
       setIsSyncing(false);
     }
   };
+
 
   // Capture note addition offline and online
   const handleAddNote = (noteText: string) => {
@@ -1690,7 +1714,9 @@ export default function App() {
           isHighlighter={isHighlighter}
           onBlackboardToggle={(open) => setIsBlackboardOpen(open)}
           isOnline={isOnline}
+          globalLogo={globalLogo}
         />
+
 
 
 

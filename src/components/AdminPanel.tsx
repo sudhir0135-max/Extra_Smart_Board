@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Book, Lesson, FlashQuestion, BookEditor, AcademicClass, AcademicSubject, EditorSubmission } from '../types';
-import { uploadImageToStorage } from '../lib/firebaseHelper';
+import { uploadImageToStorage, createSubjectFolder } from '../lib/firebaseHelper';
 import { auth, db } from '../lib/firebase';
 import { collection, onSnapshot, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
@@ -259,6 +259,11 @@ export default function AdminPanel({
     }
     try {
       await addDoc(collection(db, 'subjects'), { name: trimmed });
+      // Immediately create the matching folder in Firebase Storage so it
+      // appears in the Asset Library without waiting for a first image upload.
+      createSubjectFolder(trimmed).catch(e =>
+        console.warn(`[createSubjectFolder] Could not initialise folder for "${trimmed}":`, e)
+      );
       setNewSubject('');
       flashMessage(`Subject "${trimmed}" added to Firebase roster.`);
     } catch (err: any) {
@@ -564,6 +569,10 @@ export default function AdminPanel({
         setIsUploadingChapter(true);
         const subject = academicSubjects.find(s => String(s.id) === String(activeBook.subjectId));
         const folderPath = subject ? `images/subjects/${subject.name}` : 'images';
+
+        // Ensure the subject folder exists in Storage (no-op if already created)
+        if (subject) await createSubjectFolder(subject.name);
+
         const uploadedUrls: string[] = [];
         for (let i = 0; i < files.length; i++) {
           setUploadProgress(`Uploading image ${i + 1} of ${files.length}...`);
@@ -1371,7 +1380,7 @@ export default function AdminPanel({
                             onChange={async (e) => {
                               if (e.target.files && e.target.files[0]) {
                                 try {
-                                  const subject = academicSubjects.find(s => String(s.id) === String(bookSubjectDraft));
+                                  const subject = academicSubjects.find(s => String(s.id) === String(bookSubjectIdDraft));
                                   const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                   const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                   setBookCoverDraft(url);

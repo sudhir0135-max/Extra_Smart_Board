@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-08-27] - Auto-create Subject Folder + Logo Copy & Student Panel Logo Sizing + Sync Fix
+
+### Added
+- **Student Panel Logo Display** (`Workspace.tsx` & `App.tsx`): Passed `globalLogo` prop to `Workspace` and updated the initial empty workspace screen layout to remove all headings, descriptions, and drag-and-drop boxes, displaying **only the logo** at 50% screen height and 50% screen width (`w-[50vw] h-[50vh] max-w-[50vw] max-h-[50vh] object-contain`).
+- **Sync Button Fix & Offline Persistence** (`App.tsx`):
+  - Updated `handleTriggerSync` to sanitize `inquiryQuestions` alongside `pages` and `flashQuestions`.
+  - Fixed sync persistence so it always writes synced lessons into `dbLocal.offline_lessons` in IndexedDB.
+  - Added background image caching for native Android (`downloadAndCacheImage`) to download inquiry question media to device filesystem during sync.
+  - Updated `fetchBookLessons` to sanitize `inquiryQuestions` arrays from subcollections.
+- **Android APK Build**: Compiled production web assets (`npm run build`), synced Capacitor assets (`npx cap sync android`), and built new Android debug APK (`android/app/build/outputs/apk/debug/app-debug.apk`).
+
+- **`createSubjectFolder()` helper** (`firebaseHelper.ts`): On first creation of a subject folder:
+
+
+  1. Uploads a `.keep` placeholder to `images/subjects/{subjectName}/` to materialise the folder.
+  2. Reads the branding logo URL from `settings/branding` in Firestore and copies it into `images/subjects/{subjectName}/logo.png` — so every subject folder immediately contains the app logo.
+  - Fully idempotent: if `.keep` already exists the function exits immediately with no work done.
+- **Auto-folder + logo on Subject Node creation** (`AdminPanel.tsx` → `handleAddSubject`): Runs `createSubjectFolder` in the background as soon as a new Subject Node is saved.
+- **Auto-folder safety-net on Upload Chapter** (`AdminPanel.tsx` → `handleUploadChapter`): Ensures the subject folder exists before the image upload loop begins, backfilling subjects that existed before this feature.
+
+### Migration
+- One-shot Node.js script (`scratch5.mjs`) was run to retroactively create folders and copy the logo for all **19 existing subjects**: Science, Social Science, History, Physical Education, Sanskrit, Economics, Mathematics, Skill Education, Fine Art, Geography, Arts, Political Science, English, Physical Education and Well-being, Drawings, Urdu, Hindi, Business Studies, Accountancy.
+
 ## [2026-08-02] - v5.0 APK — Offline Fixes, Accountancy Tables & APK Size Optimization
 
 ### Added

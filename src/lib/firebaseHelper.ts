@@ -1,5 +1,63 @@
-import { ref, uploadBytes, getDownloadURL, deleteObject, uploadString, listAll } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject, uploadString, listAll, getMetadata } from 'firebase/storage';
 import { storage } from './firebase';
+
+import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+/**
+ * Ensures the subject image folder exists in Firebase Storage.
+ * On first creation it also:
+ *  1. Uploads a tiny .keep placeholder to materialise the folder.
+ *  2. Copies the current branding logo (from Firestore settings/branding)
+ *     into  images/subjects/{subjectName}/logo.{ext}
+ *     so the Asset Library immediately shows the logo in the new folder.
+ *
+ * Fully idempotent — safe to call many times.  If .keep already exists the
+ * function exits immediately without doing any extra work.
+ */
+export async function createSubjectFolder(subjectName: string): Promise<void> {
+  const folderBase = `images/subjects/${subjectName}`;
+  const keepRef    = ref(storage, `${folderBase}/.keep`);
+
+  // ── 1. Check if folder already exists ──────────────────────────────────────
+  try {
+    await getMetadata(keepRef);
+    return; // already initialised — nothing to do
+  } catch {
+    // Folder is new — fall through to create it
+  }
+
+  // ── 2. Create .keep placeholder ────────────────────────────────────────────
+  await uploadString(keepRef, '', 'raw', { contentType: 'text/plain' });
+
+  // ── 3. Copy branding logo into the new folder ───────────────────────────────
+  try {
+    const brandingSnap = await getDoc(doc(db, 'settings', 'branding'));
+    const logoUrl: string | undefined = brandingSnap.data()?.logoUrl;
+    if (logoUrl) {
+      // Derive extension from the Storage path portion of the URL
+      const ext = logoUrl.split('?')[0].split('.').pop() || 'png';
+      const logoPath = `${folderBase}/logo.${ext}`;
+      const logoRef  = ref(storage, logoPath);
+
+      // Only copy if logo isn't already there
+      try { await getMetadata(logoRef); } catch {
+        const res = await fetch(logoUrl);
+        if (res.ok) {
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          const mime  = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                      : ext === 'webp' ? 'image/webp'
+                      : 'image/png';
+          await uploadBytes(logoRef, bytes, { contentType: mime });
+        }
+      }
+    }
+  } catch (e) {
+    // Logo copy is best-effort — don't block folder creation if it fails
+    console.warn('[createSubjectFolder] Could not copy logo:', e);
+  }
+}
+
 
 export async function uploadImageToStorage(file: File, folder: string = 'images'): Promise<string> {
   const fileName = `${Date.now()}_${file.name}`;

@@ -741,7 +741,7 @@ export default function Workspace({
             </div>
         </>
       ) : (
-        /* Empty Welcome state with quick instructions and mock folder loading drag zone */
+        /* Empty Welcome state showing only the global logo */
         <div
           id="empty-state"
           onDragOver={handleDragOver}
@@ -751,45 +751,27 @@ export default function Workspace({
             isDraggingFile ? 'bg-amber-400/10 border-2 border-dashed border-amber-400' : 'bg-transparent'
           }`}
         >
-          <div className="text-center max-w-md space-y-5">
+          <div className="flex flex-col items-center justify-center">
             {globalLogo ? (
-              <div className="w-20 h-20 mx-auto bg-white/10 rounded-lg flex items-center justify-center border border-slate-700/80 mb-2 p-2">
-                <CachedImage src={globalLogo} alt="Global Logo" className="max-w-full max-h-full object-contain" />
+              <div className="w-[50vw] h-[50vh] max-w-[50vw] max-h-[50vh] mx-auto flex items-center justify-center p-2">
+                <CachedImage src={globalLogo} alt="Global Logo" className="w-full h-full object-contain" />
               </div>
             ) : (
-              <div className="w-16 h-16 mx-auto rounded-full bg-slate-800/40 border border-slate-700/80 flex items-center justify-center text-amber-400 text-3xl animate-bounce-short mb-2">
+              <div className="w-[50vw] h-[50vh] max-w-[50vw] max-h-[50vh] mx-auto rounded-3xl bg-slate-800/30 border border-slate-700/50 flex items-center justify-center text-amber-400 text-8xl animate-bounce-short p-4">
                 📖
               </div>
             )}
-            
-            <h2 className="font-sans text-2xl font-extrabold text-slate-100 uppercase tracking-tight" id="empty-text">
-              Extrapadhai Smartboard Handout Workspace
-            </h2>
-            
-            <p className="font-sans text-slate-400 leading-relaxed text-sm">
-              Select any school curriculum, book or handout document from the slider above to read continuous seamless sheets on this smartboard workspace.
-            </p>
-
-            {/* Visual Drag and drop folder section */}
-            <div
-              className={`border-2 border-dashed rounded-xl p-6 py-8 flex flex-col items-center justify-center gap-3.5 cursor-pointer transition-all ${
-                isDraggingFile ? 'border-amber-400 bg-amber-500/5' : 'border-slate-800 hover:border-slate-700 bg-slate-950/20'
-              }`}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="w-8 h-8 text-amber-400 opacity-90" />
-              <span className="font-sans text-[10px] uppercase font-bold tracking-wider text-amber-400">Drag & Drop Handouts Here</span>
-              <span className="text-[9px] text-slate-500 font-mono">Accepts PDF, TXT, MD text, or notes files</span>
-            </div>
 
             {uploadFeedback && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs font-mono flex items-center justify-center gap-1.5 animate-pulse">
+              <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs font-mono flex items-center justify-center gap-1.5 animate-pulse">
                 <Check className="w-4 h-4" />
                 <span>{uploadFeedback}</span>
               </div>
             )}
           </div>
         </div>
+
+
       )}
 
       {/* ANNOTATION UI: Speech Bubble (Popover) — always landscape rectangle */}
