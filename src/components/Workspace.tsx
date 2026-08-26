@@ -18,6 +18,8 @@ import CachedImage from './CachedImage';
 import { getLocalImageSrc } from '../lib/imageCache';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
+import { hasTextContent } from '../lib/contentUtils';
+
 
 /**
  * Strips inline CSS properties that TinyMCE's dark editor bakes into saved HTML.
@@ -548,6 +550,12 @@ export default function Workspace({
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                   const page = sanitizedPages[virtualRow.index];
                   if (!page) return null;
+
+                  const pg = page as any;
+                  const pageImages = [pg.leftImage, pg.centerImage, pg.rightImage].filter(Boolean);
+                  const pageImageCount = pageImages.length;
+                  const pageHasNoText = !hasTextContent(pg.content);
+
                   return (
                   <VirtualPageWrapper
                     key={(page as any).id || page.pageNumber || virtualRow.index}
@@ -596,6 +604,18 @@ export default function Workspace({
                             allowFullScreen
                           />
                         )}
+                      </div>
+                    ) : (pageImageCount >= 1 && pageHasNoText && imageViewMode === 'two') ? (
+                      <div className="grid grid-cols-2 w-full gap-6 mt-4">
+                        {pageImages.map((imgSrc, imgIdx) => (
+                          <div key={imgIdx} className="w-full">
+                            <CachedImage 
+                              src={imgSrc} 
+                              alt={`Graphic Illustration ${imgIdx + 1}`} 
+                              className="w-full h-auto rounded-xl border border-slate-350/50 dark:border-slate-800 shadow-lg shadow-black/5" 
+                            />
+                          </div>
+                        ))}
                       </div>
                     ) : isLessonContentLess ? (
                       imageViewMode === 'two' ? (

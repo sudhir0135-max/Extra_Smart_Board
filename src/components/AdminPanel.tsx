@@ -33,7 +33,8 @@ import {
   Sliders,
   HelpCircle,
   ShieldAlert,
-  Cloud
+  Cloud,
+  Upload
 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
@@ -141,6 +142,9 @@ export default function AdminPanel({
   const [lessonTitleDraft, setLessonTitleDraft] = useState('');
   const [lessonSubtitleDraft, setLessonSubtitleDraft] = useState('');
   const [lessonVideoDraft, setLessonVideoDraft] = useState('');
+  const [isUploadingChapter, setIsUploadingChapter] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+
 
   // Page Editor state
   const [pageContentDraft, setPageContentDraft] = useState('');
@@ -532,6 +536,83 @@ export default function AdminPanel({
       alert('Failed to add chapter to Firebase.');
     }
   };
+
+  const handleUploadChapter = async () => {
+    if (!activeBook) return;
+    if (!lessonTitleDraft.trim()) {
+      alert('Please specify a chapter title in the text box above first.');
+      return;
+    }
+
+    const isDuplicate = (activeBook.lessons || []).some(l => l.title.toLowerCase() === lessonTitleDraft.trim().toLowerCase());
+    if (isDuplicate) {
+      alert('A chapter with this exact title already exists in this textbook. Please use a unique title.');
+      return;
+    }
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.multiple = true;
+    fileInput.accept = 'image/*';
+    fileInput.onchange = async (e: any) => {
+      const files = Array.from(e.target.files || []) as File[];
+      if (files.length === 0) return;
+
+      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+      try {
+        setIsUploadingChapter(true);
+        const uploadedUrls: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+          setUploadProgress(`Uploading image ${i + 1} of ${files.length}...`);
+          const url = await uploadImageToStorage(files[i]);
+          uploadedUrls.push(url);
+        }
+
+        setUploadProgress('Creating chapter pages...');
+        const pages: any[] = [];
+        let pageNumber = 1;
+        for (let i = 0; i < uploadedUrls.length; i += 2) {
+          const leftImage = uploadedUrls[i] || null;
+          const rightImage = uploadedUrls[i + 1] || null;
+          pages.push({
+            pageNumber,
+            content: '',
+            leftImage,
+            rightImage
+          });
+          pageNumber++;
+        }
+
+        const newLesson: Lesson = {
+          id: `lesson-${activeBook.id}-${Date.now()}`,
+          title: lessonTitleDraft.trim(),
+          subtitle: lessonSubtitleDraft.trim() || null,
+          videoUrl: lessonVideoDraft.trim() || null,
+          pages: pages,
+          flashQuestions: []
+        };
+
+        const modifiedBook = { ...activeBook, lessons: [...(activeBook.lessons || []), newLesson] };
+        setUploadProgress('Saving to Firebase...');
+        await saveBookToFirebase(modifiedBook);
+
+        setLessonTitleDraft('');
+        setLessonSubtitleDraft('');
+        setLessonVideoDraft('');
+        setSelectedLessonId(newLesson.id);
+        flashMessage(`Chapter '${newLesson.title}' uploaded successfully with ${pages.length} pages!`);
+      } catch (err: any) {
+        console.error('Error uploading chapter:', err);
+        alert(`Failed to upload chapter: ${err.message}`);
+      } finally {
+        setIsUploadingChapter(false);
+        setUploadProgress('');
+      }
+    };
+    fileInput.click();
+  };
+
 
   const handleUpdateLessonMeta = async (fields: Partial<Lesson>) => {
     if (!activeBook || !selectedLessonId) return;
@@ -1522,10 +1603,23 @@ export default function AdminPanel({
                           />
                           <button
                             onClick={handleAddLesson}
-                            className="w-full py-1.5 bg-indigo-700 hover:bg-indigo-650 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer"
+                            disabled={isUploadingChapter}
+                            className="w-full py-1.5 bg-indigo-700 hover:bg-indigo-650 disabled:bg-slate-800 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer"
                           >
                             + Append Chapter
                           </button>
+                          <button
+                            onClick={handleUploadChapter}
+                            disabled={isUploadingChapter}
+                            className="w-full py-1.5 bg-emerald-700 hover:bg-emerald-650 disabled:bg-slate-800 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <Upload className="w-3.5 h-3.5" /> Upload Chapter
+                          </button>
+                          {isUploadingChapter && (
+                            <div className="text-[10px] font-mono text-emerald-400 bg-slate-950 p-2 rounded border border-emerald-950 text-center animate-pulse mt-1">
+                              {uploadProgress}
+                            </div>
+                          )}
                         </div>
                       </div>
 
