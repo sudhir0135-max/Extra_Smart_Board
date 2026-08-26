@@ -981,7 +981,7 @@ export default function BookEditorPanel({
                                   onChange={async (e) => {
                                     if (e.target.files && e.target.files[0]) {
                                       try {
-                                        const subject = academicSubjects.find(s => s.id === assignedBook?.subjectId);
+                                        const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
                                         const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                         const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                         setPageLeftImageDraft(url);
@@ -1034,7 +1034,7 @@ export default function BookEditorPanel({
                                   onChange={async (e) => {
                                     if (e.target.files && e.target.files[0]) {
                                       try {
-                                        const subject = academicSubjects.find(s => s.id === assignedBook?.subjectId);
+                                        const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
                                         const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                         const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                         setPageCenterImageDraft(url);
@@ -1087,7 +1087,7 @@ export default function BookEditorPanel({
                                   onChange={async (e) => {
                                     if (e.target.files && e.target.files[0]) {
                                       try {
-                                        const subject = academicSubjects.find(s => s.id === assignedBook?.subjectId);
+                                        const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
                                         const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                         const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                         setPageRightImageDraft(url);

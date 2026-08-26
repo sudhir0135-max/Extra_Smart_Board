@@ -562,7 +562,7 @@ export default function AdminPanel({
 
       try {
         setIsUploadingChapter(true);
-        const subject = academicSubjects.find(s => s.id === activeBook.subjectId);
+        const subject = academicSubjects.find(s => String(s.id) === String(activeBook.subjectId));
         const folderPath = subject ? `images/subjects/${subject.name}` : 'images';
         const uploadedUrls: string[] = [];
         for (let i = 0; i < files.length; i++) {
@@ -1371,7 +1371,7 @@ export default function AdminPanel({
                             onChange={async (e) => {
                               if (e.target.files && e.target.files[0]) {
                                 try {
-                                  const subject = academicSubjects.find(s => s.id === bookSubjectDraft);
+                                  const subject = academicSubjects.find(s => String(s.id) === String(bookSubjectDraft));
                                   const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                   const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                   setBookCoverDraft(url);
@@ -1867,7 +1867,7 @@ export default function AdminPanel({
                                               onChange={async (e) => {
                                                 if (e.target.files && e.target.files[0]) {
                                                   try {
-                                                    const subject = academicSubjects.find(s => s.id === activeBook?.subjectId);
+                                                    const subject = academicSubjects.find(s => String(s.id) === String(activeBook?.subjectId));
                                                     const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                                     const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                                     setPageLeftImageDraft(url);
@@ -1910,7 +1910,7 @@ export default function AdminPanel({
                                               onChange={async (e) => {
                                                 if (e.target.files && e.target.files[0]) {
                                                   try {
-                                                    const subject = academicSubjects.find(s => s.id === activeBook?.subjectId);
+                                                    const subject = academicSubjects.find(s => String(s.id) === String(activeBook?.subjectId));
                                                     const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
                                                     const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
                                                     setPageRightImageDraft(url);
