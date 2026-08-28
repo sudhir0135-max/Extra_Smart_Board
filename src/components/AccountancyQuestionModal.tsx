@@ -652,13 +652,16 @@ export default function AccountancyQuestionModal({
 }: AccountancyQuestionModalProps) {
   // Process raw question item
   const qObj: InquiryQuestionObj = useMemo(() => {
+    if (!question) {
+      return { id: 'temp-q', text: 'No question details available.' };
+    }
     if (typeof question === 'string') {
       return { id: 'temp-q', text: question };
     }
     return question;
   }, [question]);
 
-  const qId = qObj.id || 'temp-q';
+  const qId = qObj?.id || 'temp-q';
 
   // Tab State (loaded from local storage if available)
   const [tabs, setTabs] = useState<AccountancyTabConfig[]>(() => {
@@ -1103,14 +1106,15 @@ export default function AccountancyQuestionModal({
               {(qObj.answerText || qObj.answerImage) && (
                 <button
                   onClick={() => setShowAnswer(!showAnswer)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all border cursor-pointer ${
+                  className={`p-2 rounded-xl transition-all border cursor-pointer ${
                     showAnswer
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md'
-                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'
+                      ? 'bg-slate-700 text-slate-100 border-slate-500 shadow-md'
+                      : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white hover:border-slate-500'
                   }`}
+                  title={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
+                  aria-label={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
                 >
-                  {showAnswer ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  <span>{showAnswer ? 'Hide Solution/Answer' : 'Show Solution/Answer'}</span>
+                  {showAnswer ? <EyeOff className="w-4 h-4 text-slate-300" /> : <Eye className="w-4 h-4 text-slate-300" />}
                 </button>
               )}
             </div>
@@ -1136,17 +1140,18 @@ export default function AccountancyQuestionModal({
 
               {/* Toggle Answer Button Beneath Question */}
               {(qObj.answerText || qObj.answerImage) && (
-                <div className="pt-2">
+                <div className="pt-2 flex justify-end w-full">
                   <button
                     onClick={() => setShowAnswer(!showAnswer)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs md:text-sm lg:text-base transition-all border cursor-pointer ${
+                    className={`p-2.5 rounded-xl transition-all border cursor-pointer ${
                       showAnswer
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md shadow-emerald-950/30'
-                        : 'bg-slate-900/90 text-amber-300 border-amber-500/40 hover:bg-amber-500/10 hover:border-amber-500/60 shadow-sm'
+                        ? 'bg-slate-700 text-slate-100 border-slate-500 shadow-md shadow-slate-950/40'
+                        : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white hover:border-slate-500 shadow-sm'
                     }`}
+                    title={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
+                    aria-label={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
                   >
-                    {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-amber-400" />}
-                    <span>{showAnswer ? 'Hide Solution/Answer' : 'Show Solution/Answer'}</span>
+                    {showAnswer ? <EyeOff className="w-5 h-5 text-slate-300" /> : <Eye className="w-5 h-5 text-slate-300" />}
                   </button>
                 </div>
               )}

@@ -327,7 +327,7 @@ export default function ClassSelector({
 
       {/* Footer */}
       <footer className="py-6 border-t border-slate-900 bg-[#04060b] text-center z-10 text-[10px] text-slate-500 font-mono tracking-wider">
-        Extrapadhai.com • Dual Syllabus Selection Active • Aligned with CBSE &amp; State Boards
+        © {new Date().getFullYear()} ExtraPadhai.com • All Rights Reserved • Dual Syllabus Selection Active • Aligned with CBSE &amp; State Boards
       </footer>
     </div>
   );

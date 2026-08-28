@@ -15,9 +15,13 @@ import katex from 'katex';
  * the entire block with rendered KaTeX HTML.
  */
 export function renderMathInRawHtml(html: string): string {
-  if (!html) return html;
+  if (!html) return '';
+  if (typeof html !== 'string') {
+    html = String(html);
+  }
 
-  let processed = html;
+  try {
+    let processed = html;
 
   // Delimiters to process (ordered by priority: block first, then inline)
   const blocks = [
@@ -68,5 +72,9 @@ export function renderMathInRawHtml(html: string): string {
     });
   }
 
-  return processed;
+    return processed;
+  } catch (e) {
+    console.error("renderMathInRawHtml error:", e);
+    return String(html || '');
+  }
 }

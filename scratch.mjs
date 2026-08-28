@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, getDocs, collectionGroup, collection } from 'firebase/firestore';
+import { getFirestore, getDocs, getDoc, doc, collection } from 'firebase/firestore';
+import { getStorage, ref, listAll, getDownloadURL } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBrq6hPRqTLrWoE5metUgIpXPeBk8k2ljc",
@@ -13,20 +14,32 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-async function checkDb() {
-  const booksSnap = await getDocs(collection(db, 'books'));
-  console.log(`Found ${booksSnap.size} books.`);
-  for (const doc of booksSnap.docs) {
-    if (doc.id === '28') {
-      const lessonsSnap = await getDocs(collection(db, 'books', doc.id, 'lessons'));
-      console.log(`Book 28 subLessons size: ${lessonsSnap.size}`);
-      lessonsSnap.forEach(ld => {
-        console.log(`Lesson keys:`, Object.keys(ld.data()));
-        console.log(`Lesson id:`, ld.data().id);
-      });
+async function main() {
+  // 1. Get logo URL from Firestore settings/branding
+  console.log('\n=== Firestore settings/branding ===');
+  const brandingDoc = await getDoc(doc(db, 'settings', 'branding'));
+  console.log('  exists:', brandingDoc.exists());
+  if (brandingDoc.exists()) console.log('  data:', JSON.stringify(brandingDoc.data()));
+
+  // 2. List all files in branding/ folder in Storage
+  console.log('\n=== Storage: branding/ folder ===');
+  try {
+    const brandingRef = ref(storage, 'branding');
+    const result = await listAll(brandingRef);
+    for (const item of result.items) {
+      const url = await getDownloadURL(item);
+      console.log(`  [FILE] ${item.fullPath}`);
+      console.log(`         URL: ${url}`);
     }
+    for (const prefix of result.prefixes) {
+      console.log(`  [DIR] ${prefix.fullPath}`);
+    }
+  } catch(e) {
+    console.error('Error listing branding:', e.message);
   }
+
   process.exit(0);
 }
-checkDb();
+main();

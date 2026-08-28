@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-08-28] - Fix FAB Menu Crashes, Solution Toggle Styling & Add Flashcard Difficulty Filtering
+
+### Added
+- **Classroom Retrieval Cards Difficulty Filtering** (`FloatingButton.tsx`): Added filter tab options (**All**, **Easy**, **Medium**, **Hard**) with dynamic badge counts to the Flash Retrieval Cards container header. Filters the active flashcard deck dynamically with fallback empty states.
+
+### Fixed
+- **Floating Button Menu Uncaught Crashes** (`FloatingButton.tsx`, `mathPreprocessor.ts`):
+  - Fixed blank screen issue when clicking 'Q' by adding null checks (`Boolean(q)`) in `getLessonQuestions()` and property access guards.
+  - Added string conversion and outer `try/catch` to `renderMathInRawHtml()` to prevent uncaught `TypeError` when processing non-string or legacy question objects.
+  - Added `QuestionListErrorBoundary` around question items list.
+  - Restored missing `handlePointerMove` handler in `QuestionItem` to resolve `ReferenceError` on bottom-left drag-to-resize handle.
+  - Restored missing `FlashcardContent` component definition in `FloatingButton.tsx` to resolve `ReferenceError` when opening Retrieval Cards ('?').
+- **Solution/Answer Button Layout & Styling** (`FloatingButton.tsx`, `AccountancyQuestionModal.tsx`):
+  - Replaced text-labeled solution button with icon-only (`Eye`/`EyeOff`) toggle button positioned on the right with dark grey styling.
+
 ## [2026-08-27] - Auto-create Subject Folder + Logo Copy & Student Panel Logo Sizing + Sync Fix
 
 ### Added

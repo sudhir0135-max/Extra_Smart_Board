@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Book, Lesson, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject, EditorSubmission } from './types';
+import { Book, Lesson, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject, EditorSubmission, BookBookmark } from './types';
 import { BOOKS_DATA } from './data/books';
 import BookShelf from './components/BookShelf';
 import Sidebar from './components/Sidebar';
@@ -532,6 +532,49 @@ export default function App() {
   const [snv2Expanded, setSnv2Expanded] = useState<boolean>(false);
   const [imageViewMode, setImageViewMode] = useState<'single' | 'two'>('single');
 
+  const [bookmarks, setBookmarks] = useState<Record<number, BookBookmark>>(() => {
+    try {
+      const saved = localStorage.getItem('extrapadhai_book_bookmarks');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+  const [initialTargetPage, setInitialTargetPage] = useState<number | null>(null);
+
+  const handleAutoBookmark = useCallback((bookId: number, lessonId: string, pageNumber: number) => {
+    setBookmarks(prev => {
+      const existing = prev[bookId];
+      if (existing && existing.lessonId === lessonId && existing.pageNumber === pageNumber) {
+        return prev;
+      }
+      const updated = {
+        ...prev,
+        [bookId]: {
+          bookId,
+          lessonId,
+          pageNumber,
+          timestamp: Date.now(),
+        },
+      };
+      try {
+        localStorage.setItem('extrapadhai_book_bookmarks', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  const handleSelectBookBookmark = useCallback((bookId: number, lessonId: string, pageNumber: number) => {
+    setSelectedBookId(bookId);
+    setActiveLessonId(lessonId);
+    setInitialTargetPage(pageNumber);
+    setSnv1Expanded(false);
+    setSnv2Expanded(false);
+    setActiveScreen('workspace');
+    const book = books.find(b => b.id === bookId);
+    addToast(`Resumed ${book?.title || 'Book'} at Page ${pageNumber}`, 'success');
+  }, [books]);
+
   const activeBook = books.find(b => b.id === selectedBookId) || null;
   const activeLesson = activeBook ? activeBook.lessons.find(l => l.id === activeLessonId) || null : null;
   const isLessonContentLess = activeLesson?.pages.every(p => !hasTextContent(p.content)) ?? false;
@@ -668,6 +711,7 @@ export default function App() {
 
   const handleSelectBook = (bookId: number) => {
     setSelectedBookId(bookId);
+    setInitialTargetPage(null);
     // Auto-select first lesson of that book to prevent raw boundaries
     const book = books.find(b => b.id === bookId);
     if (book && book.lessons.length > 0) {
@@ -680,12 +724,14 @@ export default function App() {
 
   const handleSelectLesson = (lessonId: string) => {
     setActiveLessonId(lessonId);
+    setInitialTargetPage(null);
     // Squeeze chapters list on selecting active lesson
     setSnv2Expanded(false);
   };
 
   const handleSelectBookFromSelector = (bookId: number) => {
     setSelectedBookId(bookId);
+    setInitialTargetPage(null);
     const book = books.find(b => b.id === bookId);
     if (book && book.lessons.length > 0) {
       setActiveLessonId(book.lessons[0].id);
@@ -1345,6 +1391,9 @@ export default function App() {
               setActiveScreen('landing');
             }
           }}
+          academicSubjects={academicSubjects}
+          bookmarks={bookmarks}
+          onSelectBookBookmark={handleSelectBookBookmark}
         />
         
         {/* Toasts feed for consistent alerts on entry selection */}
@@ -1715,6 +1764,8 @@ export default function App() {
           onBlackboardToggle={(open) => setIsBlackboardOpen(open)}
           isOnline={isOnline}
           globalLogo={globalLogo}
+          onAutoBookmark={handleAutoBookmark}
+          initialTargetPage={initialTargetPage}
         />
 
 

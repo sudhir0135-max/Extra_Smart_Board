@@ -43,7 +43,7 @@ export default function Sidebar({
     <div className="relative h-full flex-shrink-0 z-40" style={{ width: '72px' }}>
       <div
         className={`absolute top-0 left-0 h-full bg-[#0c1220] border-r border-slate-900 flex flex-col overflow-hidden text-slate-200 select-none transition-all duration-300 shadow-2xl ${
-          isExpanded ? 'w-[260px]' : 'w-[72px]'
+          isExpanded ? 'w-[320px]' : 'w-[72px]'
         }`}
         id="sidebar"
       >
@@ -65,7 +65,7 @@ export default function Sidebar({
           selectedBook.lessons.map((lesson, idx) => {
             const isActive = lesson.id === activeLessonId;
             const stepNumber = String(idx + 1).padStart(2, '0');
- 
+
             if (isExpanded) {
               return (
                 <button
@@ -75,21 +75,21 @@ export default function Sidebar({
                     e.stopPropagation();
                     onSelectLesson(lesson.id);
                   }}
-                  className={`w-full text-left flex items-start gap-3 p-3 rounded-lg border border-slate-900/40 transition-all cursor-pointer ${
+                  className={`w-full text-left flex items-start gap-3.5 p-3.5 rounded-xl border border-slate-900/40 transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-slate-900/40 border-amber-400/40 text-yellow-300 font-bold shadow-sm'
-                      : 'bg-transparent border-transparent hover:bg-slate-900/20 text-slate-300 hover:text-slate-100'
+                      ? 'bg-slate-900/60 border-amber-400/50 text-yellow-300 font-bold shadow-md ring-1 ring-amber-400/20'
+                      : 'bg-transparent border-transparent hover:bg-slate-900/30 text-slate-200 hover:text-white'
                   }`}
                 >
-                  <span className="font-mono text-[10px] text-amber-500 font-extrabold mt-0.5">
+                  <span className="font-mono text-[15px] text-amber-500 font-black mt-0.5 flex-shrink-0">
                     {stepNumber}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[12.5px] leading-snug truncate">
+                    <div className="text-[18.5px] font-bold leading-snug break-words">
                       {lesson.title}
                     </div>
                     {lesson.subtitle && (
-                      <div className="text-[9px] text-slate-550 font-mono truncate mt-0.5">
+                      <div className="text-[13.5px] text-slate-400 font-mono mt-1 leading-tight">
                         {lesson.subtitle}
                       </div>
                     )}
@@ -106,7 +106,7 @@ export default function Sidebar({
                     e.stopPropagation();
                     onSelectLesson(lesson.id);
                   }}
-                  className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center font-mono text-[11px] transition-all cursor-pointer relative ${
+                  className={`w-11 h-11 mx-auto rounded-full flex items-center justify-center font-mono text-[16.5px] transition-all cursor-pointer relative ${
                     isActive
                       ? 'bg-amber-400 text-slate-950 font-black border border-amber-300 shadow-md shadow-amber-500/10'
                       : 'bg-slate-950 text-slate-400 hover:text-slate-100 hover:bg-slate-900/40 border border-slate-850'
@@ -115,14 +115,14 @@ export default function Sidebar({
                 >
                   {stepNumber}
                   {isActive && (
-                    <span className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-slate-950 border border-amber-300" />
+                    <span className="absolute -bottom-0.5 w-2 h-2 rounded-full bg-slate-950 border border-amber-300" />
                   )}
                 </button>
               );
             }
           })
         ) : (
-          <div className="p-4 text-center text-slate-500 italic font-mono text-[10px] leading-relaxed" id="no-book-msg">
+          <div className="p-4 text-center text-slate-500 italic font-mono text-xs leading-relaxed" id="no-book-msg">
             {isExpanded ? 'Choose a textbook first.' : '•'}
           </div>
         )}

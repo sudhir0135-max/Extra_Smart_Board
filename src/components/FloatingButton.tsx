@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator } from 'lucide-react';
+import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator, Filter } from 'lucide-react';
 import { Book, AcademicSubject, Lesson, FlashQuestion, Note, InquiryQuestionObj } from '../types';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
@@ -22,14 +22,55 @@ interface FloatingButtonProps {
   globalLogo?: string | null;
 }
 
+class QuestionListErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Question List Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-slate-900/90 text-rose-300 rounded-2xl border border-rose-500/40 text-center my-4 shadow-xl">
+          <p className="font-bold text-base">An unexpected error occurred while displaying questions.</p>
+          <p className="text-xs font-mono text-rose-400 mt-2 bg-rose-950/60 p-2 rounded border border-rose-800/50 max-w-xl mx-auto overflow-x-auto">
+            {String(this.state.error?.message || this.state.error)}
+          </p>
+          <button 
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="mt-3 px-4 py-1.5 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/50 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer text-white"
+          >
+            Retry Loading Questions
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const QuestionContent = React.memo(({ item, isOnline }: { item: string | InquiryQuestionObj; isOnline: boolean }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   
-  const isAdvanced = typeof item !== 'string';
-  const image = isAdvanced ? item.image : null;
-  const pos = isAdvanced ? item.imagePosition || 'right' : 'right';
+  const isAdvanced = Boolean(item) && typeof item === 'object';
+  const image = isAdvanced && item ? (item as InquiryQuestionObj).image || null : null;
+  const pos = isAdvanced && item ? (item as InquiryQuestionObj).imagePosition || 'right' : 'right';
 
-  const qText = isAdvanced ? item.text : item;
+  let qText = '';
+  if (typeof item === 'string') {
+    qText = item;
+  } else if (isAdvanced && item) {
+    const adv = item as any;
+    qText = adv.text || adv.question || adv.questionText || adv.title || adv.content || (typeof adv === 'object' ? String(adv.id || '') : '');
+  }
 
   const offlineImgPlaceholder = (
     <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/50 bg-slate-900/60 text-slate-500 p-4" style={{ minWidth: '30%', minHeight: '80px' }}>
@@ -64,7 +105,6 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
     );
   }
 
-  // default right
   return (
     <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
       <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
@@ -73,7 +113,7 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
   );
 });
 
-const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: string, isFlipped: boolean }) => {
+const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: string; isFlipped: boolean }) => {
   const contentRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -89,24 +129,26 @@ const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: 
   );
 });
 
-function QuestionItem({ 
-  item, 
+const QuestionItem = React.memo(({
+  item,
   isOnline,
-  onOpenAccountancyWorkspace 
-}: { 
+  onOpenAccountancyWorkspace,
+}: {
   item: string | InquiryQuestionObj;
   isOnline: boolean;
   onOpenAccountancyWorkspace?: (item: string | InquiryQuestionObj) => void;
-}) {
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [minHeight, setMinHeight] = useState<number>(0);
   const [showAnswer, setShowAnswer] = useState<boolean>(false);
-  const dragStartRef = useRef<{ y: number, startHeight: number } | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ y: number; startHeight: number } | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
+    if (target.setPointerCapture) {
+      target.setPointerCapture(e.pointerId);
+    }
     dragStartRef.current = {
       y: e.clientY,
       startHeight: containerRef.current ? containerRef.current.offsetHeight : 0
@@ -128,8 +170,8 @@ function QuestionItem({
     }
   };
 
-  const isAccountancyMode = typeof item !== 'string' && (item.displayMode === 'accountancy_tabs' || Boolean(item.tabs && item.tabs.length > 0));
-  const hasAnswer = typeof item !== 'string' && Boolean(item.answerText || item.answerImage);
+  const isAccountancyMode = Boolean(item) && typeof item !== 'string' && ((item as InquiryQuestionObj).displayMode === 'accountancy_tabs' || Boolean((item as InquiryQuestionObj).tabs && (item as InquiryQuestionObj).tabs!.length > 0));
+  const hasAnswer = Boolean(item) && typeof item !== 'string' && Boolean((item as InquiryQuestionObj).answerText || (item as InquiryQuestionObj).answerImage);
 
   return (
     <div
@@ -168,22 +210,24 @@ function QuestionItem({
         <QuestionContent item={item} isOnline={isOnline} />
       </div>
 
-      {/* Show Answer Toggle Button & Answer Container */}
       {hasAnswer && (
         <div className="mt-6 pt-4 border-t border-slate-900 flex flex-col gap-4">
-          <button
-            onClick={() => setShowAnswer(prev => !prev)}
-            className={`self-start flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs md:text-sm lg:text-base transition-all border cursor-pointer ${
-              showAnswer
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md shadow-emerald-950/30'
-                : 'bg-slate-900/90 text-amber-300 border-amber-500/40 hover:bg-amber-500/10 hover:border-amber-500/60 shadow-sm'
-            }`}
-          >
-            {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-amber-400" />}
-            <span>{showAnswer ? 'Hide Solution/Answer' : 'Show Solution/Answer'}</span>
-          </button>
+          <div className="flex justify-end w-full">
+            <button
+              onClick={() => setShowAnswer(prev => !prev)}
+              className={`p-2.5 rounded-xl transition-all border cursor-pointer ${
+                showAnswer
+                  ? 'bg-slate-700 text-slate-100 border-slate-500 shadow-md shadow-slate-950/40'
+                  : 'bg-slate-800/90 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white hover:border-slate-500 shadow-sm'
+              }`}
+              title={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
+              aria-label={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
+            >
+              {showAnswer ? <EyeOff className="w-5 h-5 text-slate-300" /> : <Eye className="w-5 h-5 text-slate-300" />}
+            </button>
+          </div>
 
-          {showAnswer && typeof item !== 'string' && (
+          {showAnswer && Boolean(item) && typeof item !== 'string' && (
             <div className="p-6 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl space-y-4 animate-fade-in">
               <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs md:text-sm lg:text-base uppercase tracking-wider font-mono">
                 <Check className="w-4 h-4" />
@@ -224,7 +268,7 @@ function QuestionItem({
       </div>
     </div>
   );
-}
+});
 
 // Mock videos removed as per user request. Videos are now entirely dynamic based on Firebase lessons.
 
@@ -276,6 +320,7 @@ export default function FloatingButton({
   const [isFlipped, setIsFlipped] = useState(false);
   const [scoreTeamA, setScoreTeamA] = useState(0);
   const [scoreTeamB, setScoreTeamB] = useState(0);
+  const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'Easy' | 'Medium' | 'Hard'>('all');
 
   // Handwritten notes state
   const [localNote, setLocalNote] = useState('');
@@ -439,12 +484,23 @@ export default function FloatingButton({
   };
 
   const getLessonQuestions = (): (string | InquiryQuestionObj)[] => {
-    return currentLesson?.inquiryQuestions || [];
+    return (currentLesson?.inquiryQuestions || []).filter(Boolean);
   };
 
-  const hasFlash = currentLesson?.flashQuestions && currentLesson.flashQuestions.length > 0;
+  const allFlashQuestions = React.useMemo(() => currentLesson?.flashQuestions || [], [currentLesson]);
+
+  const filteredFlashQuestions = React.useMemo(() => {
+    if (difficultyFilter === 'all') return allFlashQuestions;
+    return allFlashQuestions.filter(q => (q.difficulty || '').toLowerCase() === difficultyFilter.toLowerCase());
+  }, [allFlashQuestions, difficultyFilter]);
+
+  const easyCount = React.useMemo(() => allFlashQuestions.filter(q => (q.difficulty || '').toLowerCase() === 'easy').length, [allFlashQuestions]);
+  const mediumCount = React.useMemo(() => allFlashQuestions.filter(q => (q.difficulty || '').toLowerCase() === 'medium').length, [allFlashQuestions]);
+  const hardCount = React.useMemo(() => allFlashQuestions.filter(q => (q.difficulty || '').toLowerCase() === 'hard').length, [allFlashQuestions]);
+
+  const hasFlash = filteredFlashQuestions.length > 0;
   const activeQuestion: FlashQuestion | null = hasFlash
-    ? currentLesson!.flashQuestions[currentQuestionIdx % currentLesson!.flashQuestions.length]
+    ? filteredFlashQuestions[currentQuestionIdx % filteredFlashQuestions.length]
     : null;
 
   const isOnLeft = position.x >= 50;
@@ -802,12 +858,61 @@ export default function FloatingButton({
       )}      {/* 2. FLASH QUESTIONS ACTIVE RETRIEVAL CARDS */}
       {activePanel === 'questions' && (
         <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[95vw] sm:w-[800px] max-h-[85vh] bg-[#0b0f19] text-slate-100 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-slate-800/80 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans" id="panel-flashcards">
-          <div className="bg-slate-950 p-4 px-6 flex items-center justify-between border-b border-slate-900 shrink-0">
-            <div className="flex items-center gap-2 text-amber-500 font-bold">
+          <div className="bg-slate-950 p-3 sm:p-4 px-4 sm:px-6 flex flex-wrap items-center justify-between border-b border-slate-900 shrink-0 gap-2">
+            <div className="flex items-center gap-2 text-amber-500 font-bold shrink-0">
               <HelpCircle className="w-4 h-4" />
-              <span className="font-bold uppercase text-[10px] tracking-widest font-sans">Classroom Retrieval Cards</span>
+              <span className="font-bold uppercase text-[10px] sm:text-xs tracking-widest font-sans">Classroom Retrieval Cards</span>
             </div>
-            <button id="close-flash" onClick={() => setActivePanel(null)} className="hover:text-amber-400 text-slate-400 transition-colors cursor-pointer">
+
+            {/* Difficulty Filter Selector */}
+            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-[10px] sm:text-xs font-mono">
+              <button
+                onClick={() => { setDifficultyFilter('all'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  difficultyFilter === 'all'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+                title="Show all retrieval questions"
+              >
+                All ({allFlashQuestions.length})
+              </button>
+              <button
+                onClick={() => { setDifficultyFilter('Easy'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  difficultyFilter === 'Easy'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50'
+                }`}
+                title="Show Easy level questions"
+              >
+                Easy ({easyCount})
+              </button>
+              <button
+                onClick={() => { setDifficultyFilter('Medium'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  difficultyFilter === 'Medium'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/50'
+                }`}
+                title="Show Medium level questions"
+              >
+                Medium ({mediumCount})
+              </button>
+              <button
+                onClick={() => { setDifficultyFilter('Hard'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  difficultyFilter === 'Hard'
+                    ? 'bg-rose-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-rose-400 hover:bg-slate-800/50'
+                }`}
+                title="Show Hard level questions"
+              >
+                Hard ({hardCount})
+              </button>
+            </div>
+
+            <button id="close-flash" onClick={() => setActivePanel(null)} className="hover:text-amber-400 text-slate-400 transition-colors cursor-pointer ml-auto sm:ml-0">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -828,7 +933,7 @@ export default function FloatingButton({
                 >
                   {/* Status header */}
                   <div className="flex justify-between items-center text-[8px] font-sans font-bold uppercase tracking-widest opacity-70 shrink-0">
-                    <span>Card {currentQuestionIdx + 1} of {currentLesson?.flashQuestions.length}</span>
+                    <span>Card {currentQuestionIdx + 1} of {filteredFlashQuestions.length}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${activeQuestion.difficulty === 'Easy' ? 'bg-emerald-500/20 text-emerald-400' : activeQuestion.difficulty === 'Medium' ? 'bg-amber-500/20 text-amber-500' : 'bg-rose-500/20 text-rose-400'}`}>
                       {activeQuestion.difficulty}
                     </span>
@@ -911,7 +1016,7 @@ export default function FloatingButton({
                     <button
                       id="btn-next-card"
                       onClick={() => {
-                        setCurrentQuestionIdx(p => (p + 1) % currentLesson!.flashQuestions.length);
+                        setCurrentQuestionIdx(p => (p + 1) % filteredFlashQuestions.length);
                         setIsFlipped(false);
                       }}
                       className="text-[10px] font-sans font-bold uppercase px-4 py-1.5 bg-amber-400 hover:bg-amber-350 text-slate-950 rounded-lg transition-colors cursor-pointer animate-pulse"
@@ -922,12 +1027,29 @@ export default function FloatingButton({
                 </div>
               </div>
             ) : (
-              <div className="p-8 text-center text-sm italic opacity-50 space-y-4 flex flex-col justify-center items-start">
-                <div className="w-full flex flex-col items-center gap-2">
-                  <AlertTriangle className="w-6 h-6 mx-auto text-amber-500 opacity-60" />
-                  <p>No interactive recall cards are mapped onto this chapter.</p>
+              <div className="h-64 flex flex-col items-center justify-center space-y-4 text-center p-6">
+                <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+                  <Filter className="w-7 h-7" />
                 </div>
-                <div className="border-t border-slate-850 pt-3 w-full flex justify-start">
+                <div className="space-y-1 max-w-sm">
+                  <h3 className="text-base font-bold text-slate-200">
+                    No {difficultyFilter !== 'all' ? difficultyFilter : ''} questions available
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {difficultyFilter !== 'all' 
+                      ? `There are no ${difficultyFilter.toLowerCase()} retrieval questions saved for this lesson.` 
+                      : 'There are no flashcard retrieval questions available for this lesson.'}
+                  </p>
+                </div>
+                {difficultyFilter !== 'all' && allFlashQuestions.length > 0 && (
+                  <button
+                    onClick={() => { setDifficultyFilter('all'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
+                    className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold rounded-xl text-xs transition-all cursor-pointer shadow-md"
+                  >
+                    Show All Questions ({allFlashQuestions.length})
+                  </button>
+                )}
+                <div className="border-t border-slate-850 pt-3 w-full flex justify-center mt-2">
                   <button
                     id="close-flashcards-bottom-left-placeholder"
                     onClick={() => setActivePanel(null)}
@@ -961,15 +1083,7 @@ export default function FloatingButton({
             </div>
             
             <div className="flex items-center gap-3">
-              <button
-                className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-emerald-500/10 text-emerald-400/50 border border-emerald-500/20 cursor-default shadow-sm pointer-events-none opacity-60"
-                title="Accountancy Workspace (Disabled)"
-              >
-                <Calculator className="w-4 h-4 text-emerald-400/40" />
-                <span>Accountancy Workspace</span>
-              </button>
-
-              {!getLessonQuestions().some(q => typeof q !== 'string' && (q.displayMode === 'accountancy_tabs' || Boolean(q.tabs && q.tabs.length > 0))) && (
+              {!getLessonQuestions().some(q => Boolean(q) && typeof q !== 'string' && (q.displayMode === 'accountancy_tabs' || Boolean(q.tabs && q.tabs.length > 0))) && (
                 <button
                   onClick={() => setIsListDrawingMode(!isListDrawingMode)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${
@@ -1046,14 +1160,16 @@ export default function FloatingButton({
                   </p>
                 </div>
               ) : (
-                getLessonQuestions().map((qItem, index) => (
-                  <QuestionItem 
-                    key={index}
-                    item={qItem}
-                    isOnline={isOnline}
-                    onOpenAccountancyWorkspace={handleOpenAccountancyWorkspace}
-                  />
-                ))
+                <QuestionListErrorBoundary>
+                  {getLessonQuestions().map((qItem, index) => (
+                    <QuestionItem 
+                      key={index}
+                      item={qItem}
+                      isOnline={isOnline}
+                      onOpenAccountancyWorkspace={handleOpenAccountancyWorkspace}
+                    />
+                  ))}
+                </QuestionListErrorBoundary>
               )}
             </div>
           </div>

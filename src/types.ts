@@ -162,3 +162,10 @@ export interface EditorSubmission {
   lessonCount?: number;
   timestamp: number;
 }
+
+export interface BookBookmark {
+  bookId: number;
+  lessonId: string;
+  pageNumber: number;
+  timestamp: number;
+}

@@ -166,6 +166,8 @@ interface WorkspaceProps {
   isLessonContentLess?: boolean;
   onBlackboardToggle?: (isOpen: boolean) => void;
   isOnline?: boolean;
+  onAutoBookmark?: (bookId: number, lessonId: string, pageNumber: number) => void;
+  initialTargetPage?: number | null;
 }
 
 export default function Workspace({
@@ -188,6 +190,8 @@ export default function Workspace({
   isLessonContentLess,
   onBlackboardToggle,
   isOnline,
+  onAutoBookmark,
+  initialTargetPage,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
@@ -227,6 +231,64 @@ export default function Workspace({
       _cleanContent: renderMathInRawHtml(stripInlineStyles((page as any).content ?? ''))
     }));
   }, [activeLesson?.id, activeLesson?.pages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll to initial bookmark target page on lesson open
+  useEffect(() => {
+    if (initialTargetPage && initialTargetPage > 0 && activeLesson && sanitizedPages.length > 0) {
+      const pageIdx = sanitizedPages.findIndex(p => p.pageNumber === initialTargetPage);
+      if (pageIdx !== -1) {
+        const timer = setTimeout(() => {
+          rowVirtualizer.scrollToIndex(pageIdx, { align: 'start' });
+        }, 150);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [activeLesson?.id, initialTargetPage, sanitizedPages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll tracking to determine exact visible page for bookmarking
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  useEffect(() => {
+    const el = scrollParentRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      setScrollOffset(el.scrollTop);
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [scrollParentRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 5-second page dwell timer for auto-bookmarking
+  const visibleVirtualItems = rowVirtualizer.getVirtualItems();
+  const currentVisiblePageNumber = useMemo(() => {
+    const el = scrollParentRef.current;
+    if (visibleVirtualItems.length === 0) return 1;
+
+    const scrollTop = el ? el.scrollTop : scrollOffset;
+    const viewportTarget = scrollTop + (el ? el.clientHeight * 0.35 : 250);
+
+    // Find the virtual item that covers the viewport (excluding overscanned items)
+    const activeItem = visibleVirtualItems.find(item => item.start <= viewportTarget && item.end > scrollTop)
+      || visibleVirtualItems.find(item => item.end >= scrollTop)
+      || visibleVirtualItems[0];
+
+    const page = sanitizedPages[activeItem.index];
+    return page?.pageNumber ?? (activeItem.index + 1);
+  }, [scrollOffset, visibleVirtualItems, sanitizedPages]);
+
+  useEffect(() => {
+    if (!selectedBook || !activeLesson || !onAutoBookmark) return;
+
+    const timer = setTimeout(() => {
+      onAutoBookmark(selectedBook.id, activeLesson.id, currentVisiblePageNumber);
+    }, 5000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [selectedBook?.id, activeLesson?.id, currentVisiblePageNumber, onAutoBookmark]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
