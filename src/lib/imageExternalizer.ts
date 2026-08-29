@@ -15,7 +15,8 @@
 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase';
-import type { Book, Lesson, InquiryQuestionObj, InteractiveImageDef, ImageHotspot } from '../types';
+import type { Book, Lesson, Topic, InquiryQuestionObj, InteractiveImageDef, ImageHotspot } from '../types';
+
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -172,6 +173,46 @@ export async function externalizeLessonImages(lesson: Lesson, bookId: number, su
     })
   );
 
+  const processedTopics = lesson.topics ? await Promise.all(
+    lesson.topics.map(async (topic) => {
+      const topicPath = `${basePath}/topics/${topic.id}`;
+      const pages = await Promise.all(
+        (topic.pages ?? []).map(async (page) => {
+          const [content, leftImage, centerImage, rightImage] = await Promise.all([
+            externalizeHtml(page.content ?? '', topicPath),
+            externalizeField(page.leftImage, topicPath),
+            externalizeField(page.centerImage, topicPath),
+            externalizeField(page.rightImage, topicPath),
+          ]);
+          return { ...page, content, leftImage, centerImage, rightImage };
+        })
+      );
+      const inquiryQuestions = await Promise.all(
+        (topic.inquiryQuestions ?? []).map(async (q) => {
+          if (typeof q === 'string') return q;
+          const iq = q as InquiryQuestionObj;
+          const [image, answerImage, text, answerText] = await Promise.all([
+            externalizeField(iq.image, topicPath),
+            externalizeField(iq.answerImage, topicPath),
+            externalizeHtml(iq.text ?? '', topicPath),
+            externalizeHtml(iq.answerText ?? '', topicPath),
+          ]);
+          return { ...iq, image, answerImage, text, answerText };
+        })
+      );
+      const flashQuestions = await Promise.all(
+        (topic.flashQuestions ?? []).map(async (q) => {
+          const [question, answer] = await Promise.all([
+            externalizeHtml(q.question ?? '', topicPath),
+            externalizeHtml(q.answer ?? '', topicPath),
+          ]);
+          return { ...q, question, answer };
+        })
+      );
+      return { ...topic, pages, inquiryQuestions, flashQuestions };
+    })
+  ) : undefined;
+
   const interactiveBasePath = subjectName ? `images/subjects/${subjectName}` : basePath;
   const processedInteractive = await externalizeInteractiveImages(lesson.interactiveImages, interactiveBasePath);
 
@@ -181,6 +222,7 @@ export async function externalizeLessonImages(lesson: Lesson, bookId: number, su
     inquiryQuestions: processedInquiry,
     flashQuestions: processedFlash,
     interactiveImages: processedInteractive,
+    topics: processedTopics,
   };
 }
 

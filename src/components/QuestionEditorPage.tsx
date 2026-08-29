@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { InquiryQuestionObj } from '../types';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
+import { tinymceAnnotationContentStyle } from '../lib/tinymceAnnotationPlugin';
 
 type EditorMode = 'question' | 'answer';
 
@@ -425,7 +426,8 @@ export default function QuestionEditorPage() {
                       'table { border-collapse: collapse; width: 100%; margin: 1rem 0; }' +
                       'table td, table th { border: 1px solid #ddd; padding: 8px 12px; }' +
                       'table th { background: #f5f5f5; font-weight: bold; }' +
-                      'img { max-width: 100%; height: auto; border-radius: 6px; }',
+                      'img { max-width: 100%; height: auto; border-radius: 6px; }' +
+                      tinymceAnnotationContentStyle,
                     skin: 'oxide',
                     content_css: 'default',
                     image_uploadtab: true,

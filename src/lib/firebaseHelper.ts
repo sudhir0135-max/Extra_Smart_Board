@@ -83,6 +83,13 @@ export async function uploadPdfToStorage(file: File): Promise<string> {
   return await getDownloadURL(fileRef);
 }
 
+export async function uploadHtmlToStorage(file: File, folder: string = 'html'): Promise<string> {
+  const fileName = `${Date.now()}_${file.name}`;
+  const fileRef = ref(storage, `${folder}/${fileName}`);
+  await uploadBytes(fileRef, file, { contentType: 'text/html' });
+  return await getDownloadURL(fileRef);
+}
+
 /**
  * Upload a single WebP page image to Firebase Storage.
  * Path: books/{classId}/{subjectId}/{bookId}/{lessonId}/pages/page_NNN.webp

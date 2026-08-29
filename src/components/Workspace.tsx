@@ -5,11 +5,11 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Book, Lesson, ThemeMode, AcademicSubject, BookEditor, InteractiveImageDef } from '../types';
+import { Book, Lesson, Topic, ThemeMode, AcademicSubject, BookEditor, InteractiveImageDef } from '../types';
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
-import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown } from 'lucide-react';
+import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import { BlockMath } from 'react-katex';
@@ -168,6 +168,7 @@ interface WorkspaceProps {
   isOnline?: boolean;
   onAutoBookmark?: (bookId: number, lessonId: string, pageNumber: number) => void;
   initialTargetPage?: number | null;
+  onOpenTopicModal?: (topic: Topic, panel: 'video' | 'questions' | 'notes') => void;
 }
 
 export default function Workspace({
@@ -192,6 +193,7 @@ export default function Workspace({
   isOnline,
   onAutoBookmark,
   initialTargetPage,
+  onOpenTopicModal,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
@@ -213,6 +215,14 @@ export default function Workspace({
     setExpandedPages(prev => ({
       ...prev,
       [pageNumber]: !prev[pageNumber]
+    }));
+  };
+
+  const [expandedTopicIds, setExpandedTopicIds] = useState<Record<string, boolean>>({});
+  const toggleTopicExpand = (topicId: string) => {
+    setExpandedTopicIds(prev => ({
+      ...prev,
+      [topicId]: !prev[topicId]
     }));
   };
 
@@ -595,6 +605,202 @@ export default function Workspace({
                 marginRight: 'max(3%, 28px)', // Always keep strip space only, allowing expanded board to overlay
               }}
             >
+              {/* TOPIC CONTAINERS — 95% Width Single Row Layout per Topic with Vibrant Distinct Themes */}
+              {activeLesson.topics && activeLesson.topics.length > 0 && (
+                <div className="w-[95%] mx-auto pt-4 pb-3 space-y-3.5 z-20 relative font-sans">
+                  <div className="text-[10.5px] font-mono font-extrabold uppercase tracking-widest text-amber-400 flex items-center gap-1.5 select-none px-1">
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Chapter Topics ({activeLesson.topics.length})</span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {activeLesson.topics.map((topic, idx) => {
+                      const isExpanded = Boolean(expandedTopicIds[topic.id]);
+                      const themes = [
+                        {
+                          bg: 'bg-gradient-to-r from-indigo-950/90 via-slate-900/95 to-indigo-900/40',
+                          border: 'border-indigo-500/40 hover:border-indigo-400',
+                          badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
+                          title: 'text-indigo-100',
+                        },
+                        {
+                          bg: 'bg-gradient-to-r from-emerald-950/90 via-slate-900/95 to-emerald-900/40',
+                          border: 'border-emerald-500/40 hover:border-emerald-400',
+                          badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+                          title: 'text-emerald-100',
+                        },
+                        {
+                          bg: 'bg-gradient-to-r from-amber-950/90 via-slate-900/95 to-amber-900/40',
+                          border: 'border-amber-500/40 hover:border-amber-400',
+                          badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+                          title: 'text-amber-100',
+                        },
+                        {
+                          bg: 'bg-gradient-to-r from-purple-950/90 via-slate-900/95 to-purple-900/40',
+                          border: 'border-purple-500/40 hover:border-purple-400',
+                          badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+                          title: 'text-purple-100',
+                        },
+                        {
+                          bg: 'bg-gradient-to-r from-rose-950/90 via-slate-900/95 to-rose-900/40',
+                          border: 'border-rose-500/40 hover:border-rose-400',
+                          badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+                          title: 'text-rose-100',
+                        },
+                        {
+                          bg: 'bg-gradient-to-r from-cyan-950/90 via-slate-900/95 to-cyan-900/40',
+                          border: 'border-cyan-500/40 hover:border-cyan-400',
+                          badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+                          title: 'text-cyan-100',
+                        },
+                      ];
+                      const theme = themes[idx % themes.length];
+
+                      return (
+                        <div
+                          key={topic.id}
+                          className={`w-full ${theme.bg} ${theme.border} border rounded-2xl p-3.5 px-5 shadow-xl transition-all duration-300 backdrop-blur-md flex flex-col`}
+                        >
+                          {/* Header Row — Clickable to Expand / Squeeze Topic Pages */}
+                          <div
+                            onClick={() => toggleTopicExpand(topic.id)}
+                            className="flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer select-none group"
+                          >
+                            {/* Left Side: Topic Title & Toggle Chevron Indicator */}
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <div className="w-7 h-7 rounded-lg bg-slate-900/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
+                                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
+                              </div>
+                              <h4 className={`text-sm sm:text-base font-bold truncate tracking-tight ${theme.title}`}>
+                                {topic.title}
+                              </h4>
+                              {topic.pages && topic.pages.length > 0 && (
+                                <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-900/80 border border-slate-700/60 text-slate-400 shrink-0">
+                                  {topic.pages.length} {topic.pages.length === 1 ? 'page' : 'pages'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Right Side: 3 Interactive Action Icons at Same Level */}
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center gap-2.5 shrink-0 self-end md:self-auto"
+                            >
+                              {/* Video Player Icon Only */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenTopicModal?.(topic, 'video');
+                                }}
+                                disabled={!topic.videoUrl}
+                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                  topic.videoUrl
+                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95'
+                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                }`}
+                                title={topic.videoUrl ? `Play Video for '${topic.title}'` : 'No video attached to this topic'}
+                              >
+                                <Video className="w-4.5 h-4.5" />
+                              </button>
+
+                              {/* Flashcard Icon Only */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenTopicModal?.(topic, 'questions');
+                                }}
+                                disabled={!topic.flashQuestions || topic.flashQuestions.length === 0}
+                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                  topic.flashQuestions && topic.flashQuestions.length > 0
+                                    ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950 active:scale-95'
+                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                }`}
+                                title={
+                                  topic.flashQuestions && topic.flashQuestions.length > 0
+                                    ? `Open Flashcards (${topic.flashQuestions.length})`
+                                    : 'No flashcards for this topic'
+                                }
+                              >
+                                <HelpCircle className="w-4.5 h-4.5" />
+                              </button>
+
+                              {/* Question Icon Only */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenTopicModal?.(topic, 'notes');
+                                }}
+                                disabled={!topic.inquiryQuestions || topic.inquiryQuestions.length === 0}
+                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                  topic.inquiryQuestions && topic.inquiryQuestions.length > 0
+                                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 active:scale-95'
+                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                }`}
+                                title={
+                                  topic.inquiryQuestions && topic.inquiryQuestions.length > 0
+                                    ? `Open Topic Questions (${topic.inquiryQuestions.length})`
+                                    : 'No questions for this topic'
+                                }
+                              >
+                                <FileText className="w-4.5 h-4.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expanded Content Section: Reveals Pages assigned to this Topic */}
+                          {isExpanded && (
+                            <div className="w-full pt-4 mt-3 border-t border-slate-800/80 space-y-6 animate-fade-in text-slate-100">
+                              {(!topic.pages || topic.pages.length === 0) ? (
+                                <div className="p-6 text-center text-slate-400 font-mono text-xs border border-dashed border-slate-800 rounded-xl bg-slate-950/60">
+                                  No specific reading pages assigned to this topic yet.
+                                </div>
+                              ) : (
+                                topic.pages.map((page, pIdx) => (
+                                  <div key={page.id || pIdx} className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
+                                    <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                                      <span className="text-[10.5px] font-mono uppercase text-amber-400 font-black tracking-wider">
+                                        Page {pIdx + 1} • {topic.title}
+                                      </span>
+                                    </div>
+                                    {/* Left, Center, and Right Column Graphics */}
+                                    {(page.leftImage || page.centerImage || page.rightImage) && (
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {page.leftImage && (
+                                          <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
+                                            <CachedImage src={page.leftImage} alt="Left illustration" className="w-full h-auto object-contain rounded-lg" />
+                                          </div>
+                                        )}
+                                        {page.centerImage && (
+                                          <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
+                                            <CachedImage src={page.centerImage} alt="Center illustration" className="w-full h-auto object-contain rounded-lg" />
+                                          </div>
+                                        )}
+                                        {page.rightImage && (
+                                          <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
+                                            <CachedImage src={page.rightImage} alt="Right illustration" className="w-full h-auto object-contain rounded-lg" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                    {/* Page HTML markup content with KaTeX support & interactive tag click handler */}
+                                    {page.content && (
+                                      <div
+                                        onClick={handleContentClick}
+                                        className="reader-content prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
+                                        dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(page.content) }}
+                                      />
+                                    )}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div
                 className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} rounded-xl relative`}
                 style={{ fontSize: `${fontSizeScale}rem`, height: `${rowVirtualizer.getTotalSize()}px` }}

@@ -1,3 +1,26 @@
+export const tinymceAnnotationContentStyle = `
+.lesson-annotation {
+  display: inline-flex;
+  align-items: center;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25));
+  color: #6ee7b7;
+  font-weight: 700;
+  border: 1px solid rgba(52, 211, 153, 0.6);
+  border-radius: 6px;
+  padding: 2px 7px;
+  margin: 0 2px;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.35), inset 0 0 6px rgba(52, 211, 153, 0.15);
+  cursor: pointer;
+  text-decoration: none;
+}
+.lesson-annotation:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.4), rgba(6, 182, 212, 0.4));
+  border-color: rgba(52, 211, 153, 0.9);
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.55);
+}
+`;
+
 export const setupTinyMceAnnotation = (editor: any, getInteractiveMaps: () => {id: string, title: string}[] = () => []) => {
   editor.ui.registry.addButton('annotation', {
     text: 'Tag',
@@ -79,10 +102,10 @@ export const setupTinyMceAnnotation = (editor: any, getInteractiveMaps: () => {i
             return;
           }
           
-          
           const finalMediaUrl = data.mediaType === 'interactive-image' ? data.interactiveMapId : data.mediaUrl.trim();
           const encodedText = encodeURIComponent(data.text.trim());
-          const html = `<span class="lesson-annotation mceNonEditable" style="color: #34d399; font-weight: bold; border-bottom: 2px dashed #34d399; cursor: pointer; padding: 0 2px; border-radius: 4px;" data-annotation-id="ann-${Date.now()}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${finalMediaUrl}">${selectedText}</span>`;
+          const tagInlineStyle = "color: #6ee7b7; font-weight: 700; background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25)); border: 1px solid rgba(52, 211, 153, 0.6); border-radius: 6px; padding: 2px 7px; margin: 0 2px; box-shadow: 0 0 8px rgba(52, 211, 153, 0.35), inset 0 0 6px rgba(52, 211, 153, 0.15); cursor: pointer; display: inline-flex; align-items: center; text-decoration: none;";
+          const html = `<span class="lesson-annotation mceNonEditable" style="${tagInlineStyle}" data-annotation-id="ann-${Date.now()}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${finalMediaUrl}">${selectedText}</span>`;
           
           editor.insertContent(html);
           api.close();
@@ -167,7 +190,8 @@ export const setupTinyMceAnnotation = (editor: any, getInteractiveMaps: () => {i
           
           const finalMediaUrl = data.mediaType === 'interactive-image' ? data.interactiveMapId : data.mediaUrl.trim();
           const encodedText = encodeURIComponent(data.text.trim());
-          const html = `<span class="lesson-annotation mceNonEditable" style="color: #34d399; font-weight: bold; border-bottom: 2px dashed #34d399; cursor: pointer; padding: 0 2px; border-radius: 4px;" data-annotation-id="${annotationSpan.getAttribute('data-annotation-id')}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${finalMediaUrl}">${innerText}</span>`;
+          const tagInlineStyle = "color: #6ee7b7; font-weight: 700; background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25)); border: 1px solid rgba(52, 211, 153, 0.6); border-radius: 6px; padding: 2px 7px; margin: 0 2px; box-shadow: 0 0 8px rgba(52, 211, 153, 0.35), inset 0 0 6px rgba(52, 211, 153, 0.15); cursor: pointer; display: inline-flex; align-items: center; text-decoration: none;";
+          const html = `<span class="lesson-annotation mceNonEditable" style="${tagInlineStyle}" data-annotation-id="${annotationSpan.getAttribute('data-annotation-id')}" data-annotation-text="${encodedText}" data-annotation-media-type="${data.mediaType}" data-annotation-media-url="${finalMediaUrl}">${innerText}</span>`;
           
           annotationSpan.outerHTML = html;
           api.close();

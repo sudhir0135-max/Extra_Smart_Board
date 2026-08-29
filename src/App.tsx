@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Book, Lesson, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject, EditorSubmission, BookBookmark } from './types';
+import { Book, Lesson, Topic, ThemeMode, OfflineAction, Note, BookEditor, AcademicClass, AcademicSubject, EditorSubmission, BookBookmark } from './types';
+
 import { BOOKS_DATA } from './data/books';
 import BookShelf from './components/BookShelf';
 import Sidebar from './components/Sidebar';
@@ -55,6 +56,7 @@ export default function App() {
   const [editorSubmissions, setEditorSubmissions] = useState<EditorSubmission[]>([]);
   const [previewSubmissionBookId, setPreviewSubmissionBookId] = useState<number | null>(null);
   const [previewLessons, setPreviewLessons] = useState<Lesson[] | null>(null);
+  const [externalTopicModal, setExternalTopicModal] = useState<{ topic: Topic; panel: 'video' | 'questions' | 'notes' } | null>(null);
   
   const [isBooksLoaded, setIsBooksLoaded] = useState(false);
 
@@ -126,7 +128,13 @@ export default function App() {
               ...l,
               pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
               flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
-              inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+              inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined),
+              topics: Array.isArray(l.topics) ? l.topics.map((t: any) => ({
+                ...t,
+                pages: (Array.isArray(t.pages) ? t.pages : (t.pages ? Object.values(t.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+                flashQuestions: (Array.isArray(t.flashQuestions) ? t.flashQuestions : (t.flashQuestions ? Object.values(t.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+                inquiryQuestions: (Array.isArray(t.inquiryQuestions) ? t.inquiryQuestions : (t.inquiryQuestions ? Object.values(t.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+              })).filter((t: any) => t !== null && t !== undefined) : undefined
             }));
 
 
@@ -1766,6 +1774,7 @@ export default function App() {
           globalLogo={globalLogo}
           onAutoBookmark={handleAutoBookmark}
           initialTargetPage={initialTargetPage}
+          onOpenTopicModal={(topic, panel) => setExternalTopicModal({ topic, panel })}
         />
 
 
@@ -1783,6 +1792,8 @@ export default function App() {
           savedNote={activeNote}
           addToast={addToast}
           globalLogo={globalLogo}
+          externalTopicModal={externalTopicModal}
+          onCloseExternalTopicModal={() => setExternalTopicModal(null)}
         />
         )}
       </div>

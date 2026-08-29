@@ -52,6 +52,29 @@ export interface InquiryQuestionObj {
   tabs?: AccountancyTabConfig[];
 }
 
+export interface Topic {
+  id: string;
+  title: string;
+  videoUrl?: string | null;
+  pages: {
+    pageNumber: number;
+    content: string;
+    isCollapsible?: boolean;
+    summaryContent?: string;
+    iframeUrl?: string | null;
+    leftImage?: string | null;
+    centerImage?: string | null;
+    rightImage?: string | null;
+    equations?: string[] | null;
+    figure?: {
+      caption: string;
+      svgType: 'brain' | 'river' | 'ecosystem' | 'math' | 'music' | 'language' | 'fairness';
+    } | null;
+  }[];
+  flashQuestions: FlashQuestion[];
+  inquiryQuestions?: (string | InquiryQuestionObj)[];
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -76,7 +99,9 @@ export interface Lesson {
   flashQuestions: FlashQuestion[];
   inquiryQuestions?: (string | InquiryQuestionObj)[];
   interactiveImages?: InteractiveImageDef[];
+  topics?: Topic[];
 }
+
 
 
 export interface AcademicClass {

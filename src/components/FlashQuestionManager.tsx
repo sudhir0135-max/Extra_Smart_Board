@@ -5,7 +5,7 @@ import { Editor } from '@tinymce/tinymce-react';
 import * as XLSX from 'xlsx';
 import { hasTextContent } from '../lib/contentUtils';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
-import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
+import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/tinymceAnnotationPlugin';
 
 export interface FlashQuestionManagerProps {
   questions: FlashQuestion[];
@@ -99,7 +99,7 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
                     setupTinyMceAnnotation(editor);
                   },
                   toolbar: 'undo redo | bold italic | alignleft aligncenter alignright | bullist numlist | link image latex annotation',
-                  content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:13px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle}`
+                  content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:13px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle} ${tinymceAnnotationContentStyle}`
                 }}
               />
             </div>
@@ -122,7 +122,7 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
                     setupTinyMceAnnotation(editor);
                   },
                   toolbar: 'undo redo | bold italic | alignleft aligncenter alignright | bullist numlist | link image latex annotation',
-                  content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:13px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle}`
+                  content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:13px; background-color: #03060c; color: #e2e8f0; } ${tinymceMathContentStyle} ${tinymceAnnotationContentStyle}`
                 }}
               />
             </div>

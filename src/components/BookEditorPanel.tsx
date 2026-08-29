@@ -4,10 +4,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Book, Lesson, FlashQuestion, BookEditor } from '../types';
+import { Book, Lesson, Topic, FlashQuestion, BookEditor } from '../types';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { uploadImageToStorage } from '../lib/firebaseHelper';
+import { uploadImageToStorage, uploadHtmlToStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
 import { hasTextContent } from '../lib/contentUtils';
 import {
@@ -154,6 +154,14 @@ export default function BookEditorPanel({
   const [activeLessonTitleDraft, setActiveLessonTitleDraft] = useState('');
   const [activeLessonSubtitleDraft, setActiveLessonSubtitleDraft] = useState('');
   const [activeLessonVideoDrafts, setActiveLessonVideoDrafts] = useState<string[]>([]);
+
+  // Topic Management State
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [isAddingTopic, setIsAddingTopic] = useState(false);
+  const [isEditingTopic, setIsEditingTopic] = useState(false);
+  const [topicTitleDraft, setTopicTitleDraft] = useState('');
+  const [topicVideoUrlDraft, setTopicVideoUrlDraft] = useState('');
+
   const flashMessage = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 3000);
@@ -172,6 +180,16 @@ export default function BookEditorPanel({
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const assignedBook = books.find(b => b.id === assignedBookId) || null;
   const activeLesson = assignedBook ? assignedBook.lessons.find(l => l.id === selectedLessonId) || null : null;
+  const selectedTopic = activeLesson?.topics?.find(t => t.id === selectedTopicId) || null;
+
+  // Reset topic states when chapter selection changes
+  useEffect(() => {
+    setSelectedTopicId(null);
+    setIsAddingTopic(false);
+    setIsEditingTopic(false);
+    setTopicTitleDraft('');
+    setTopicVideoUrlDraft('');
+  }, [selectedLessonId]);
 
   // Sync page content draft inputs
   useEffect(() => {
@@ -191,20 +209,19 @@ export default function BookEditorPanel({
       }
     }
 
-    if (activeLesson && selectedPageIndex !== null) {
-      const page = activeLesson.pages[selectedPageIndex];
-      if (page) {
-        setPageContentDraft(page.content);
-        setPageLeftImageDraft((page as any).leftImage || '');
-        setPageCenterImageDraft((page as any).centerImage || '');
-        setPageRightImageDraft((page as any).rightImage || '');
-        setPageIframeUrlDraft(page.iframeUrl || '');
-        setPageFigureCaption(page.figure?.caption || '');
-        setPageFigureType(page.figure?.svgType || 'brain');
-        setPageEquationsDraft(page.equations ? page.equations.join('\n') : '');
-        setPageIsCollapsible(page.isCollapsible || false);
-        setPageSummaryContent(page.summaryContent || '');
-      }
+    const pagesToUse = selectedTopic ? (selectedTopic.pages || []) : (activeLesson ? activeLesson.pages : []);
+    if (pagesToUse.length > 0 && selectedPageIndex !== null && pagesToUse[selectedPageIndex]) {
+      const page = pagesToUse[selectedPageIndex];
+      setPageContentDraft(page.content);
+      setPageLeftImageDraft((page as any).leftImage || '');
+      setPageCenterImageDraft((page as any).centerImage || '');
+      setPageRightImageDraft((page as any).rightImage || '');
+      setPageIframeUrlDraft(page.iframeUrl || '');
+      setPageFigureCaption(page.figure?.caption || '');
+      setPageFigureType(page.figure?.svgType || 'brain');
+      setPageEquationsDraft(page.equations ? page.equations.join('\n') : '');
+      setPageIsCollapsible(page.isCollapsible || false);
+      setPageSummaryContent(page.summaryContent || '');
     } else {
       setPageContentDraft('');
       setPageLeftImageDraft('');
@@ -212,12 +229,13 @@ export default function BookEditorPanel({
       setPageRightImageDraft('');
       setPageIframeUrlDraft('');
       setPageFigureCaption('');
+      setPageFigureType('brain');
       setPageEquationsDraft('');
       setPageIsCollapsible(false);
       setPageSummaryContent('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPageIndex, selectedLessonId]);
+  }, [selectedPageIndex, selectedLessonId, selectedTopicId]);
 
   // 1. LESSON CRUD OPERATIONS
   const handleAddLesson = async () => {
@@ -326,10 +344,114 @@ export default function BookEditorPanel({
     }
   };
 
-  // 2. PAGE CRUD OPERATIONS
+  // 2. TOPIC CRUD OPERATIONS
+  const handleSaveTopic = async () => {
+    if (!assignedBook || !activeLesson) return;
+    if (!topicTitleDraft.trim()) {
+      alert('Topic title cannot be empty.');
+      return;
+    }
+
+    try {
+      let modifiedBook: Book;
+
+      if (isEditingTopic && selectedTopic) {
+        modifiedBook = {
+          ...assignedBook,
+          lessons: assignedBook.lessons.map(l => {
+            if (l.id !== activeLesson.id) return l;
+            return {
+              ...l,
+              topics: (l.topics || []).map(t => {
+                if (t.id !== selectedTopic.id) return t;
+                return {
+                  ...t,
+                  title: topicTitleDraft.trim(),
+                  videoUrl: topicVideoUrlDraft.trim() || null
+                };
+              })
+            };
+          })
+        };
+        await saveBookLocally(modifiedBook);
+        setIsEditingTopic(false);
+        flashMessage(`Topic '${topicTitleDraft.trim()}' updated!`);
+      } else {
+        const newTopic: Topic = {
+          id: `topic-${Date.now()}`,
+          title: topicTitleDraft.trim(),
+          videoUrl: topicVideoUrlDraft.trim() || null,
+          pages: [
+            {
+              pageNumber: 1,
+              content: '<p>Fresh topic canvas page. Enter customized topic content here.</p>'
+            }
+          ],
+          flashQuestions: [],
+          inquiryQuestions: []
+        };
+
+        modifiedBook = {
+          ...assignedBook,
+          lessons: assignedBook.lessons.map(l => {
+            if (l.id !== activeLesson.id) return l;
+            return {
+              ...l,
+              topics: [...(l.topics || []), newTopic]
+            };
+          })
+        };
+        await saveBookLocally(modifiedBook);
+        setSelectedTopicId(newTopic.id);
+        setSelectedPageIndex(0);
+        setIsAddingTopic(false);
+        setTopicTitleDraft('');
+        setTopicVideoUrlDraft('');
+        flashMessage(`Topic '${newTopic.title}' created and selected!`);
+      }
+    } catch (err) {
+      alert('Failed to save topic to Firebase.');
+    }
+  };
+
+  const handleStartEditTopic = () => {
+    if (!selectedTopic) return;
+    setTopicTitleDraft(selectedTopic.title);
+    setTopicVideoUrlDraft(selectedTopic.videoUrl || '');
+    setIsEditingTopic(true);
+    setIsAddingTopic(false);
+  };
+
+  const handleDeleteTopic = async () => {
+    if (!assignedBook || !activeLesson || !selectedTopic) return;
+    const confirmDelete = window.confirm(`Permanently destroy topic "${selectedTopic.title}"? This will prune its corresponding pages and questions.`);
+    if (confirmDelete) {
+      try {
+        const modifiedBook = {
+          ...assignedBook,
+          lessons: assignedBook.lessons.map(l => {
+            if (l.id !== activeLesson.id) return l;
+            return {
+              ...l,
+              topics: (l.topics || []).filter(t => t.id !== selectedTopic.id)
+            };
+          })
+        };
+        await saveBookLocally(modifiedBook);
+        setSelectedTopicId(null);
+        setSelectedPageIndex(0);
+        flashMessage('Topic deleted successfully.');
+      } catch (err) {
+        alert('Failed to delete topic.');
+      }
+    }
+  };
+
+  // 3. PAGE CRUD OPERATIONS
   const handleAddPage = async () => {
     if (!assignedBook || !activeLesson) return;
-    const nextPageNum = activeLesson.pages.length + 1;
+    const pagesToUse = selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages;
+    const nextPageNum = pagesToUse.length + 1;
     const newPage = {
       pageNumber: nextPageNum,
       content: `<p>New Page ${nextPageNum} curriculum block. You can design custom callout and paragraphs here.</p>`
@@ -339,18 +461,25 @@ export default function BookEditorPanel({
       const modifiedBook = {
         ...assignedBook,
         lessons: assignedBook.lessons.map(l => {
-          if (l.id === activeLesson.id) {
+          if (l.id !== activeLesson.id) return l;
+          if (selectedTopic) {
             return {
               ...l,
-              pages: [...l.pages, newPage]
+              topics: (l.topics || []).map(t => {
+                if (t.id !== selectedTopic.id) return t;
+                return { ...t, pages: [...(t.pages || []), newPage] };
+              })
             };
           }
-          return l;
+          return {
+            ...l,
+            pages: [...l.pages, newPage]
+          };
         })
       };
       await saveBookLocally(modifiedBook);
       setSelectedPageIndex(nextPageNum - 1);
-      flashMessage(`Page ${nextPageNum} appended to Chapter draft in Firebase.`);
+      flashMessage(`Page ${nextPageNum} appended to ${selectedTopic ? `'${selectedTopic.title}'` : 'Chapter'} draft in Firebase.`);
     } catch (err) {
       alert('Failed to add page to Firebase.');
     }
@@ -376,32 +505,41 @@ export default function BookEditorPanel({
     }
 
     try {
+      const pageUpdater = (p: any, pIdx: number) => {
+        if (pIdx === index) {
+          return {
+            ...p,
+            content: finalContent,
+            isCollapsible: pageIsCollapsible,
+            summaryContent: pageSummaryContent,
+            iframeUrl: pageIframeUrlDraft || null,
+            leftImage: pageLeftImageDraft || null,
+            centerImage: pageCenterImageDraft || null,
+            rightImage: pageRightImageDraft || null,
+            figure: pageFigureCaption ? { caption: pageFigureCaption, svgType: pageFigureType } : null,
+            equations: eqsArray.length > 0 ? eqsArray : null
+          };
+        }
+        return p;
+      };
+
       const modifiedBook = {
         ...assignedBook,
         lessons: assignedBook.lessons.map(l => {
-          if (l.id === activeLesson.id) {
+          if (l.id !== activeLesson.id) return l;
+          if (selectedTopic) {
             return {
               ...l,
-              pages: l.pages.map((p, pIdx) => {
-                if (pIdx === index) {
-                  return {
-                    ...p,
-                    content: finalContent,
-                    isCollapsible: pageIsCollapsible,
-                    summaryContent: pageSummaryContent,
-                    iframeUrl: pageIframeUrlDraft || null,
-                    leftImage: pageLeftImageDraft || null,
-                    centerImage: pageCenterImageDraft || null,
-                    rightImage: pageRightImageDraft || null,
-                    figure: pageFigureCaption ? { caption: pageFigureCaption, svgType: pageFigureType } : null,
-                    equations: eqsArray.length > 0 ? eqsArray : null
-                  };
-                }
-                return p;
+              topics: (l.topics || []).map(t => {
+                if (t.id !== selectedTopic.id) return t;
+                return { ...t, pages: (t.pages || []).map(pageUpdater) };
               })
             };
           }
-          return l;
+          return {
+            ...l,
+            pages: l.pages.map(pageUpdater)
+          };
         })
       };
       await saveBookLocally(modifiedBook);
@@ -416,25 +554,36 @@ export default function BookEditorPanel({
 
   const handleDeletePage = async (index: number) => {
     if (!assignedBook || !activeLesson) return;
-    if (activeLesson.pages.length <= 1) {
-      alert('Textbook chapters must retain at least one single layout page.');
+    const pagesToUse = selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages;
+    if (pagesToUse.length <= 1) {
+      alert('Textbook chapters/topics must retain at least one single layout page.');
       return;
     }
     const confirmDelete = window.confirm(`Delete page ${index + 1}? Consecutive indices will be safety re-indexed.`);
     if (confirmDelete) {
       try {
+        const pageDeleter = (pagesList: any[]) => {
+          const filtered = pagesList.filter((_, pIdx) => pIdx !== index);
+          return filtered.map((p, idx) => ({ ...p, pageNumber: idx + 1 }));
+        };
+
         const modifiedBook = {
           ...assignedBook,
           lessons: assignedBook.lessons.map(l => {
-            if (l.id === activeLesson.id) {
-              const filtered = l.pages.filter((_, pIdx) => pIdx !== index);
-              const reindexed = filtered.map((p, idx) => ({ ...p, pageNumber: idx + 1 }));
+            if (l.id !== activeLesson.id) return l;
+            if (selectedTopic) {
               return {
                 ...l,
-                pages: reindexed
+                topics: (l.topics || []).map(t => {
+                  if (t.id !== selectedTopic.id) return t;
+                  return { ...t, pages: pageDeleter(t.pages || []) };
+                })
               };
             }
-            return l;
+            return {
+              ...l,
+              pages: pageDeleter(l.pages)
+            };
           })
         };
         await saveBookLocally(modifiedBook);
@@ -448,10 +597,11 @@ export default function BookEditorPanel({
 
   const handleMovePage = async (pageIndex: number, direction: 'left' | 'right') => {
     if (!assignedBook || !activeLesson) return;
+    const pagesToUse = selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages;
     if (direction === 'left' && pageIndex === 0) return;
-    if (direction === 'right' && pageIndex === activeLesson.pages.length - 1) return;
+    if (direction === 'right' && pageIndex === pagesToUse.length - 1) return;
 
-    const newPages = [...activeLesson.pages];
+    const newPages = [...pagesToUse];
     const swapIndex = direction === 'left' ? pageIndex - 1 : pageIndex + 1;
     
     // Swap elements
@@ -465,10 +615,21 @@ export default function BookEditorPanel({
     try {
       const modifiedBook = {
         ...assignedBook,
-        lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? { ...l, pages: newPages } : l))
+        lessons: assignedBook.lessons.map(l => {
+          if (l.id !== activeLesson.id) return l;
+          if (selectedTopic) {
+            return {
+              ...l,
+              topics: (l.topics || []).map(t => {
+                if (t.id !== selectedTopic.id) return t;
+                return { ...t, pages: newPages };
+              })
+            };
+          }
+          return { ...l, pages: newPages };
+        })
       };
       await saveBookLocally(modifiedBook);
-      // Update selected index so the user stays on the same page content they were editing
       setSelectedPageIndex(swapIndex);
       flashMessage('Page reordered successfully.');
     } catch (err) {
@@ -828,11 +989,139 @@ export default function BookEditorPanel({
                   </div>
                 </div>
 
+                {/* Topic Selector & Management Header Bar */}
+                <div className="bg-[#0b0e1b] border border-indigo-500/30 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
+                        Chapter Topic:
+                      </span>
+                      <select
+                        value={selectedTopicId || ''}
+                        onChange={(e) => {
+                          setSelectedTopicId(e.target.value || null);
+                          setSelectedPageIndex(0);
+                          setIsAddingTopic(false);
+                          setIsEditingTopic(false);
+                        }}
+                        className="bg-[#03060c] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                      >
+                        <option value="">-- Main Chapter Level (Default) --</option>
+                        {(activeLesson.topics || []).map((t, idx) => (
+                          <option key={t.id} value={t.id}>
+                            Topic {idx + 1}: {t.title}
+                          </option>
+                        ))}
+                      </select>
+
+                      {selectedTopic && !isEditingTopic && (
+                        <div className="flex items-center gap-1.5 ml-2">
+                          <button
+                            onClick={handleStartEditTopic}
+                            className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            title="Edit Topic Details"
+                          >
+                            <Edit className="w-3.5 h-3.5" /> Edit Topic
+                          </button>
+                          <button
+                            onClick={handleDeleteTopic}
+                            className="p-1.5 bg-rose-600/30 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            title="Delete Topic"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete Topic
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {!isAddingTopic && !isEditingTopic && (
+                      <button
+                        onClick={() => {
+                          setIsAddingTopic(true);
+                          setIsEditingTopic(false);
+                          setTopicTitleDraft('');
+                          setTopicVideoUrlDraft('');
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shadow-md shadow-indigo-950"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> + Add Topic
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Selected Topic Video URL indicator */}
+                  {selectedTopic && !isEditingTopic && selectedTopic.videoUrl && (
+                    <div className="text-[11px] font-mono text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800 flex items-center gap-2">
+                      <Play className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                      <span className="truncate">Topic Video: {selectedTopic.videoUrl}</span>
+                    </div>
+                  )}
+
+                  {/* Add / Edit Topic Form */}
+                  {(isAddingTopic || isEditingTopic) && (
+                    <div className="p-3 bg-slate-950 border border-indigo-500/40 rounded-lg space-y-3 animate-fade-in">
+                      <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
+                        {isEditingTopic ? 'Edit Topic Details' : 'Create New Topic'}
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
+                            Topic Name:
+                          </label>
+                          <textarea
+                            value={topicTitleDraft}
+                            onChange={(e) => setTopicTitleDraft(e.target.value)}
+                            rows={2}
+                            placeholder="Enter Topic Name (e.g. Topic 1: Newton's First Law)"
+                            className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
+                            YouTube Video URL:
+                          </label>
+                          <textarea
+                            value={topicVideoUrlDraft}
+                            onChange={(e) => setTopicVideoUrlDraft(e.target.value)}
+                            rows={2}
+                            placeholder="Enter YouTube Video URL (e.g. https://www.youtube.com/watch?v=...)"
+                            className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none font-mono"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            setIsAddingTopic(false);
+                            setIsEditingTopic(false);
+                            setTopicTitleDraft('');
+                            setTopicVideoUrlDraft('');
+                          }}
+                          className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold cursor-pointer transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveTopic}
+                          className="px-4 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase cursor-pointer transition-colors shadow-md shadow-emerald-950"
+                        >
+                          Save Topic
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Sub-Layout: Pages Editor */}
                 <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5 font-sans">
                       <Sliders className="w-4 h-4 text-emerald-400" /> Textbook Classroom Page Canvas
+                      {selectedTopic && (
+                        <span className="text-indigo-400 font-mono text-xs font-normal">
+                          ({selectedTopic.title})
+                        </span>
+                      )}
                     </h3>
                     <button
                       onClick={handleAddPage}
@@ -890,7 +1179,7 @@ export default function BookEditorPanel({
 
                   {/* Horizontal index dots of current pages */}
                   <div className="flex flex-wrap gap-2">
-                    {activeLesson.pages.map((p, pIdx) => {
+                    {(selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).map((p, pIdx) => {
                       const isSelected = selectedPageIndex === pIdx;
                       return (
                         <div
@@ -913,8 +1202,8 @@ export default function BookEditorPanel({
                           <span>P.{pIdx + 1}</span>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleMovePage(pIdx, 'right'); }}
-                            disabled={pIdx === activeLesson.pages.length - 1}
-                            className={`px-1 opacity-0 group-hover:opacity-100 transition-opacity ${pIdx === activeLesson.pages.length - 1 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:scale-110'}`}
+                            disabled={pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1}
+                            className={`px-1 opacity-0 group-hover:opacity-100 transition-opacity ${pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:scale-110'}`}
                             title="Move Page Right"
                           >
                             &gt;
@@ -935,7 +1224,7 @@ export default function BookEditorPanel({
                   </div>
 
                   {/* Active Page Draft editor content */}
-                  {selectedPageIndex !== null && activeLesson.pages[selectedPageIndex] ? (
+                  {selectedPageIndex !== null && (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages)[selectedPageIndex] ? (
                     <div className="space-y-4 border-t border-slate-900 pt-4" id="page-metadata-editor">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 font-extrabold">
@@ -1187,13 +1476,36 @@ export default function BookEditorPanel({
                               Overrides Text Editor
                             </span>
                           </div>
-                          <input
-                            type="text"
-                            value={pageIframeUrlDraft}
-                            onChange={e => setPageIframeUrlDraft(e.target.value)}
-                            placeholder="https://firebasestorage.googleapis.com/.../your-custom-mindmap.html"
-                            className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
-                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={pageIframeUrlDraft}
+                              onChange={e => setPageIframeUrlDraft(e.target.value)}
+                              placeholder="https://firebasestorage.googleapis.com/.../your-custom-mindmap.html"
+                              className="flex-1 bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
+                            />
+                            <label className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
+                              <Upload className="w-3.5 h-3.5" /> Upload HTML
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept=".html,.htm,text/html"
+                                onChange={async (e) => {
+                                  if (e.target.files && e.target.files[0]) {
+                                    try {
+                                      const file = e.target.files[0];
+                                      const url = await uploadHtmlToStorage(file);
+                                      setPageIframeUrlDraft(url);
+                                      flashMessage && flashMessage('HTML file uploaded to Firebase Storage.');
+                                    } catch(err: any) {
+                                      alert("HTML upload failed: " + err.message);
+                                      console.error("HTML upload failed", err);
+                                    }
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
                         </div>
 
                         {/* SCIENCE GRAPHIC EMBED */}
@@ -1242,7 +1554,7 @@ export default function BookEditorPanel({
 
                 {/* Sub-Layout: Flash Review Quizzing */}
                 <FlashQuestionManager
-                  questions={activeLesson.flashQuestions || []}
+                  questions={selectedTopic ? (selectedTopic.flashQuestions || []) : (activeLesson.flashQuestions || [])}
                   onQuestionsUpdate={async (newQuestions) => {
                     if (!assignedBook || !activeLesson) return;
                     try {
@@ -1250,6 +1562,15 @@ export default function BookEditorPanel({
                         ...assignedBook,
                         lessons: assignedBook.lessons.map(l => {
                           if (l.id !== activeLesson.id) return l;
+                          if (selectedTopic) {
+                            return {
+                              ...l,
+                              topics: (l.topics || []).map(t => {
+                                if (t.id !== selectedTopic.id) return t;
+                                return { ...t, flashQuestions: newQuestions };
+                              })
+                            };
+                          }
                           return { ...l, flashQuestions: newQuestions };
                         })
                       };
@@ -1263,7 +1584,7 @@ export default function BookEditorPanel({
 
                 {/* Sub-Layout: Inquiry Question Manager */}
                 <InquiryQuestionManager
-                  questions={activeLesson.inquiryQuestions || []}
+                  questions={selectedTopic ? (selectedTopic.inquiryQuestions || []) : (activeLesson.inquiryQuestions || [])}
                   onQuestionsUpdate={async (newQuestions) => {
                     if (!assignedBook || !activeLesson) return;
                     try {
@@ -1271,6 +1592,15 @@ export default function BookEditorPanel({
                         ...assignedBook,
                         lessons: assignedBook.lessons.map(l => {
                           if (l.id !== activeLesson.id) return l;
+                          if (selectedTopic) {
+                            return {
+                              ...l,
+                              topics: (l.topics || []).map(t => {
+                                if (t.id !== selectedTopic.id) return t;
+                                return { ...t, inquiryQuestions: newQuestions };
+                              })
+                            };
+                          }
                           return { ...l, inquiryQuestions: newQuestions };
                         })
                       };

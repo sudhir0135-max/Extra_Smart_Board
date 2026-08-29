@@ -9,7 +9,7 @@ import { InquiryQuestionObj } from '../types';
 import { Editor } from '@tinymce/tinymce-react';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
-import { setupTinyMceAnnotation } from '../lib/tinymceAnnotationPlugin';
+import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/tinymceAnnotationPlugin';
 
 export interface InquiryQuestionManagerProps {
   questions: (string | InquiryQuestionObj)[];
@@ -622,7 +622,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                           setupTinyMceAnnotation(editor);
                         },
                         toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | table | removeformat | help',
-                        content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #666; font-style: italic; margin: 12px 0; } ${tinymceMathContentStyle}`,
+                        content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #666; font-style: italic; margin: 12px 0; } ${tinymceMathContentStyle} ${tinymceAnnotationContentStyle}`,
                         skin: 'oxide',
                         content_css: 'default'
                       }}

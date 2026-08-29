@@ -160,15 +160,14 @@ export default function ImageFrame({ isOpen, onClose, src, alt = 'Image Frame', 
         className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex overflow-hidden"
         style={{ width: '90vw', height: '90vh' }}
       >
-        {viewStack.length === 1 && (
-          <button 
-            onClick={onClose} 
-            className="absolute top-4 right-4 z-50 p-2.5 bg-black/60 hover:bg-rose-500/90 text-white rounded-full backdrop-blur-md transition-all shadow-xl border border-white/10"
-            title="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
+        {/* Always visible Close button */}
+        <button 
+          onClick={onClose} 
+          className="absolute top-4 right-4 z-[60] p-2.5 bg-rose-600/90 hover:bg-rose-500 active:scale-95 text-white rounded-full backdrop-blur-md transition-all shadow-2xl border border-white/20 cursor-pointer flex items-center justify-center"
+          title="Close Fullscreen Frame"
+        >
+          <X className="w-5 h-5" />
+        </button>
 
         {viewStack.length > 1 && (
           <button 

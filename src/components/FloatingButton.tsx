@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator, Filter } from 'lucide-react';
-import { Book, AcademicSubject, Lesson, FlashQuestion, Note, InquiryQuestionObj } from '../types';
+import { Book, AcademicSubject, Lesson, Topic, FlashQuestion, Note, InquiryQuestionObj } from '../types';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
 import ScribbleOverlay from './ScribbleOverlay';
@@ -20,6 +20,8 @@ interface FloatingButtonProps {
   savedNote: Note | null;
   addToast?: (text: string, type?: 'info' | 'success' | 'warn' | 'cloud') => void;
   globalLogo?: string | null;
+  externalTopicModal?: { topic: Topic; panel: 'video' | 'questions' | 'notes' } | null;
+  onCloseExternalTopicModal?: () => void;
 }
 
 class QuestionListErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
@@ -280,6 +282,8 @@ export default function FloatingButton({
   savedNote,
   addToast,
   globalLogo,
+  externalTopicModal,
+  onCloseExternalTopicModal,
 }: FloatingButtonProps) {
   // Movement management for responsive smartboards
   const [position, setPosition] = useState({ x: 4, y: 15 }); // percentages from bottom-right coords
@@ -298,6 +302,22 @@ export default function FloatingButton({
   useEffect(() => {
     setLogoError(false);
   }, [globalLogo]);
+
+  // Sync external topic modal triggers from Student Panel
+  useEffect(() => {
+    if (externalTopicModal) {
+      setActivePanel(externalTopicModal.panel);
+    }
+  }, [externalTopicModal]);
+
+  const closeActivePanel = () => {
+    setActivePanel(null);
+    setMaximizedVideoId(null);
+    setIsListDrawingMode(false);
+    if (onCloseExternalTopicModal) {
+      onCloseExternalTopicModal();
+    }
+  };
 
   // Full Screen Question Drawing State
   const [isListDrawingMode, setIsListDrawingMode] = useState(false);
@@ -350,8 +370,22 @@ export default function FloatingButton({
     setIsAccountancyModalOpen(true);
   };
 
-  // Dynamic videos list based on currentLesson
+  // Dynamic videos list based on currentLesson or external topic override
   const activeVideos = React.useMemo(() => {
+    if (externalTopicModal?.topic?.videoUrl) {
+      const url = externalTopicModal.topic.videoUrl;
+      const youtubeIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+      const youtubeId = youtubeIdMatch ? youtubeIdMatch[1] : '';
+      return [{
+        id: `topic-video-0`,
+        title: externalTopicModal.topic.title,
+        channel: 'Topic Lecture',
+        youtubeId: youtubeId,
+        rawUrl: url,
+        duration: 'Topic Video'
+      }];
+    }
+
     if (!currentLesson) return [];
     
     // Combine new array and legacy single URL
@@ -373,7 +407,7 @@ export default function FloatingButton({
         duration: urlsToProcess.length > 1 ? `Part ${idx + 1}` : 'Current'
       };
     });
-  }, [currentLesson]);
+  }, [currentLesson, externalTopicModal]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -473,7 +507,7 @@ export default function FloatingButton({
 
   const togglePanel = (panel: 'video' | 'questions' | 'notes') => {
     if (activePanel === panel) {
-      setActivePanel(null);
+      closeActivePanel();
     } else {
       setActivePanel(panel);
     }
@@ -484,10 +518,18 @@ export default function FloatingButton({
   };
 
   const getLessonQuestions = (): (string | InquiryQuestionObj)[] => {
+    if (externalTopicModal?.topic) {
+      return (externalTopicModal.topic.inquiryQuestions || []).filter(Boolean);
+    }
     return (currentLesson?.inquiryQuestions || []).filter(Boolean);
   };
 
-  const allFlashQuestions = React.useMemo(() => currentLesson?.flashQuestions || [], [currentLesson]);
+  const allFlashQuestions = React.useMemo(() => {
+    if (externalTopicModal?.topic) {
+      return externalTopicModal.topic.flashQuestions || [];
+    }
+    return currentLesson?.flashQuestions || [];
+  }, [currentLesson, externalTopicModal]);
 
   const filteredFlashQuestions = React.useMemo(() => {
     if (difficultyFilter === 'all') return allFlashQuestions;
@@ -845,10 +887,7 @@ export default function FloatingButton({
           {/* Close button placed at the bottom-left of the translucent wide border */}
           <button
             id="close-video-modal"
-            onClick={() => {
-              setActivePanel(null);
-              setMaximizedVideoId(null);
-            }}
+            onClick={closeActivePanel}
             className="absolute bottom-[20px] left-[20px] md:bottom-[40px] md:left-[40px] z-55 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white p-3 md:p-4 rounded-lg md:rounded-xl transition-all duration-200 cursor-pointer shadow-xl shadow-rose-600/30 flex items-center justify-center pointer-events-auto"
             title="Close Library"
           >
@@ -980,7 +1019,7 @@ export default function FloatingButton({
                 <div className="flex items-center justify-between font-sans border-t border-slate-850 pt-3 max-w-2xl mx-auto w-full">
                   <button
                     id="close-flashcards-bottom-left"
-                    onClick={() => setActivePanel(null)}
+                    onClick={closeActivePanel}
                     className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-[10px] font-sans font-bold uppercase px-3.5 py-1.5 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 shadow-md flex-shrink-0"
                   >
                     <X className="w-3.5 h-3.5" /> Close
@@ -1052,7 +1091,7 @@ export default function FloatingButton({
                 <div className="border-t border-slate-850 pt-3 w-full flex justify-center mt-2">
                   <button
                     id="close-flashcards-bottom-left-placeholder"
-                    onClick={() => setActivePanel(null)}
+                    onClick={closeActivePanel}
                     className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-[10px] font-sans font-bold uppercase px-3.5 py-1.5 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 shadow-md"
                   >
                     <X className="w-3.5 h-3.5" /> Close
@@ -1135,10 +1174,7 @@ export default function FloatingButton({
 
               <button 
                 id="close-questions" 
-                onClick={() => {
-                  setActivePanel(null);
-                  setIsListDrawingMode(false);
-                }} 
+                onClick={closeActivePanel} 
                 className="w-10 h-10 md:w-12 md:h-12 bg-rose-600/10 hover:bg-rose-600 border border-rose-500/25 hover:border-transparent text-rose-400 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95 ml-2 md:ml-6"
                 title="Close List"
               >
