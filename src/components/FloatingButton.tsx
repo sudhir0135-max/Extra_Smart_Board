@@ -11,6 +11,8 @@ import 'katex/dist/katex.min.css';
 import ScribbleOverlay from './ScribbleOverlay';
 import AccountancyQuestionModal from './AccountancyQuestionModal';
 import CachedImage from './CachedImage';
+import { getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+
 
 interface FloatingButtonProps {
   currentLesson: Lesson | null;
@@ -183,9 +185,19 @@ const QuestionItem = React.memo(({
       style={{ minHeight: minHeight > 0 ? `${minHeight}px` : undefined }}
     >
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full mb-3 pb-3 border-b border-slate-900/80">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-amber-400" />
           <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">Lesson Inquiry Question</span>
+          {typeof item !== 'string' && item.topicTitle && (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-teal-500/20 text-teal-300 border border-teal-500/30 uppercase">
+              Topic: {item.topicTitle}
+            </span>
+          )}
+          {typeof item !== 'string' && item.marks !== undefined && item.marks !== null && (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              {item.marks} Marks
+            </span>
+          )}
           {isAccountancyMode && (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
               Accountancy Workspace
@@ -519,7 +531,7 @@ export default function FloatingButton({
 
   const getLessonQuestions = (): (string | InquiryQuestionObj)[] => {
     if (externalTopicModal?.topic) {
-      return (externalTopicModal.topic.inquiryQuestions || []).filter(Boolean);
+      return getEffectiveTopicInquiryQuestions(externalTopicModal.topic, currentLesson);
     }
     return (currentLesson?.inquiryQuestions || []).filter(Boolean);
   };

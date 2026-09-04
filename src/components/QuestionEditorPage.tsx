@@ -64,12 +64,14 @@ export default function QuestionEditorPage() {
       answerText: null,
       answerImage: null,
       answerImagePosition: 'right',
+      marks: null,
+      topicTitle: null,
     };
   }
 
   function normalise(q: any): InquiryQuestionObj {
     if (typeof q === 'string') {
-      return { id: `q_${Date.now()}`, text: q, image: null, imagePosition: 'right', answerText: null, answerImage: null, answerImagePosition: 'right' };
+      return { id: `q_${Date.now()}`, text: q, image: null, imagePosition: 'right', answerText: null, answerImage: null, answerImagePosition: 'right', marks: null, topicTitle: null };
     }
     return {
       id: q.id || `q_${Date.now()}`,
@@ -79,6 +81,8 @@ export default function QuestionEditorPage() {
       answerText: q.answerText || null,
       answerImage: q.answerImage || null,
       answerImagePosition: q.answerImagePosition || 'right',
+      marks: q.marks !== undefined && q.marks !== null ? q.marks : null,
+      topicTitle: q.topicTitle || null,
     };
   }
 
@@ -287,8 +291,18 @@ export default function QuestionEditorPage() {
                 >
                   <div className="flex items-start justify-between gap-1">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                         <span className="text-[9px] font-mono text-amber-500 font-bold">Q{idx + 1}</span>
+                        {q.topicTitle && (
+                          <span className="text-[7.5px] font-mono bg-teal-500/20 text-teal-300 border border-teal-500/30 px-1 py-0.2 rounded uppercase truncate max-w-[80px]">
+                            {q.topicTitle}
+                          </span>
+                        )}
+                        {q.marks !== undefined && q.marks !== null && (
+                          <span className="text-[7.5px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1 py-0.2 rounded font-bold">
+                            {q.marks}M
+                          </span>
+                        )}
                         {answered && (
                           <span className="text-[8px] font-mono text-emerald-500 font-bold flex items-center gap-0.5">
                             <MessageSquare className="w-2 h-2" /> A
@@ -516,6 +530,39 @@ export default function QuestionEditorPage() {
                 </div>
               </div>
             )}
+
+            {/* Topic & Marks Metadata */}
+            <div className="pt-3 border-t border-slate-800 space-y-3">
+              <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block">
+                Metadata (Topic & Marks)
+              </label>
+              <div>
+                <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Topic Title</label>
+                <input
+                  type="text"
+                  value={activeQ.topicTitle || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setQuestions(prev => prev.map((q, i) => i === activeIdx ? { ...q, topicTitle: val.trim() || null } : q));
+                  }}
+                  placeholder="e.g. Introduction"
+                  className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"
+                />
+              </div>
+              <div>
+                <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Marks (Numeric)</label>
+                <input
+                  type="number"
+                  value={activeQ.marks !== undefined && activeQ.marks !== null ? activeQ.marks : ''}
+                  onChange={(e) => {
+                    const val = e.target.value === '' ? null : Number(e.target.value);
+                    setQuestions(prev => prev.map((q, i) => i === activeIdx ? { ...q, marks: val } : q));
+                  }}
+                  placeholder="e.g. 5"
+                  className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+            </div>
 
             <div className="pt-3 border-t border-slate-800">
               <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-3">

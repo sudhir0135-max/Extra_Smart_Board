@@ -22,7 +22,8 @@ export interface InteractiveImageDef {
   hotspots: ImageHotspot[];
 }
 
-export type AccountancyTableType = 'journal' | 't_shape_ledger' | 't_shape_ledger_no_date' | 'balance_sheet' | 'balance_sheet_company' | 'trial_balance' | 'custom';
+export type AccountancyTableType = 'journal' | 't_shape_ledger' | 't_shape_ledger_no_date' | 'balance_sheet' | 'balance_sheet_company' | 'notes_to_accounts' | 'trial_balance' | 'custom';
+
 
 export interface AccountancyColumn {
   id: string;
@@ -50,6 +51,8 @@ export interface InquiryQuestionObj {
   answerImagePosition?: 'left' | 'center' | 'right';
   displayMode?: 'standard' | 'accountancy_tabs';
   tabs?: AccountancyTabConfig[];
+  marks?: number | null;
+  topicTitle?: string | null;
 }
 
 export interface Topic {

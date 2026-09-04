@@ -18,7 +18,8 @@ import CachedImage from './CachedImage';
 import { getLocalImageSrc } from '../lib/imageCache';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
-import { hasTextContent } from '../lib/contentUtils';
+import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+
 
 
 /**
@@ -724,25 +725,32 @@ export default function Workspace({
                               </button>
 
                               {/* Question Icon Only */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenTopicModal?.(topic, 'notes');
-                                }}
-                                disabled={!topic.inquiryQuestions || topic.inquiryQuestions.length === 0}
-                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
-                                  topic.inquiryQuestions && topic.inquiryQuestions.length > 0
-                                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 active:scale-95'
-                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
-                                }`}
-                                title={
-                                  topic.inquiryQuestions && topic.inquiryQuestions.length > 0
-                                    ? `Open Topic Questions (${topic.inquiryQuestions.length})`
-                                    : 'No questions for this topic'
-                                }
-                              >
-                                <FileText className="w-4.5 h-4.5" />
-                              </button>
+                              {(() => {
+                                const effectiveTopicQuestions = getEffectiveTopicInquiryQuestions(topic, activeLesson);
+                                const hasTopicQuestions = effectiveTopicQuestions.length > 0;
+                                return (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenTopicModal?.(topic, 'notes');
+                                    }}
+                                    disabled={!hasTopicQuestions}
+                                    className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                      hasTopicQuestions
+                                        ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 active:scale-95'
+                                        : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                    }`}
+                                    title={
+                                      hasTopicQuestions
+                                        ? `Open Topic Questions (${effectiveTopicQuestions.length})`
+                                        : 'No questions for this topic'
+                                    }
+                                  >
+                                    <FileText className="w-4.5 h-4.5" />
+                                  </button>
+                                );
+                              })()}
+
                             </div>
                           </div>
 
@@ -755,7 +763,7 @@ export default function Workspace({
                                 </div>
                               ) : (
                                 topic.pages.map((page, pIdx) => (
-                                  <div key={page.id || pIdx} className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
+                                  <div key={(page as any).id || page.pageNumber || pIdx} className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
                                     <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                                       <span className="text-[10.5px] font-mono uppercase text-amber-400 font-black tracking-wider">
                                         Page {pIdx + 1} • {topic.title}

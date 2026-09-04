@@ -21,6 +21,8 @@ type EditorTab = 'question' | 'answer';
 export default function InquiryQuestionManager({ questions, onQuestionsUpdate }: InquiryQuestionManagerProps) {
   const [newQText, setNewQText] = useState('');
   const [newAText, setNewAText] = useState('');
+  const [newMarks, setNewMarks] = useState<number | ''>('');
+  const [newTopicTitle, setNewTopicTitle] = useState('');
   const [editingQIdx, setEditingQIdx] = useState<number | null>(null);
 
   // Advanced Editor Modal State
@@ -38,6 +40,10 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
   const [advAnswerTextDraft, setAdvAnswerTextDraft] = useState('');
   const [advAnswerImageDraft, setAdvAnswerImageDraft] = useState<string | null>(null);
   const [advAnswerImagePosition, setAdvAnswerImagePosition] = useState<'left' | 'center' | 'right'>('right');
+
+  // Topic & Marks drafts for Advanced Editor
+  const [advMarksDraft, setAdvMarksDraft] = useState<number | ''>('');
+  const [advTopicTitleDraft, setAdvTopicTitleDraft] = useState('');
 
   const [isUploading, setIsUploading] = useState(false);
 
@@ -90,6 +96,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       setAdvAnswerTextDraft('');
       setAdvAnswerImageDraft(null);
       setAdvAnswerImagePosition('right');
+      setAdvMarksDraft('');
+      setAdvTopicTitleDraft('');
     } else if (q) {
       setAdvTextDraft(q.text || '');
       setAdvImageDraft(q.image || null);
@@ -97,6 +105,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       setAdvAnswerTextDraft(q.answerText || '');
       setAdvAnswerImageDraft(q.answerImage || null);
       setAdvAnswerImagePosition(q.answerImagePosition || 'right');
+      setAdvMarksDraft(q.marks !== undefined && q.marks !== null ? q.marks : '');
+      setAdvTopicTitleDraft(q.topicTitle || '');
     } else {
       setAdvTextDraft('');
       setAdvImageDraft(null);
@@ -104,6 +114,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       setAdvAnswerTextDraft('');
       setAdvAnswerImageDraft(null);
       setAdvAnswerImagePosition('right');
+      setAdvMarksDraft('');
+      setAdvTopicTitleDraft('');
     }
   };
 
@@ -133,6 +145,9 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
     const questionText = activeTab === 'question' ? content : advTextDraft;
     const answerText = activeTab === 'answer' ? content : advAnswerTextDraft;
 
+    const parsedMarks = advMarksDraft !== '' && !isNaN(Number(advMarksDraft)) ? Number(advMarksDraft) : null;
+    const parsedTopic = advTopicTitleDraft.trim() || null;
+
     const updatedQ: InquiryQuestionObj = {
       id: existingId,
       text: questionText,
@@ -141,6 +156,9 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       answerText: answerText || null,
       answerImage: advAnswerImageDraft,
       answerImagePosition: advAnswerImagePosition,
+      marks: parsedMarks,
+      topicTitle: parsedTopic,
+      ...(typeof currentQ !== 'string' ? { displayMode: currentQ.displayMode, tabs: currentQ.tabs } : {}),
     };
     const updated = [...questions];
     updated[advancedEditorIndex] = updatedQ;
@@ -176,6 +194,9 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       return;
     }
 
+    const parsedMarks = newMarks !== '' && !isNaN(Number(newMarks)) ? Number(newMarks) : null;
+    const parsedTopic = newTopicTitle.trim() || null;
+
     if (editingQIdx !== null) {
       const updated = [...questions];
       const existing = updated[editingQIdx];
@@ -185,12 +206,16 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
           id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           text: newQText.trim(),
           answerText: newAText.trim() || null,
+          marks: parsedMarks,
+          topicTitle: parsedTopic,
         };
       } else {
         updated[editingQIdx] = {
           ...existing,
           text: newQText.trim(),
           answerText: newAText.trim() || existing.answerText || null,
+          marks: parsedMarks,
+          topicTitle: parsedTopic,
         };
       }
       onQuestionsUpdate(updated);
@@ -201,12 +226,16 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
         id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         text: newQText.trim(),
         answerText: newAText.trim() || null,
+        marks: parsedMarks,
+        topicTitle: parsedTopic,
       };
       onQuestionsUpdate([...questions, newQ]);
     }
 
     setNewQText('');
     setNewAText('');
+    setNewMarks('');
+    setNewTopicTitle('');
   };
 
   const handleEditQuestion = (q: string | InquiryQuestionObj, idx: number) => {
@@ -214,6 +243,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       setEditingQIdx(idx);
       setNewQText(q);
       setNewAText('');
+      setNewMarks('');
+      setNewTopicTitle('');
     } else {
       // For simple (non-rich) InquiryQuestionObj, edit inline in the draft panel
       const hasRichText = q.text && (q.text.includes('<') || q.answerText?.includes('<'));
@@ -221,6 +252,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
         setEditingQIdx(idx);
         setNewQText(q.text.replace(/<[^>]+>/g, ''));
         setNewAText((q.answerText || '').replace(/<[^>]+>/g, ''));
+        setNewMarks(q.marks !== undefined && q.marks !== null ? q.marks : '');
+        setNewTopicTitle(q.topicTitle || '');
       } else {
         loadIntoAdvancedEditor(idx, 'question');
         setIsAdvancedEditorOpen(true);
@@ -347,6 +380,36 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
               />
             </div>
 
+            {/* Topic field */}
+            <div>
+              <label className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1 block flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 inline-block" />
+                Topic / Sub-heading <span className="text-slate-700 normal-case">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={newTopicTitle}
+                onChange={e => setNewTopicTitle(e.target.value)}
+                placeholder="e.g. Introduction, Real-world Applications..."
+                className="w-full bg-[#03060c] border border-slate-700 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors"
+              />
+            </div>
+
+            {/* Marks field */}
+            <div>
+              <label className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1 block flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                Marks <span className="text-slate-700 normal-case">(numeric, optional)</span>
+              </label>
+              <input
+                type="number"
+                value={newMarks}
+                onChange={e => setNewMarks(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="e.g. 1, 2, 5, 10"
+                className="w-full bg-[#03060c] border border-slate-700 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+              />
+            </div>
+
             <button
               onClick={handleAddQuestion}
               className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-550 text-white rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer"
@@ -359,6 +422,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                   setEditingQIdx(null);
                   setNewQText('');
                   setNewAText('');
+                  setNewMarks('');
+                  setNewTopicTitle('');
                 }}
                 className="w-full mt-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer"
               >
@@ -402,25 +467,28 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                           const newQuestions: (string | InquiryQuestionObj)[] = rows.map((r, idx) => {
                             const qText = String(r.Question || r.question || '').trim();
                             const aText = String(r.Answer || r.answer || '').trim();
+                            const topicTitleStr = String(r.Topic || r.topic || r['Topic Title'] || r.topicTitle || '').trim();
+                            const rawMarks = r.Marks !== undefined ? r.Marks : (r.marks !== undefined ? r.marks : (r.Mark !== undefined ? r.Mark : r.mark));
+                            const parsedMarks = rawMarks !== undefined && rawMarks !== null && rawMarks !== '' && !isNaN(Number(rawMarks)) ? Number(rawMarks) : null;
+
                             if (!qText) return null;
 
-                            if (aText) {
-                              return {
-                                id: `up-iq-${Date.now()}-${idx}`,
-                                text: qText,
-                                answerText: aText,
-                                imagePosition: 'right',
-                                answerImagePosition: 'right'
-                              } as InquiryQuestionObj;
-                            }
-                            return qText;
+                            return {
+                              id: `up-iq-${Date.now()}-${idx}`,
+                              text: qText,
+                              answerText: aText || null,
+                              marks: parsedMarks,
+                              topicTitle: topicTitleStr || null,
+                              imagePosition: 'right',
+                              answerImagePosition: 'right'
+                            } as InquiryQuestionObj;
                           }).filter((q): q is NonNullable<typeof q> => q !== null);
 
                           if (newQuestions.length > 0) {
                             onQuestionsUpdate([...questions, ...newQuestions]);
                             alert(`Successfully bulk loaded ${newQuestions.length} questions from Excel!`);
                           } else {
-                            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer'.");
+                            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer', 'Topic', 'Marks'.");
                           }
                         } catch (err) {
                           alert("Failed to parse XLSX file");
@@ -438,8 +506,8 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                 onClick={() => {
                   try {
                     const worksheet = XLSX.utils.json_to_sheet([
-                      { Question: "How does this relate to chapter 1?", Answer: "Your answer here..." },
-                      { Question: "What are the real-world applications?", Answer: "" }
+                      { Question: "How does this relate to chapter 1?", Answer: "Your answer here...", Topic: "Introduction", Marks: 5 },
+                      { Question: "What are the real-world applications?", Answer: "Model answer...", Topic: "Real-world Applications", Marks: 3 }
                     ]);
                     const workbook = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(workbook, worksheet, "Inquiry Questions");
@@ -475,6 +543,18 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                     {/* Question row */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          {typeof q !== 'string' && q.topicTitle && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 font-mono uppercase">
+                              Topic: {q.topicTitle}
+                            </span>
+                          )}
+                          {typeof q !== 'string' && q.marks !== undefined && q.marks !== null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                              {q.marks} Marks
+                            </span>
+                          )}
+                        </div>
                         <span className="font-bold text-emerald-400 block pr-2 break-words">
                           Q{qIdx + 1}. {textPreview}
                           {typeof q !== 'string' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">Rich Text</span>}
@@ -680,6 +760,31 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                           </span>
                         </label>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Topic & Marks Metadata Fields */}
+                  <div className="space-y-3 pt-4 border-t border-slate-800/80">
+                    <label className="text-xs font-mono uppercase tracking-widest text-slate-400 block mb-1">Metadata (Topic & Marks)</label>
+                    <div>
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Topic Title</label>
+                      <input
+                        type="text"
+                        value={advTopicTitleDraft}
+                        onChange={e => setAdvTopicTitleDraft(e.target.value)}
+                        placeholder="e.g. Introduction, Real-world Applications"
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Marks (Numeric)</label>
+                      <input
+                        type="number"
+                        value={advMarksDraft}
+                        onChange={e => setAdvMarksDraft(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 1, 2, 5, 10"
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                      />
                     </div>
                   </div>
 

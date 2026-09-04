@@ -100,6 +100,14 @@ function isCellDisabledInRow(rRow: string[], cIdx: number, columns: AccountancyC
     return isLf;
   }
 
+  if (tableType === 'notes_to_accounts') {
+    // Col 1 is the unnamed 10% active column — never disabled
+    if (cIdx === 1) return false;
+    const isLf = colLabel === 'l.f.' || colLabel === 'l.f' || colLabel === 'lf' || colLabel === 'j.f.' || colLabel === 'j.f' || colLabel === 'jf';
+    return isLf;
+  }
+
+
   const isLf = colLabel === 'l.f.' || colLabel === 'l.f' || colLabel === 'lf' || colLabel === 'j.f.' || colLabel === 'j.f' || colLabel === 'jf';
   if (isLf) return true;
 
@@ -170,6 +178,8 @@ function JournalCell({
   onSelectTotalChip,
   onRefreshTotal,
   onClearTotalRow,
+  hasRowText,
+  onClearRow,
 }: {
   value: string;
   isJournal: boolean;
@@ -184,11 +194,13 @@ function JournalCell({
   totalCols?: number;
   solutionChips?: string[];
   presetTerms?: string[];
+  hasRowText?: boolean;
   onFocus: () => void;
   onChange: (val: string) => void;
   onSelectTotalChip?: () => void;
   onRefreshTotal?: () => void;
   onClearTotalRow?: () => void;
+  onClearRow?: () => void;
 }) {
   const [isFocused, setIsFocused] = useState(false);
 
@@ -308,13 +320,41 @@ function JournalCell({
       }
     }
 
-    const newVal = currentCellVal ? `${currentCellVal} ${textToInsert}` : textToInsert;
+    let newVal = '';
+    const trimmedCell = currentCellVal.trim();
+    if (!trimmedCell) {
+      if (textToInsert === 'To') {
+        newVal = 'To ';
+      } else if (textToInsert === 'By') {
+        newVal = 'By ';
+      } else {
+        newVal = textToInsert;
+      }
+    } else if (trimmedCell.toLowerCase() === 'to') {
+      if (textToInsert === 'To' || textToInsert.toLowerCase() === 'to') {
+        newVal = 'To ';
+      } else {
+        newVal = `To ${textToInsert}`;
+      }
+    } else if (trimmedCell.toLowerCase() === 'by') {
+      if (textToInsert === 'By' || textToInsert.toLowerCase() === 'by') {
+        newVal = 'By ';
+      } else {
+        newVal = `By ${textToInsert}`;
+      }
+    } else {
+      newVal = `${trimmedCell} ${textToInsert}`;
+    }
+
     onChange(newVal);
   };
+
+  const isCellBlankOrJustTo = !safeVal.trim() || safeVal.trim().toLowerCase() === 'to' || safeVal.trim().toLowerCase() === 'by';
 
   const showChipsDropdown = Boolean(
     isEligibleForChips &&
     isFocused &&
+    isCellBlankOrJustTo &&
     displayedChips.length > 0
   );
 
@@ -350,6 +390,20 @@ function JournalCell({
 
   return (
     <div className="relative w-full flex items-center">
+      {colIdx === 0 && hasRowText && onClearRow && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onClearRow();
+          }}
+          className="absolute left-1 top-1/2 -translate-y-1/2 z-30 w-4 h-4 md:w-5 md:h-5 rounded-full bg-rose-500/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 flex items-center justify-center transition-all shadow-sm cursor-pointer active:scale-95 shrink-0"
+          title="Delete text of entire row"
+        >
+          <X className="w-2.5 h-2.5 md:w-3 md:h-3" />
+        </button>
+      )}
       {isJournal && hasTo && isFocused && (
         <span className="absolute left-8 md:left-12 lg:left-14 xl:left-16 text-[#f8fafc] text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl font-serif pointer-events-none select-none">
           To
@@ -358,7 +412,7 @@ function JournalCell({
       <input
         type="text"
         value={displayVal}
-        inputMode={isEligibleForChips && displayedChips.length > 0 ? "none" : (isNumeric ? "decimal" : undefined)}
+        inputMode={isEligibleForChips && isCellBlankOrJustTo && displayedChips.length > 0 ? "none" : (isNumeric ? "decimal" : undefined)}
         onFocus={() => {
           setIsFocused(true);
           onFocus();
@@ -372,7 +426,7 @@ function JournalCell({
           paddingRight: (isJournal && hasDr) ? '3rem' : '0.5rem',
         }}
         className={`w-full text-xs md:text-sm lg:text-base xl:text-lg 2xl:text-xl min-[3840px]:text-2xl p-1.5 md:p-2.5 outline-none rounded transition-all ${
-          hasTo ? 'pl-16 md:pl-20 lg:pl-22 xl:pl-24' : 'pl-2'
+          colIdx === 0 && hasRowText ? 'pl-7 md:pl-8' : (hasTo ? 'pl-16 md:pl-20 lg:pl-22 xl:pl-24' : 'pl-2')
         } ${
           isTotalNumeric && isTotalMismatch
             ? 'bg-rose-950/90 text-rose-100 font-mono font-black text-right border-2 border-rose-500 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.6)]'
@@ -420,7 +474,7 @@ function JournalCell({
       {showChipsDropdown && (
         <div
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute left-0 top-full mt-1.5 w-72 max-h-56 overflow-y-auto bg-slate-950/95 backdrop-blur-md border border-amber-500/40 rounded-xl p-2.5 shadow-2xl z-[150] space-y-2.5 text-left animate-fade-in"
+          className="absolute left-0 top-full mt-1.5 w-[576px] max-w-[90vw] max-h-64 overflow-y-auto bg-slate-950/95 backdrop-blur-md border border-amber-500/40 rounded-xl p-3 shadow-2xl z-[150] space-y-2.5 text-left animate-fade-in"
         >
           <div className="space-y-1">
             <div className="text-[10px] font-mono font-extrabold uppercase tracking-wider flex items-center gap-1 px-1 text-emerald-400">
@@ -498,6 +552,12 @@ function getColumnPercentWidthForTable(label: string | undefined, tableType: Acc
     return 15;
   }
 
+  if (tType === 'notes_to_accounts') {
+    if (l.includes('particulars')) return 70;
+    if (l === '' || l.includes('amount')) return 15;
+    return 15;
+  }
+
   if (tType === 'trial_balance') {
     if (l === 's.no.' || l === 's.no' || l === 's.n.' || l === 's.n') return 5;
     if (l.includes('particulars') || l.includes('name of account')) return 55;
@@ -526,6 +586,12 @@ function getEffectiveColumnPercentWidth(col: AccountancyColumn | undefined, colI
     if (l.includes('particulars')) return 60;
     if (l.includes('note')) return 5;
     if (l.includes('year') || l.includes('amount') || l.includes('figure')) return 15;
+    return 15;
+  }
+  if (tableType === 'notes_to_accounts') {
+    const l = (col?.label || '').toLowerCase().trim();
+    if (l.includes('particulars')) return 70;
+    if (colIdx === 1 || l === '' || l.includes('amount')) return 15;
     return 15;
   }
   const fallback = getColumnPercentWidthForTable(col?.label, tableType);
@@ -585,6 +651,14 @@ const PRESET_TABLES: Record<AccountancyTableType, { name: string; headers: { lab
       { label: 'Previous Year (₹)', percentWidth: 15 },
     ],
   },
+  notes_to_accounts: {
+    name: 'Notes to Accounts (3 Columns)',
+    headers: [
+      { label: 'Particulars', percentWidth: 70 },
+      { label: '', percentWidth: 15 },
+      { label: 'Amount (₹)', percentWidth: 15 },
+    ],
+  },
   trial_balance: {
     name: 'Trial Balance (5 Columns)',
     headers: [
@@ -626,6 +700,8 @@ function getCleanTableTypeName(type: AccountancyTableType): string {
       return 'Balance Sheet';
     case 'balance_sheet_company':
       return 'Company Balance Sheet';
+    case 'notes_to_accounts':
+      return 'Notes to Accounts';
     case 'trial_balance':
       return 'Trial Balance';
     case 'custom':
@@ -687,10 +763,14 @@ export default function AccountancyQuestionModal({
 
   const [isSavedLocally, setIsSavedLocally] = useState<boolean>(false);
 
-  // Extract Solution Chips dynamically from the question's answer / solution text & tables
+  // Active Tab Object
+  const activeTab = tabs.find(t => t.id === activeTabId);
+
+  // Extract Solution Chips dynamically from the question's answer / solution text & tables for active table type
   const solutionChips = useMemo(() => {
-    return extractSolutionChips(qObj.answerText, qObj.tabs);
-  }, [qObj.answerText, qObj.tabs]);
+    const currentTableType = activeTab?.tableType || 'journal';
+    return extractSolutionChips(qObj.answerText, qObj.tabs, currentTableType);
+  }, [qObj.answerText, qObj.tabs, activeTab?.tableType]);
 
   // Auto-save changes to localStorage and ensure tabs update on qId change
   useEffect(() => {
@@ -742,7 +822,8 @@ export default function AccountancyQuestionModal({
                              colLabel.includes('dr') ||
                              colLabel.includes('cr') ||
                              colLabel.includes('amt') ||
-                             colLabel.includes('year'));
+                             colLabel.includes('year') ||
+                             (activeTab.tableType === 'notes_to_accounts' && cIdx === 1));
 
       if (isTotalableCol) {
         let sum = 0;
@@ -794,8 +875,8 @@ export default function AccountancyQuestionModal({
     setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, rows: updatedRows } : t));
   };
 
-  // Active Tab Object
-  const activeTab = tabs.find(t => t.id === activeTabId);
+  // Dynamic Percentage Table Width
+
 
   // Dynamic Percentage Table Width
   const totalTablePercent = useMemo(() => {
@@ -1048,10 +1129,20 @@ export default function AccountancyQuestionModal({
         <div className="w-full h-full flex flex-col bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
           {/* ── MINIMAL TOP HEADER BAR ── */}
       <div className="bg-slate-950 border-b border-slate-800/80 px-4 py-2 flex items-center justify-between shrink-0 shadow-md">
-        <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
+        <div className="flex items-center gap-2 font-mono text-xs text-slate-400 flex-wrap">
           {questionNumber && totalQuestions && (
             <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold">
               Question {questionNumber} of {totalQuestions}
+            </span>
+          )}
+          {qObj.topicTitle && (
+            <span className="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30 font-bold uppercase">
+              Topic: {qObj.topicTitle}
+            </span>
+          )}
+          {qObj.marks !== undefined && qObj.marks !== null && (
+            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+              {qObj.marks} Marks
             </span>
           )}
         </div>
@@ -1348,6 +1439,7 @@ export default function AccountancyQuestionModal({
 
                     const hasDr = /\bdr\.?/i.test(particularsVal);
                     const hasTo = /^to\b/i.test(particularsVal.trim());
+                    const hasRowText = safeRow.some(val => val !== undefined && val !== null && String(val).trim() !== '');
 
                     return (
                       <tr key={rowIdx} className="border-b border-slate-850 hover:bg-slate-900/30 transition-colors">
@@ -1358,8 +1450,9 @@ export default function AccountancyQuestionModal({
                           const colLabel = (col?.label || '').toLowerCase().trim();
 
                           const isUnnamedJfCol = activeTab.tableType === 't_shape_ledger_no_date' && (colIdx === 1 || colIdx === 4);
+                          const isUnnamedNotesCol = activeTab.tableType === 'notes_to_accounts' && colIdx === 1;
                           const isDateCol = colLabel.includes('date');
-                          const isNumeric = isUnnamedJfCol || (!isDateCol && (
+                          const isNumeric = isUnnamedJfCol || isUnnamedNotesCol || (!isDateCol && (
                                             colLabel.includes('debit') ||
                                             colLabel.includes('credit') ||
                                             colLabel.includes('amount') ||
@@ -1369,7 +1462,8 @@ export default function AccountancyQuestionModal({
                                             colLabel.includes('year') ||
                                             colLabel.includes('note')));
 
-                          const isEligibleForChips = !isUnnamedJfCol && isTextColumnEligibleForChips(colLabel);
+                          const isEligibleForChips = !isUnnamedJfCol && !isUnnamedNotesCol && isTextColumnEligibleForChips(colLabel);
+
 
                           let isDisabled = isCellDisabledInRow(safeRow, colIdx, activeTab.columns, activeTab.tableType);
 
@@ -1393,6 +1487,8 @@ export default function AccountancyQuestionModal({
                                 totalCols={activeTab.columns.length}
                                 solutionChips={solutionChips}
                                 presetTerms={ACCOUNT_TERMS}
+                                hasRowText={hasRowText}
+                                onClearRow={() => handleClearTotalRow(rowIdx)}
                                 onFocus={() => setFocusedCell({ rowIdx, colIdx })}
                                 onChange={(val) => handleCellChange(rowIdx, colIdx, val)}
                                 onSelectTotalChip={() => handleSelectTotalChip(rowIdx, colIdx)}
