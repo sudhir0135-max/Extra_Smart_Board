@@ -2,15 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026-09-04] - Accountancy Solution Chip Full Text Extraction & Notes to Accounts Table Preset
+## [2026-09-04] - Accountancy Solution Chip Full Text Extraction, Enhanced Synchronize & Android APK Build
 
 ### Added
 - **Notes to Accounts Table Preset**: Added 3-column accountancy table type (`notes_to_accounts`) with Particulars (70%), Unnamed (15%), and Amount (15%) column widths.
 - **Context-Aware Table Solution Chips**: Solution chips now pull chips strictly from solution tables matching the active table type (e.g. Notes to Accounts, Journal, T-Shape Account/Ledger).
 - **Expanded Solution Chips Bar**: Doubled solution chips container width to `w-[576px]` (`max-w-[90vw]`) for enhanced visibility.
 
-### Fixed
+### Fixed & Improved
 - **Preserved Complete Cell Text in Solution Chips** (`solutionChipExtractor.ts`): Removed leading number/bullet stripping in `sanitizeChip` and updated `isValidChipText` so complete cell text (including numbers, item numbers, share quantities, and figures like `"1. Share Capital"` or `"10,000 Equity Shares of ₹10 each"`) is extracted as solution chips while excluding pure monetary amounts.
+- **Multi-Book Synchronize Button** (`App.tsx`): Enhanced `handleTriggerSync` so clicking Synchronize can sync ALL textbooks available to the active profile when no single book is selected, or sync the active book when open. Merges subcollection lessons, updates IndexedDB offline storage (`dbLocal.offline_lessons`), pre-caches all lesson images locally on native Android devices for 100% offline functionality, and syncs local annotations.
+- **Android APK Build**: Fresh native Android debug APK compiled (`android/app/build/outputs/apk/debug/app-debug.apk` and mirrored in `releases/ExtraPadhai_v5.0.apk`), optimized at **13.67 MB** with full offline capabilities preserved.
 
 ## [2026-08-28] - Fix FAB Menu Crashes, Solution Toggle Styling & Add Flashcard Difficulty Filtering
 
