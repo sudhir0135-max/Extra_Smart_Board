@@ -13,6 +13,9 @@ import { ThemeMode } from '../types';
 // Set up pdfjs worker using bundled local worker URL
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
+// In-memory cache for rendered PDF pages to eliminate re-rendering on parent state changes
+const pdfRenderMemoryCache = new Map<string, RenderedPage[]>();
+
 interface PdfPageViewerProps {
   pdfUrl: string;
   imageViewMode?: 'single' | 'two';
@@ -54,6 +57,18 @@ export default function PdfPageViewer({
         return;
       }
 
+      // 0. Check in-memory cache for instant (0ms) display without re-rendering
+      if (pdfRenderMemoryCache.has(pdfUrl)) {
+        const cachedPages = pdfRenderMemoryCache.get(pdfUrl)!;
+        if (!isCancelled) {
+          setRenderedPages(cachedPages);
+          setTotalPages(cachedPages.length);
+          onTotalPagesLoaded?.(cachedPages.length);
+          setLoading(false);
+        }
+        return;
+      }
+
       setLoading(true);
       setError(null);
       setRenderedPages([]);
@@ -84,18 +99,35 @@ export default function PdfPageViewer({
 
         setRenderProgress('Parsing PDF document structure...');
 
-        // 3. Load document into pdfjs with WASM image decoders for JPX/JBIG2 graphics
-        const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(arrayBuffer),
-          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
-          cMapPacked: true,
-          standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
-          wasmUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/wasm/`,
-          useWasm: true,
-          maxImageSize: -1,
-          isEvalSupported: true,
-        });
-        const pdfDoc = await loadingTask.promise;
+        // 3. Load document into pdfjs with offline no-net fallback
+        let pdfDoc: pdfjsLib.PDFDocumentProxy;
+        try {
+          const docOptions: any = {
+            data: new Uint8Array(arrayBuffer),
+            maxImageSize: -1,
+            isEvalSupported: true,
+          };
+
+          // Attach online CDN resources only if network is available
+          if (typeof navigator !== 'undefined' && navigator.onLine) {
+            docOptions.cMapUrl = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`;
+            docOptions.cMapPacked = true;
+            docOptions.standardFontDataUrl = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`;
+            docOptions.wasmUrl = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/wasm/`;
+            docOptions.useWasm = true;
+          }
+
+          const loadingTask = pdfjsLib.getDocument(docOptions);
+          pdfDoc = await loadingTask.promise;
+        } catch (loadErr) {
+          console.warn('PdfPageViewer: Online getDocument failed or no-net environment. Falling back to offline local parser:', loadErr);
+          const offlineTask = pdfjsLib.getDocument({
+            data: new Uint8Array(arrayBuffer),
+            maxImageSize: -1,
+            isEvalSupported: true,
+          });
+          pdfDoc = await offlineTask.promise;
+        }
 
         if (isCancelled) return;
 
@@ -145,6 +177,7 @@ export default function PdfPageViewer({
         }
 
         if (!isCancelled) {
+          pdfRenderMemoryCache.set(pdfUrl, pages);
           setRenderedPages(pages);
           setLoading(false);
         }
