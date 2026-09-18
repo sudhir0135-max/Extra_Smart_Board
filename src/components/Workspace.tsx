@@ -812,7 +812,7 @@ export default function Workspace({
 
               <div
                 className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} rounded-xl relative`}
-                style={{ fontSize: `${fontSizeScale}rem`, height: (selectedBook?.bookType === 'pdf' || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)) ? 'auto' : `${rowVirtualizer.getTotalSize()}px` }}
+                style={{ fontSize: `${fontSizeScale}rem`, height: ((activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) || (selectedBook?.bookType === 'pdf' && sanitizedPages.length === 0)) ? 'auto' : `${rowVirtualizer.getTotalSize()}px` }}
                 id="seamless-pdf-stack"
               >
                 <ScribbleOverlay
@@ -824,9 +824,9 @@ export default function Workspace({
                   lineWidth={lineWidth}
                   isHighlighter={isHighlighter}
                 />
-                {(selectedBook?.bookType === 'pdf' || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)) ? (
+                {((activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) || (selectedBook?.bookType === 'pdf' && sanitizedPages.length === 0)) ? (
                   <PdfPageViewer
-                    pdfUrl={activeLesson.pdfUrl || ''}
+                    pdfUrl={activeLesson?.pdfUrl || ''}
                     imageViewMode={imageViewMode}
                     themeMode={themeMode}
                     fontSizeScale={fontSizeScale}

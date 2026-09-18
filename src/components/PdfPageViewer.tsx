@@ -5,14 +5,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { getCachedPdf, downloadAndCachePdf } from '../lib/pdfCache';
 import { RefreshCw, FileText, AlertCircle, Eye, WifiOff } from 'lucide-react';
 import { ThemeMode } from '../types';
 
-// Set up pdfjs worker using CDN fallback if workerSrc not configured
-if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-}
+// Set up pdfjs worker using bundled local worker URL
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 interface PdfPageViewerProps {
   pdfUrl: string;
@@ -87,8 +86,9 @@ export default function PdfPageViewer({
         // 3. Load document into pdfjs
         const loadingTask = pdfjsLib.getDocument({
           data: new Uint8Array(arrayBuffer),
-          cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
+          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
           cMapPacked: true,
+          standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
         });
         const pdfDoc = await loadingTask.promise;
 
@@ -118,6 +118,10 @@ export default function PdfPageViewer({
           canvas.height = viewport.height;
 
           if (context) {
+            // Fill canvas with solid white background to preserve transparent PDF images & vector graphics
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, viewport.width, viewport.height);
+
             const renderContext = {
               canvasContext: context,
               viewport: viewport,
@@ -127,7 +131,7 @@ export default function PdfPageViewer({
 
             pages.push({
               pageNumber: pageNum,
-              dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+              dataUrl: canvas.toDataURL('image/png'),
               width: viewport.width,
               height: viewport.height,
             });
