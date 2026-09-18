@@ -41,6 +41,7 @@ export default function PdfPageViewer({
   const [totalPages, setTotalPages] = useState<number>(0);
   const [renderProgress, setRenderProgress] = useState<string>('');
 
+  const [useNativeEngine, setUseNativeEngine] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -83,12 +84,16 @@ export default function PdfPageViewer({
 
         setRenderProgress('Parsing PDF document structure...');
 
-        // 3. Load document into pdfjs
+        // 3. Load document into pdfjs with WASM image decoders for JPX/JBIG2 graphics
         const loadingTask = pdfjsLib.getDocument({
           data: new Uint8Array(arrayBuffer),
           cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
           cMapPacked: true,
           standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
+          wasmUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/wasm/`,
+          useWasm: true,
+          maxImageSize: -1,
+          isEvalSupported: true,
         });
         const pdfDoc = await loadingTask.promise;
 
@@ -113,7 +118,7 @@ export default function PdfPageViewer({
           const viewport = page.getViewport({ scale: renderScale });
 
           const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
+          const context = canvas.getContext('2d', { willReadFrequently: false });
           canvas.width = viewport.width;
           canvas.height = viewport.height;
 
@@ -126,6 +131,7 @@ export default function PdfPageViewer({
               canvasContext: context,
               viewport: viewport,
               canvas: canvas,
+              intent: 'display',
             };
             await page.render(renderContext).promise;
 
@@ -220,14 +226,36 @@ export default function PdfPageViewer({
 
   return (
     <div ref={containerRef} className="w-full flex flex-col gap-6 py-6 px-[2%]" id="continuous-pdf-viewer">
-      <div className="flex items-center justify-between text-xs font-mono text-amber-500/80 border-b border-amber-500/20 pb-2 mb-2 select-none">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-amber-500/90 border-b border-amber-500/20 pb-3 mb-2 select-none">
         <span className="flex items-center gap-1.5 font-bold uppercase tracking-wider">
           <FileText className="w-4 h-4" />
           PDF Document • {totalPages} {totalPages === 1 ? 'Page' : 'Pages'} ({imageViewMode === 'two' ? 'Double Page View' : 'Single Page View'})
         </span>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setUseNativeEngine(prev => !prev)}
+            className={`px-3 py-1 rounded-lg border text-[11px] font-sans font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              useNativeEngine
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
+                : 'bg-slate-800/80 text-amber-400 border-slate-700 hover:bg-slate-700/80'
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            {useNativeEngine ? 'Switch to Continuous Stack' : 'Switch to Native PDF Viewer'}
+          </button>
+        </div>
       </div>
 
-      {imageViewMode === 'two' ? (
+      {useNativeEngine ? (
+        <div className="w-full min-h-[85vh] flex flex-col items-center gap-3">
+          <iframe
+            src={pdfUrl}
+            title="Native PDF Chapter Viewer"
+            className="w-full min-h-[85vh] rounded-2xl border border-slate-700/60 shadow-2xl bg-white"
+          />
+        </div>
+      ) : imageViewMode === 'two' ? (
         <div className="flex flex-col gap-8 w-full">
           {pageRows.map((row, rIdx) => (
             <div key={rIdx} className="grid grid-cols-2 gap-6 w-full items-start">
