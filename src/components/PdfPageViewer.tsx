@@ -258,27 +258,7 @@ export default function PdfPageViewer({
   }
 
   return (
-    <div ref={containerRef} className="w-full flex flex-col gap-6 py-6 px-[2%]" id="continuous-pdf-viewer">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-amber-500/90 border-b border-amber-500/20 pb-3 mb-2 select-none">
-        <span className="flex items-center gap-1.5 font-bold uppercase tracking-wider">
-          <FileText className="w-4 h-4" />
-          PDF Document • {totalPages} {totalPages === 1 ? 'Page' : 'Pages'} ({imageViewMode === 'two' ? 'Double Page View' : 'Single Page View'})
-        </span>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setUseNativeEngine(prev => !prev)}
-            className={`px-3 py-1 rounded-lg border text-[11px] font-sans font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              useNativeEngine
-                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
-                : 'bg-slate-800/80 text-amber-400 border-slate-700 hover:bg-slate-700/80'
-            }`}
-          >
-            <Eye className="w-3.5 h-3.5" />
-            {useNativeEngine ? 'Switch to Continuous Stack' : 'Switch to Native PDF Viewer'}
-          </button>
-        </div>
-      </div>
+    <div ref={containerRef} className="w-full flex flex-col gap-6 py-4 px-[2%]" id="continuous-pdf-viewer">
 
       {useNativeEngine ? (
         <div className="w-full min-h-[85vh] flex flex-col items-center gap-3">
