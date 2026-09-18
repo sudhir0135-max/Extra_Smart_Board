@@ -29,6 +29,7 @@ import AuthModal from './components/AuthModal';
 import { Capacitor } from '@capacitor/core';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dbLocal } from './lib/db';
+import { downloadAndCachePdf } from './lib/pdfCache';
 import { hasTextContent } from './lib/contentUtils';
 const PALETTE_COLORS = [
   { name: 'Classroom Amber', hex: '#f59e0b' },
@@ -70,14 +71,7 @@ export default function App() {
     return () => unsubSubmissions();
   }, []);
 
-  useEffect(() => {
-    // Cleanup any stale records that were successfully synced but got stuck in Dexie
-    dbLocal.offline_lessons
-      .where('sync_status')
-      .equals('uploaded')
-      .delete()
-      .catch(console.error);
-  }, []);
+  // Keep all synced records in dbLocal permanently for 100% offline local reading
 
   useEffect(() => {
     // Read classes from Firestore
@@ -96,7 +90,7 @@ export default function App() {
       }));
     });
 
-    // Read books from Firestore
+    // Read books from Firestore in background (Stale-While-Revalidate)
     const unsubBooks = onSnapshot(collection(db, 'books'), async (snapshot) => {
       if (snapshot.empty) {
         // Seed database on first run
@@ -138,11 +132,31 @@ export default function App() {
             }));
 
 
-          loadedBooks.push({
+          const bookObj = {
             ...data,
             lessons: sanitizedLessons,
             title: data.title || 'Untitled Book'
-          } as Book);
+          } as Book;
+
+          loadedBooks.push(bookObj);
+
+          // Auto-persist book and lessons into local disk storage (IndexedDB)
+          if (sanitizedLessons.length > 0) {
+            dbLocal.offline_lessons.put({
+              bookId: bookObj.id,
+              bookTitle: bookObj.title,
+              lessons: sanitizedLessons,
+              sync_status: 'synced',
+              updated_at: new Date().toISOString()
+            }).catch(console.error);
+
+            // Pre-cache chapter PDFs in background
+            sanitizedLessons.forEach(l => {
+              if (l.pdfUrl && l.pdfUrl.trim().length > 0) {
+                downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
+              }
+            });
+          }
         }
         
         loadedBooks.sort((a,b) => a.id - b.id);
@@ -301,6 +315,22 @@ export default function App() {
           const book = prev[bookIndex];
           const newBooks = [...prev];
           newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
+
+          // Persist subcollection lessons to local disk storage
+          dbLocal.offline_lessons.put({
+            bookId: bookId,
+            bookTitle: book.title || 'Textbook',
+            lessons: sanitizedLessons,
+            sync_status: 'synced',
+            updated_at: new Date().toISOString()
+          }).catch(console.error);
+
+          // Pre-cache chapter PDFs locally in background
+          sanitizedLessons.forEach(l => {
+            if (l.pdfUrl && l.pdfUrl.trim().length > 0) {
+              downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
+            }
+          });
           
           const isValidLesson = sanitizedLessons.some(l => l.id === activeLessonId);
           if (sanitizedLessons.length > 0 && !isValidLesson) {
@@ -368,20 +398,29 @@ export default function App() {
       });
     }
 
-    if (!offlineBookLessons) return firebaseBooks;
-    
-    // STRICT ISOLATION: Only apply offline overriding logic if we are inside the Book Editor Panel or the Admin Panel.
-    // If we are in the Workspace (as a Student) or any other screen, we strictly use the live Firebase curriculum.
-    if (activeScreen !== 'book-editor' && activeScreen !== 'admin') {
-      return firebaseBooks;
+    // LOCAL-FIRST: Build base list of books from local disk (if firebaseBooks is still loading or offline)
+    let baseBooks: Book[] = firebaseBooks;
+    if (firebaseBooks.length === 0 && offlineBookLessons && offlineBookLessons.length > 0) {
+      baseBooks = offlineBookLessons.map(ol => ({
+        id: ol.bookId,
+        title: ol.bookTitle || `Textbook #${ol.bookId}`,
+        description: '',
+        coverImage: '',
+        lessons: ol.lessons || []
+      }));
     }
 
-    return firebaseBooks.map(b => {
+    if (!offlineBookLessons || offlineBookLessons.length === 0) {
+      return baseBooks;
+    }
+
+    // LOCAL-FIRST MERGE: Always merge offline disk data across ALL screens (Student Panel, Admin, Book Editor)
+    return baseBooks.map(b => {
       const offline = offlineBookLessons.find(ol => ol.bookId === b.id);
       if (offline && offline.sync_status !== 'deleted') {
         // Merge offline and live lessons deeply: 
-        // 1. Map through offline lessons and pull in missing nested data (like flashQuestions) from live.
-        let mergedLessons = offline.lessons.map(ol => {
+        // 1. Map through offline lessons and pull in missing nested data from live.
+        let mergedLessons = (offline.lessons || []).map(ol => {
           const liveL = b.lessons?.find(l => l.id === ol.id);
           if (liveL) {
             return {
@@ -396,9 +435,8 @@ export default function App() {
           return ol;
         });
         
-        // Only append live lessons if offline record is an unmodified cache (sync_status === 'synced')
-        // If sync_status is 'pending', the editor/admin explicitly modified or deleted lessons in the draft.
-        if (offline.sync_status === 'synced' && b.lessons) {
+        // Append any live lessons from network if offline record is synced
+        if (b.lessons) {
           b.lessons.forEach(liveLesson => {
             if (!mergedLessons.find(ol => ol.id === liveLesson.id)) {
               mergedLessons.push(liveLesson);
@@ -410,7 +448,7 @@ export default function App() {
       }
       return b;
     });
-  }, [firebaseBooks, offlineBookLessons, activeScreen, previewSubmissionBookId, previewLessons]);
+  }, [firebaseBooks, offlineBookLessons, previewSubmissionBookId, previewLessons]);
 
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
