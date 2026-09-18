@@ -71,7 +71,7 @@ export default function QuestionEditorPage() {
 
   function normalise(q: any): InquiryQuestionObj {
     if (typeof q === 'string') {
-      return { id: `q_${Date.now()}`, text: q, image: null, imagePosition: 'right', answerText: null, answerImage: null, answerImagePosition: 'right', marks: null, topicTitle: null };
+      return { id: `q_${Date.now()}`, text: q, image: null, imagePosition: 'right', answerText: null, answerImage: null, answerImagePosition: 'right', marks: null, topicTitle: null, displayMode: 'standard' };
     }
     return {
       id: q.id || `q_${Date.now()}`,
@@ -83,6 +83,8 @@ export default function QuestionEditorPage() {
       answerImagePosition: q.answerImagePosition || 'right',
       marks: q.marks !== undefined && q.marks !== null ? q.marks : null,
       topicTitle: q.topicTitle || null,
+      displayMode: q.displayMode || 'standard',
+      tabs: q.tabs || [],
     };
   }
 
@@ -412,11 +414,11 @@ export default function QuestionEditorPage() {
               <div className="flex-1 overflow-hidden bg-white">
                 <Editor
                   key={`${activeIdx}-${editorMode}`}
+                  licenseKey="gpl"
                   tinymceScriptSrc="/tinymce/tinymce.min.js"
                   onInit={(_, editor) => { editorRef.current = editor; }}
                   initialValue={currentEditorContent || '<p></p>'}
                   init={{
-                    license_key: 'gpl',
                     height: '100%',
                     menubar: true,
                     resize: false,
@@ -561,6 +563,24 @@ export default function QuestionEditorPage() {
                   placeholder="e.g. 5"
                   className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
                 />
+              </div>
+              <div>
+                <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Display Manner</label>
+                <button
+                  onClick={() => {
+                    setQuestions(prev => prev.map((q, i) => i === activeIdx ? {
+                      ...q,
+                      displayMode: q.displayMode === 'accountancy_tabs' ? 'standard' : 'accountancy_tabs'
+                    } : q));
+                  }}
+                  className={`w-full py-1.5 px-2 rounded text-xs font-bold font-mono transition-all cursor-pointer border ${
+                    activeQ.displayMode === 'accountancy_tabs'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  {activeQ.displayMode === 'accountancy_tabs' ? '📊 Accountancy Mode' : '📄 Standard Mode'}
+                </button>
               </div>
             </div>
 

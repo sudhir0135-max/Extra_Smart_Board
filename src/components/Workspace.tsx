@@ -19,6 +19,7 @@ import { getLocalImageSrc } from '../lib/imageCache';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+import PdfPageViewer from './PdfPageViewer';
 
 
 
@@ -811,7 +812,7 @@ export default function Workspace({
 
               <div
                 className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} rounded-xl relative`}
-                style={{ fontSize: `${fontSizeScale}rem`, height: `${rowVirtualizer.getTotalSize()}px` }}
+                style={{ fontSize: `${fontSizeScale}rem`, height: (selectedBook?.bookType === 'pdf' || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)) ? 'auto' : `${rowVirtualizer.getTotalSize()}px` }}
                 id="seamless-pdf-stack"
               >
                 <ScribbleOverlay
@@ -823,7 +824,15 @@ export default function Workspace({
                   lineWidth={lineWidth}
                   isHighlighter={isHighlighter}
                 />
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                {(selectedBook?.bookType === 'pdf' || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)) ? (
+                  <PdfPageViewer
+                    pdfUrl={activeLesson.pdfUrl || ''}
+                    imageViewMode={imageViewMode}
+                    themeMode={themeMode}
+                    fontSizeScale={fontSizeScale}
+                  />
+                ) : (
+                  rowVirtualizer.getVirtualItems().map((virtualRow) => {
                   const page = sanitizedPages[virtualRow.index];
                   if (!page) return null;
 
@@ -1012,7 +1021,8 @@ export default function Workspace({
                   </div>
                   </VirtualPageWrapper>
                   );
-                })}
+                })
+                )}
               </div>
             </div>
         </>

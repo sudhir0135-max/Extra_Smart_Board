@@ -84,11 +84,11 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
             <div>
               <span className="text-[10px] text-slate-400 mb-1 block">Question Text:</span>
               <Editor
+                licenseKey="gpl"
                 tinymceScriptSrc="/tinymce/tinymce.min.js"
                 onInit={(evt, editor) => qTextEditorRef.current = editor}
                 initialValue={newQText}
                 init={{
-                  license_key: 'gpl',
                   height: 200,
                   menubar: false,
                   skin: 'oxide-dark',
@@ -107,11 +107,11 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
             <div>
               <span className="text-[10px] text-slate-400 mb-1 block">Answer Details:</span>
               <Editor
+                licenseKey="gpl"
                 tinymceScriptSrc="/tinymce/tinymce.min.js"
                 onInit={(evt, editor) => qAnsEditorRef.current = editor}
                 initialValue={newQAns}
                 init={{
-                  license_key: 'gpl',
                   height: 200,
                   menubar: false,
                   skin: 'oxide-dark',

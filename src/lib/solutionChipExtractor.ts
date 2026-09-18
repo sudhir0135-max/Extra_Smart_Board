@@ -9,42 +9,112 @@ function sanitizeChip(term: string): string {
   if (!term) return '';
   let cleaned = term.trim();
   
-  // 1. Remove any leading "To " or "By " added to account names so chips are clean (e.g. "Realisation A/c", "Cash A/c")
+  // 1. Remove leading "Add:", "Less:", "Add :", "Less :", "Add -", "Less -", "To ", "By "
+  cleaned = cleaned.replace(/^(?:Add|Less)\s*[:\-]\s*/i, '').trim();
   cleaned = cleaned.replace(/^(?:To|By)\s+/i, '').trim();
 
-  // 2. Strip trailing "Dr." or "Dr" if present
-  cleaned = cleaned.replace(/\s+Dr\.?$/i, '').trim();
+  // 2. Strip trailing "Dr.", "Dr", "Cr.", "Cr", "(Dr.)", "(Cr.)", "(Dr)", "(Cr)"
+  cleaned = cleaned.replace(/\s*(?:\(?\b(?:Dr|Cr)\.?\)?)\s*$/i, '').trim();
 
   return cleaned.trim();
 }
 
 function isValidChipText(cleaned: string): boolean {
-  if (!cleaned || cleaned.length < 2 || cleaned.length > 85) return false;
-  const lower = cleaned.toLowerCase();
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 250) return false;
+  const lower = cleaned.toLowerCase().trim();
+
+  // 1. Structural / Header / Meta keywords to reject
+  const invalidExact = new Set([
+    'to', 'by', 'total', 'particulars', 'particular', 'details', 'detail',
+    'description', 'amount', 'date', 'l.f.', 'j.f.', 's.no.', 's.no',
+    'sr.no.', 'sr.no', 'sr no', 'note no.', 'note no', 'note', 'dr', 'dr.',
+    'cr', 'cr.', 'debit', 'credit', 'rs.', 'rs', 'amt', 'amt.', 'year',
+    'head of account', 'liabilities', 'assets', 'balance c/d', 'balance b/d',
+    'balance', 'particulars:', 'particular:'
+  ]);
+  if (invalidExact.has(lower)) return false;
+
+  // 2. Reject Journal narrations starting with (being... or being...
   if (
-    lower === 'to' ||
-    lower === 'by' ||
-    lower === 'total' ||
-    lower === 'particulars' ||
-    lower === 'amount' ||
-    lower === 'date' ||
-    lower === 'l.f.' ||
-    lower === 'j.f.' ||
-    lower === 's.no.' ||
-    lower === 'note no.' ||
-    lower === 'note no'
+    lower.startsWith('(being') ||
+    lower.startsWith('( being') ||
+    lower.startsWith('being ') ||
+    lower.startsWith('being(')
   ) {
     return false;
   }
-  if (lower.startsWith('(being') || lower.startsWith('( being') || lower.startsWith('being ')) return false;
+
+  // 3. Reject pure numbers (e.g. "123", "45.00")
+  if (/^\d+$/.test(cleaned)) return false;
+
+  // 4. Reject pure currency / monetary strings (e.g. "₹50,000", "Rs. 100", "50,000", "-")
+  if (/^[₹$Rs.\s\d,.-]+$/i.test(cleaned)) return false;
+
+  // 5. Reject pure date strings or date formats (e.g. "1/1/2024", "2024-01-01", "Jan 1, 2024", "15th March")
   if (
-    /^\d+$/.test(cleaned) ||
     /^\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}$/.test(cleaned) ||
-    /^[₹$Rs.\s\d,.-]+$/i.test(cleaned)
+    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)\b/i.test(cleaned) ||
+    /^\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(cleaned) ||
+    /^\d{4}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(cleaned)
   ) {
     return false;
   }
+
+  // 6. Reject serial numbers / note labels alone (e.g. "(a)", "(i)", "Note 1", "Q1", "Option A")
+  if (/^(?:\([a-z0-9]+\)|[a-z0-9]\)|note\s+\d+|q\d+|case\s+\d+|option\s+[a-z])$/i.test(cleaned)) {
+    return false;
+  }
+
   return true;
+}
+
+function processParticularsCell(rawVal: string, chipsSet: Set<string>): void {
+  if (!rawVal || typeof rawVal !== 'string') return;
+  const cleaned = sanitizeChip(rawVal);
+  if (isValidChipText(cleaned)) {
+    chipsSet.add(cleaned);
+  }
+}
+
+function getFallbackParticularsIndices(numCols: number, tableType?: AccountancyTableType, headerTexts?: string[]): number[] {
+  // If headers provided, check for explicit keywords
+  if (headerTexts && headerTexts.length > 0) {
+    const indices: number[] = [];
+    headerTexts.forEach((txt, idx) => {
+      const l = (txt || '').toLowerCase().trim();
+      if (
+        l.includes('particular') ||
+        l.includes('name') ||
+        l.includes('detail') ||
+        l.includes('description') ||
+        l.includes('liabilit') ||
+        l.includes('asset') ||
+        l.includes('head of account')
+      ) {
+        indices.push(idx);
+      }
+    });
+    if (indices.length > 0) return indices;
+  }
+
+  // Smart fallback by tableType or column count
+  if (tableType === 'journal' || numCols === 5) {
+    return [1]; // Standard Journal: Date(0), Particulars(1), L.F.(2), Dr(3), Cr(4)
+  }
+  if (tableType === 't_shape_ledger' || numCols === 8) {
+    return [1, 5]; // T-Shape Ledger with Date: Date(0), Part(1), J.F.(2), Amt(3), Date(4), Part(5), J.F.(6), Amt(7)
+  }
+  if (tableType === 't_shape_ledger_no_date' || numCols === 6) {
+    return [0, 3]; // T-Shape Ledger no date: Part(0), J.F.(1), Amt(2), Part(3), J.F.(4), Amt(5)
+  }
+  if (tableType === 'notes_to_accounts' || tableType === 'bank_reconciliation_statement' || numCols === 3) {
+    return [0]; // Notes to accounts or Bank Reconciliation Statement: Part(0), Unnamed(1), Amt(2)
+  }
+  if (tableType === 'balance_sheet' || numCols === 4) {
+    return [0]; // Balance sheet or Trial balance: Part(0)
+  }
+
+  return [0];
 }
 
 function isTabTypeMatch(tabType: AccountancyTableType | undefined, targetType: AccountancyTableType): boolean {
@@ -55,6 +125,9 @@ function isTabTypeMatch(tabType: AccountancyTableType | undefined, targetType: A
   if (targetType === 'balance_sheet' || targetType === 'balance_sheet_company') {
     return tabType === 'balance_sheet' || tabType === 'balance_sheet_company';
   }
+  if (targetType === 'notes_to_accounts' || targetType === 'bank_reconciliation_statement') {
+    return tabType === 'notes_to_accounts' || tabType === 'bank_reconciliation_statement';
+  }
   return tabType === targetType;
 }
 
@@ -62,6 +135,9 @@ function isTableCaptionOrTitleMatch(title: string, targetType: AccountancyTableT
   const t = (title || '').toLowerCase();
   if (targetType === 'notes_to_accounts') {
     return t.includes('note') || t.includes('notes to account');
+  }
+  if (targetType === 'bank_reconciliation_statement') {
+    return t.includes('bank reconciliation') || t.includes('reconciliation statement') || t.includes('brs');
   }
   if (targetType === 'journal') {
     return t.includes('journal') || t.includes('books of');
@@ -84,7 +160,6 @@ export function extractSolutionChips(
   targetTableType?: AccountancyTableType
 ): string[] {
   const chipsSet = new Set<string>();
-  let extractedFromMatchingTab = false;
 
   // 1. Extract cell-by-cell from structured solution tabs matching targetTableType
   if (solutionTabs && Array.isArray(solutionTabs) && solutionTabs.length > 0) {
@@ -93,43 +168,22 @@ export function extractSolutionChips(
       : solutionTabs;
 
     if (tabsToExtract.length > 0) {
-      extractedFromMatchingTab = true;
       tabsToExtract.forEach((tab) => {
         if (tab && tab.rows && Array.isArray(tab.rows)) {
-          // Identify Particulars column indices in tab.columns
-          let particularsColIndices: number[] = [];
-          if (Array.isArray(tab.columns)) {
-            tab.columns.forEach((col, cIdx) => {
-              const lbl = (col?.label || '').toLowerCase().trim();
-              if (
-                lbl.includes('particular') ||
-                lbl.includes('name') ||
-                lbl.includes('detail') ||
-                lbl.includes('description') ||
-                lbl.includes('liabilit') ||
-                lbl.includes('asset')
-              ) {
-                particularsColIndices.push(cIdx);
-              }
-            });
-          }
-          if (particularsColIndices.length === 0) {
-            particularsColIndices = [0];
-            if (tab.columns && tab.columns.length >= 6) {
-              particularsColIndices.push(3);
-            }
-          }
+          const colLabels = (tab.columns || []).map(c => c?.label || '');
+          const particularsColIndices = getFallbackParticularsIndices(
+            tab.columns?.length || 0,
+            tab.tableType,
+            colLabels
+          );
 
-          // Consolidated cell-by-cell extraction from Particulars column(s)
+          // Extract cell-by-cell strictly from Particulars column(s)
           tab.rows.forEach((row) => {
             if (Array.isArray(row)) {
               particularsColIndices.forEach((colIdx) => {
                 const cellVal = row[colIdx];
                 if (cellVal && typeof cellVal === 'string') {
-                  const cleaned = sanitizeChip(cellVal);
-                  if (isValidChipText(cleaned)) {
-                    chipsSet.add(cleaned);
-                  }
+                  processParticularsCell(cellVal, chipsSet);
                 }
               });
             }
@@ -159,50 +213,28 @@ export function extractSolutionChips(
         }
         const fullTitle = `${captionText} ${precedingText}`.trim();
 
-        // Check if table matches targetTableType
+        const firstRowCells = Array.from(tableEl.querySelectorAll('tr:first-child th, tr:first-child td'));
+        const headerTexts = firstRowCells.map(c => c.textContent || '');
+
+        // Check if table matches targetTableType (checking title or header labels — NEVER entire body text)
         const isMatch = targetTableType
-          ? (isTableCaptionOrTitleMatch(fullTitle, targetTableType) || isTableCaptionOrTitleMatch(tableEl.textContent || '', targetTableType))
+          ? (isTableCaptionOrTitleMatch(fullTitle, targetTableType) || headerTexts.some(h => isTableCaptionOrTitleMatch(h, targetTableType)))
           : true;
 
         if (isMatch) {
           const rows = Array.from(tableEl.querySelectorAll('tr'));
           if (rows.length > 0) {
-            let particularsColIndices: number[] = [];
+            const numCols = firstRowCells.length;
+            const particularsColIndices = getFallbackParticularsIndices(numCols, targetTableType, headerTexts);
 
-            // Inspect first row (headers)
-            const firstRowCells = Array.from(rows[0].querySelectorAll('th, td'));
-            firstRowCells.forEach((cell, idx) => {
-              const txt = (cell.textContent || '').toLowerCase().trim();
-              if (
-                txt.includes('particular') ||
-                txt.includes('name') ||
-                txt.includes('detail') ||
-                txt.includes('description') ||
-                txt.includes('liabilit') ||
-                txt.includes('asset')
-              ) {
-                particularsColIndices.push(idx);
-              }
-            });
-
-            if (particularsColIndices.length === 0) {
-              particularsColIndices = [0];
-              if (firstRowCells.length >= 6) {
-                particularsColIndices.push(3);
-              }
-            }
-
-            // Extract cell-by-cell from Particulars column(s) across all data rows
+            // Extract cell-by-cell strictly from Particulars column(s) across all data rows
             const startRowIdx = firstRowCells.some(c => c.tagName === 'TH') ? 1 : 0;
             for (let r = startRowIdx; r < rows.length; r++) {
               const cells = Array.from(rows[r].querySelectorAll('td, th'));
               particularsColIndices.forEach((colIdx) => {
                 if (cells[colIdx]) {
                   const rawVal = cells[colIdx].textContent || '';
-                  const cleaned = sanitizeChip(rawVal);
-                  if (isValidChipText(cleaned)) {
-                    chipsSet.add(cleaned);
-                  }
+                  processParticularsCell(rawVal, chipsSet);
                 }
               });
             }
@@ -214,7 +246,7 @@ export function extractSolutionChips(
     }
   }
 
-  // 3. Regex Fallback if no chips found yet
+  // 3. Regex Fallback if no chips found from Particulars columns yet
   if (chipsSet.size === 0 && answerText) {
     const plainText = answerText
       .replace(/<[^>]*>/g, ' ')
@@ -239,18 +271,23 @@ export function extractSolutionChips(
     }
   }
 
-  // 4. Fallback across all solutionTabs if still empty
+  // 4. Fallback across Particulars columns of all solutionTabs if still empty
   if (chipsSet.size === 0 && solutionTabs && Array.isArray(solutionTabs)) {
     solutionTabs.forEach((tab) => {
       if (tab && tab.rows && Array.isArray(tab.rows)) {
+        const colLabels = (tab.columns || []).map(c => c?.label || '');
+        const particularsColIndices = getFallbackParticularsIndices(
+          tab.columns?.length || 0,
+          tab.tableType,
+          colLabels
+        );
+
         tab.rows.forEach((row) => {
           if (Array.isArray(row)) {
-            row.forEach((cellVal) => {
+            particularsColIndices.forEach((colIdx) => {
+              const cellVal = row[colIdx];
               if (cellVal && typeof cellVal === 'string') {
-                const cleaned = sanitizeChip(cellVal);
-                if (isValidChipText(cleaned)) {
-                  chipsSet.add(cleaned);
-                }
+                processParticularsCell(cellVal, chipsSet);
               }
             });
           }

@@ -659,6 +659,14 @@ const PRESET_TABLES: Record<AccountancyTableType, { name: string; headers: { lab
       { label: 'Amount (₹)', percentWidth: 15 },
     ],
   },
+  bank_reconciliation_statement: {
+    name: 'Bank Reconciliation Statement (3 Columns)',
+    headers: [
+      { label: 'Particulars', percentWidth: 70 },
+      { label: '', percentWidth: 15 },
+      { label: 'Amount (₹)', percentWidth: 15 },
+    ],
+  },
   trial_balance: {
     name: 'Trial Balance (5 Columns)',
     headers: [
@@ -702,6 +710,8 @@ function getCleanTableTypeName(type: AccountancyTableType): string {
       return 'Company Balance Sheet';
     case 'notes_to_accounts':
       return 'Notes to Accounts';
+    case 'bank_reconciliation_statement':
+      return 'Bank Reconciliation Statement';
     case 'trial_balance':
       return 'Trial Balance';
     case 'custom':
@@ -823,7 +833,7 @@ export default function AccountancyQuestionModal({
                              colLabel.includes('cr') ||
                              colLabel.includes('amt') ||
                              colLabel.includes('year') ||
-                             (activeTab.tableType === 'notes_to_accounts' && cIdx === 1));
+                             (activeTab.tableType === 'notes_to_accounts' || activeTab.tableType === 'bank_reconciliation_statement') && cIdx === 1);
 
       if (isTotalableCol) {
         let sum = 0;
@@ -1450,7 +1460,7 @@ export default function AccountancyQuestionModal({
                           const colLabel = (col?.label || '').toLowerCase().trim();
 
                           const isUnnamedJfCol = activeTab.tableType === 't_shape_ledger_no_date' && (colIdx === 1 || colIdx === 4);
-                          const isUnnamedNotesCol = activeTab.tableType === 'notes_to_accounts' && colIdx === 1;
+                          const isUnnamedNotesCol = (activeTab.tableType === 'notes_to_accounts' || activeTab.tableType === 'bank_reconciliation_statement') && colIdx === 1;
                           const isDateCol = colLabel.includes('date');
                           const isNumeric = isUnnamedJfCol || isUnnamedNotesCol || (!isDateCol && (
                                             colLabel.includes('debit') ||

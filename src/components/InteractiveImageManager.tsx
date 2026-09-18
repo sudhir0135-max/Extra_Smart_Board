@@ -351,11 +351,11 @@ export default function InteractiveImageManager({ sequences, onRequestAssetLibra
                   <div>
                     <label className="text-[9px] uppercase text-slate-500 mb-1 block">Details Panel Text</label>
                     <Editor
+                      licenseKey="gpl"
                       tinymceScriptSrc="/tinymce/tinymce.min.js"
                       value={node.description || ''}
                       onEditorChange={(content) => updateCurrentNode({ description: content })}
                       init={{
-                        license_key: 'gpl',
                         height: 250,
                         menubar: false,
                         skin: 'oxide-dark',

@@ -2,6 +2,74 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-09-19] - PDF Book Classification, Chapter-wise PDF Upload & Continuous PDF Viewer Engine
+
+### Added
+- **PDF Book Category Classification (`types.ts`, `BookEditorPanel.tsx`, `AdminPanel.tsx`)**:
+  - Added `bookType?: 'interactive' | 'pdf'` property to `Book` interface in `types.ts`.
+  - Added Textbook Category Classification selector (`📖 Interactive Book` vs `📄 PDF Book`) in `BookEditorPanel.tsx` and `AdminPanel.tsx`.
+- **Chapter-wise PDF Upload & Firebase Management (`BookEditorPanel.tsx`, `firebaseHelper.ts`)**:
+  - Added **Upload Chapter PDF**, **Replace Chapter PDF**, and **Detach PDF** controls in the Book Editor Panel for each chapter.
+  - Uploads PDF files directly to Firebase Storage under `pdfs/` and links `lesson.pdfUrl` in Firestore.
+  - Added `deletePdfFromStorage` utility in `firebaseHelper.ts` to automatically delete previous PDF files from Firebase Storage when replacing or detaching PDFs to prevent storage bloat.
+- **Continuous PDF Page Viewer Component (`PdfPageViewer.tsx`, `Workspace.tsx`)**:
+  - Built high-performance `PdfPageViewer` component using `pdfjs-dist` and `pdfCache.ts` (`downloadAndCachePdf`), supporting 100% offline viewing on native Android and web.
+  - Renders PDF pages continuously in **Single Page View** (1 per row) and **Double Page View** (`grid-cols-2` side-by-side layout).
+  - Built-in embedded browser PDF engine fallback (`<iframe src={pdfUrl} />`) for 100% rendering guarantee across all browser environments.
+
+### Fixed & Improved
+- **Category Toggle Race-Condition & Flickering Fix (`BookEditorPanel.tsx`)**:
+  - Fixed multi-flickering issue when toggling book categories by executing direct atomic Firestore `updateDoc` calls for category metadata instead of full subcollection batch syncs.
+  - Scoped `BookEditorPanel` auto-sync `useEffect` dependency to `[assignedBookId]` to prevent background race-condition re-triggers during save.
+- **Floating Helper Button Visibility (`App.tsx`)**:
+  - Automatically hides the circular floating helper button when a PDF chapter or PDF book is displayed, preserving clear visibility over PDF pages.
+
+## [2026-09-11] - Student Panel Verification, Static TinyMCE Asset Optimization & Optimized Android APK Build
+
+### Fixed & Improved
+- **TypeScript Type System & Compiler Fixes** (`types.ts`, `App.tsx`, `AuthModal.tsx`, `SyncManager.tsx`, `ExtraSmartboardDownload.tsx`):
+  - Added `'synced'` to `SyncStatus` type union in `types.ts`.
+  - Added `pdfUrl?: string | null;` optional property to `Lesson` interface in `types.ts`.
+  - Added `updated_at?: string;` optional property to `OfflineBookLessons` interface in `types.ts`.
+  - Fixed `addToast` type signature in `App.tsx` to include `'error'` toasts.
+  - Updated `AuthModal` props `initialMode` type to include `'email-login'`.
+  - Cast Firestore `docSnap.data()` properly in `AuthModal.tsx`.
+  - Added missing `Lesson` import in `ExtraSmartboardDownload.tsx`.
+  - Fixed Dexie `offline_lessons.update` type assertion in `SyncManager.tsx`.
+  - Removed outdated `.backup.tsx` files from `src/components/`.
+  - Replaced deprecated `license_key: 'gpl'` with `licenseKey="gpl"` prop across all `@tinymce/tinymce-react` editor instances.
+  - Verified 100% clean `tsc --noEmit` build.
+
+- **Static Asset Optimization (`public/tinymce`)**:
+  - Removed duplicate unminified JS files (`tinymce.js`, `theme.js`, `model.js`, `emojiimages.js`, `emojis.js`, and unminified `plugin.js` source files) where `.min.js` equivalents exist.
+  - Removed non-runtime documentation and metadata files (`CHANGELOG.md`, `README.md`, `bower.json`, `composer.json`, `package.json`, `license.md`, `notices.txt`).
+  - Reduced static assets size in `public/` from **11.88 MB to 6.35 MB** (saving **5.53 MB** of bundle footprint).
+
+- **Student Panel Feature Verification & Production Android APK Compile**:
+  - Built production web assets (`npm run build`).
+  - Synced production bundle into native Android assets (`android/app/src/main/assets/public/`).
+  - Compiled optimized native Android debug APK (`cd android && ./gradlew assembleDebug`).
+  - Saved output APK to `releases/ExtraPadhai_v5.0.apk` and `ExtraPadhai.apk` at **14.33 MB** with full Student Panel capabilities (reader view, KaTeX math, TinyMCE dark theme style stripping, Scribble overlay, video/blackboard panel, FAB flashcard retrieval cards, accountancy tables, and offline caching) intact.
+
+## [2026-09-10] - Inquiry Question Accountancy Mode Display & Solution Chip Particulars Fix
+
+### Added
+- **Bank Reconciliation Statement Table Preset** (`AccountancyQuestionModal.tsx`, `types.ts`, `solutionChipExtractor.ts`): Added **Bank Reconciliation Statement (3 Columns)** as an official table preset option in the workspace table selector dropdown. Shares the 3-column format of Notes to Accounts (Particulars 70%, Unnamed Detail 15%, Amount 15%).
+
+### Fixed
+- **Complete Cell Text Solution Chip Preservation** (`solutionChipExtractor.ts`): Restored complete intact cell text extraction for every cell in the **Particulars** column of solution tables (such as Bank Reconciliation Statements, Notes to Accounts, Journal, and Ledgers). Removed sentence chopping and preposition splitting so every Particulars cell produces a 100% complete, intact solution chip (e.g. `"Balance as per Cash Book"`, `"Cheques issued but not yet presented for payment"`, `"Interest allowed by Bank but not recorded in Cash Book"`, `"Cheques deposited but not yet credited"`).
+- **Prefix Stripping & Cell Sanitization** (`solutionChipExtractor.ts`): `sanitizeChip` removes leading modifiers (`Add:`, `Less:`, `To `, `By `) and trailing `Dr.`/`Cr.`, while retaining the full text of the cell (up to 250 characters).
+- **Strict Particulars Column Solution Chip Extraction** (`solutionChipExtractor.ts`): Rectified solution chip extraction so chips are strictly extracted from the **Particulars** column of solution tables (or smart fallbacks: Col 1 for 5-col Journal, Cols 1 & 5 for 8-col Ledger, Cols 0 & 3 for 6-col Ledger, Col 0 for Notes to Accounts/BRS). Fixed Step 4 and HTML table matching which were previously extracting dates, amounts, page numbers, L.F./J.F., and note numbers from non-particulars columns.
+- **Enhanced Solution Chip Validation** (`solutionChipExtractor.ts`): Updated `isValidChipText` and `sanitizeChip` to filter out pure dates (`Jan 15`, `2024`, `1st April`), serial/note numbers (`Note 1`, `(a)`), journal narrations (`(Being...)`), amounts (`50,000`), and table headers (`Particulars`, `Amount`, `Total`).
+- **Inquiry Question Accountancy Workspace Button Alignment** (`FloatingButton.tsx`): Updated `QuestionItem` so the **Show Accounts/Journal** workspace button is only rendered when `isAccountancyMode` is enabled (`q.displayMode === 'accountancy_tabs'` or question contains custom accountancy tabs) as configured in the Book Editor Panel. Standard Mode / Student Mode inquiry questions no longer display the Accountancy workspace button.
+- **Deleted Chapter, Title Renaming & Lesson Sequence Sync Fix** (`App.tsx`, `BookEditorPanel.tsx`):
+  - **Explicit `order` Index & Subcollection Sorting** (`App.tsx`): Updated `saveBookToFirebase` and `bulkUpdateBooksInFirebase` to write an explicit `order` index field onto every subcollection lesson document. Updated `fetchBookLessons`, `onSync`, and `onReviewSubmission` to sort fetched subcollection docs by `(a.order ?? 0) - (b.order ?? 0)`. Previously, Firestore `getDocs` returned subcollection docs in alphabetical Document ID string order (`lesson-1`, `lesson-10`, `lesson-11`...), which caused the Student Panel to display chapters in Document ID order rather than the Book Editor's custom array sequence.
+  - **Book Editor Real-Time Firebase Auto-Sync** (`BookEditorPanel.tsx`): Updated `saveBookLocally` in `BookEditorPanel` to call `saveBookToFirebase(modifiedBook)`. Every chapter edit (renaming titles/subtitles, adding/deleting chapters, reordering chapters, editing topics and pages) now automatically syncs to Firebase subcollections and IndexedDB in real time so the Student Panel immediately reflects renamed and reordered chapters.
+  - **Firebase Subcollection Sub-Lesson Single Source of Truth** (`App.tsx`): Updated `fetchBookLessons` and the `onSync` handler to use subcollection lessons directly as the single source of truth rather than prepending/merging stale in-memory `book.lessons`, ensuring deleted chapters in Firebase subcollections are immediately purged from state.
+  - **IndexedDB Sync on Chapter Save** (`App.tsx`): Updated `saveBookToFirebase` to immediately update IndexedDB (`dbLocal.offline_lessons`) with the new lesson list so local offline cache stays in sync when chapters are purged or renamed.
+  - **Offline Draft Resurrection Guard** (`App.tsx`): Updated `books` `useMemo` so live Firebase lessons are only appended if `sync_status === 'synced'`, preventing locally deleted chapters from being resurrected by live state in `BookEditorPanel` and `AdminPanel`.
+- **Rich Text Question Editor Mode Preservation** (`QuestionEditorPage.tsx`): Preserved `displayMode` and `tabs` properties in the `normalise()` question helper and added a **Display Manner** toggle button (`📊 Accountancy Mode` vs `📄 Standard Mode`) to the standalone editor page.
+
 ## [2026-09-04] - Accountancy Solution Chip Full Text Extraction, Enhanced Synchronize & Android APK Build
 
 ### Added

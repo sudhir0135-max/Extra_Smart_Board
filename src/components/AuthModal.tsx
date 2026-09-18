@@ -9,7 +9,7 @@ interface AuthModalProps {
   onClose: () => void;
   onSuccess: (role?: string) => void;
   title: string;
-  initialMode?: 'initial' | 'email-signup';
+  initialMode?: 'initial' | 'email-login' | 'email-signup';
 }
 
 type AuthMode = 'initial' | 'email-login' | 'email-signup' | 'pin-setup' | 'pin-verify';
@@ -111,13 +111,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess, title, initialMo
       // Check user doc
       const docRef = doc(db, 'users', user.uid);
       const docSnap = await fetchDocWithRetry(docRef);
+      const userData = docSnap.exists() ? (docSnap.data() as any) : null;
 
-      if (docSnap.exists() && docSnap.data().status === 'inactive') {
+      if (userData && userData.status === 'inactive') {
         await auth.signOut();
         throw new Error('Your account is inactive. Please contact the administrator.');
       }
 
-      if (docSnap.exists() && docSnap.data().pin) {
+      if (userData && userData.pin) {
         setTempUser(user);
         setMode('pin-verify');
       } else {
@@ -228,9 +229,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, title, initialMo
       } else if (mode === 'pin-verify') {
         const docRef = doc(db, 'users', tempUser.uid);
         const docSnap = await fetchDocWithRetry(docRef);
+        const userData = docSnap.exists() ? (docSnap.data() as any) : null;
         
-        if (docSnap.exists() && docSnap.data().pin === pin) {
-          handleSuccess(docSnap.data().role);
+        if (userData && userData.pin === pin) {
+          handleSuccess(userData.role);
         } else {
           throw new Error('Incorrect PIN. Access denied.');
         }

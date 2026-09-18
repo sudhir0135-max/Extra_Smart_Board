@@ -82,6 +82,7 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
       {activeSubTab === 'edit' ? (
         <div className="flex flex-col min-h-[300px] bg-[#1a1f2e]">
           <Editor
+            licenseKey="gpl"
             onInit={(_evt, editor) => {
               editorRef.current = editor;
               setupTinyMceMath(editor);
@@ -90,7 +91,6 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
             tinymceScriptSrc="/tinymce/tinymce.min.js"
             initialValue={initialValue}
             init={{
-              license_key: 'gpl',
               height: 450,
               menubar: true,
               skin: 'oxide-dark',

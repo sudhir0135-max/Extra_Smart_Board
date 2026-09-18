@@ -83,6 +83,23 @@ export async function uploadPdfToStorage(file: File): Promise<string> {
   return await getDownloadURL(fileRef);
 }
 
+export async function deletePdfFromStorage(pdfUrl: string): Promise<void> {
+  if (!pdfUrl) return;
+  try {
+    const isFirebaseUrl = pdfUrl.includes('firebasestorage.googleapis.com') || pdfUrl.includes('firebasestorage.app');
+    if (!isFirebaseUrl) return;
+    const pathMatch = new URL(pdfUrl).pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)/);
+    if (pathMatch) {
+      const storagePath = decodeURIComponent(pathMatch[1].split('?')[0]);
+      const fileRef = ref(storage, storagePath);
+      await deleteObject(fileRef);
+      console.log('[firebaseHelper] Deleted old PDF from Firebase Storage:', storagePath);
+    }
+  } catch (err) {
+    console.warn('[firebaseHelper] Could not delete old PDF from Storage:', err);
+  }
+}
+
 export async function uploadHtmlToStorage(file: File, folder: string = 'html'): Promise<string> {
   const fileName = `${Date.now()}_${file.name}`;
   const fileRef = ref(storage, `${folder}/${fileName}`);

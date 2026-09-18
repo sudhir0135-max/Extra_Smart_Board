@@ -689,11 +689,11 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                   <div className="flex-1 border border-slate-800 rounded-lg overflow-hidden bg-white">
                     <Editor
                       key={`${activeTab}-${advancedEditorIndex}`}
+                      licenseKey="gpl"
                       tinymceScriptSrc="/tinymce/tinymce.min.js"
                       onInit={(evt, editor) => editorRef.current = editor}
                       initialValue={currentEditorContent}
                       init={{
-                        license_key: 'gpl',
                         height: '100%',
                         menubar: true,
                         plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',

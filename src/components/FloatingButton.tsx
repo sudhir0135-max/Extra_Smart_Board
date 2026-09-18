@@ -205,7 +205,7 @@ const QuestionItem = React.memo(({
           )}
         </div>
 
-        {onOpenAccountancyWorkspace && (
+        {isAccountancyMode && onOpenAccountancyWorkspace && (
           <button
             onClick={(e) => {
               e.stopPropagation();

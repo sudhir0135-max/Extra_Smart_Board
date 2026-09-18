@@ -43,7 +43,7 @@ export default function SyncManager() {
         successCount++;
       } catch (err) {
         console.error(`Failed to sync book ${b.bookId}`, err);
-        await dbLocal.offline_lessons.update(b.bookId, { sync_status: 'failed' });
+        await (dbLocal.offline_lessons as any).update(b.bookId, { sync_status: 'failed' });
         failedCount++;
       }
     }

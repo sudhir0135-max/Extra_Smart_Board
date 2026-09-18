@@ -198,13 +198,25 @@ export default function App() {
       for (let i = 0; i < firestoreBook.lessons.length; i += BATCH_SIZE) {
         const batch = writeBatch(db);
         const chunk = firestoreBook.lessons.slice(i, i + BATCH_SIZE);
-        chunk.forEach(lesson => {
-          batch.set(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), lesson);
+        chunk.forEach((lesson, indexInChunk) => {
+          const globalOrder = i + indexInChunk;
+          batch.set(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), {
+            ...lesson,
+            order: globalOrder
+          });
         });
         await batch.commit();
         addToast(`Lessons ${i + 1}-${Math.min(i + BATCH_SIZE, firestoreBook.lessons.length)} synchronized.`, 'cloud');
       }
     }
+
+    // ALSO update IndexedDB local storage so offline_lessons matches the newly saved lessons!
+    await dbLocal.offline_lessons.put({
+      bookId: firestoreBook.id,
+      lessons: firestoreBook.lessons || [],
+      sync_status: 'synced',
+      updated_at: new Date().toISOString()
+    }).catch(console.error);
 
     setFirebaseBooks(prev => {
       if (prev.some(b => b.id === firestoreBook.id)) {
@@ -239,8 +251,12 @@ export default function App() {
       batch.set(doc(db, 'books', b.id.toString()), bookMeta);
       count++;
       if (b.lessons) {
-        for (const l of b.lessons) {
-          batch.set(doc(db, 'books', b.id.toString(), 'lessons', l.id), l);
+        for (let idx = 0; idx < b.lessons.length; idx++) {
+          const l = b.lessons[idx];
+          batch.set(doc(db, 'books', b.id.toString(), 'lessons', l.id), {
+            ...l,
+            order: idx
+          });
           count++;
           if (count >= 400) {
              await batch.commit();
@@ -265,31 +281,27 @@ export default function App() {
       const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
       
       if (!lessonsSnap.empty) {
-        const subLessons = lessonsSnap.docs.map(ld => ld.data());
+        const subLessons = lessonsSnap.docs.map(ld => ld.data() as Lesson & { order?: number });
+        subLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         let fetchedValidLesson = false;
         
+        const sanitizedLessons = subLessons
+          .filter((l: any) => l !== null && l !== undefined)
+          .map((l: any) => ({
+            ...l,
+            pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+            flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+            inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+          }));
+
         setFirebaseBooks(prev => {
           const bookIndex = prev.findIndex(b => b.id === bookId);
           if (bookIndex === -1) return prev;
           
           const book = prev[bookIndex];
-          const allLessons = [...book.lessons, ...subLessons];
-          const dedupedLessons = Array.from(new Map(allLessons.map((l: any) => [l.id, l])).values());
-          
-          const sanitizedLessons = dedupedLessons
-            .filter((l: any) => l !== null && l !== undefined)
-            .map((l: any) => ({
-              ...l,
-              pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
-              flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
-              inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
-            }));
-
-            
           const newBooks = [...prev];
           newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
           
-          // Move setActiveLessonId out of the state updater to prevent React render conflicts
           const isValidLesson = sanitizedLessons.some(l => l.id === activeLessonId);
           if (sanitizedLessons.length > 0 && !isValidLesson) {
              fetchedValidLesson = true;
@@ -369,7 +381,6 @@ export default function App() {
       if (offline && offline.sync_status !== 'deleted') {
         // Merge offline and live lessons deeply: 
         // 1. Map through offline lessons and pull in missing nested data (like flashQuestions) from live.
-        // 2. Append any live lessons that don't exist in the offline draft at all.
         let mergedLessons = offline.lessons.map(ol => {
           const liveL = b.lessons?.find(l => l.id === ol.id);
           if (liveL) {
@@ -385,7 +396,9 @@ export default function App() {
           return ol;
         });
         
-        if (b.lessons) {
+        // Only append live lessons if offline record is an unmodified cache (sync_status === 'synced')
+        // If sync_status is 'pending', the editor/admin explicitly modified or deleted lessons in the draft.
+        if (offline.sync_status === 'synced' && b.lessons) {
           b.lessons.forEach(liveLesson => {
             if (!mergedLessons.find(ol => ol.id === liveLesson.id)) {
               mergedLessons.push(liveLesson);
@@ -603,12 +616,12 @@ export default function App() {
   const [isBlackboardOpen, setIsBlackboardOpen] = useState<boolean>(false);
 
   // Active toast alerting module
-  const [toasts, setToasts] = useState<{ id: string; text: string; type: 'info' | 'success' | 'warn' | 'cloud' }[]>([]);
+  const [toasts, setToasts] = useState<{ id: string; text: string; type: 'info' | 'success' | 'warn' | 'cloud' | 'error' }[]>([]);
 
   // Auth States
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authTargetScreen, setAuthTargetScreen] = useState<'admin' | 'book-editor' | null>(null);
-  const [authInitialMode, setAuthInitialMode] = useState<'initial' | 'email-signup'>('initial');
+  const [authInitialMode, setAuthInitialMode] = useState<'initial' | 'email-signup' | 'email-login'>('initial');
   const [authModalTitle, setAuthModalTitle] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [sessionVerified, setSessionVerified] = useState(false);
@@ -668,7 +681,7 @@ export default function App() {
   }, []);
 
   // Push custom toast notification alert
-  const addToast = (text: string, type: 'info' | 'success' | 'warn' | 'cloud' = 'info') => {
+  const addToast = (text: string, type: 'info' | 'success' | 'warn' | 'cloud' | 'error' = 'info') => {
     const id = Date.now().toString() + Math.random().toString();
     setToasts(prev => [...prev, { id, text, type }]);
     setTimeout(() => {
@@ -866,13 +879,13 @@ export default function App() {
       for (const targetBook of targetBooks) {
         const bookId = targetBook.id;
         const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
-        const subLessons = lessonsSnap.docs.map(ld => ld.data() as Lesson);
+        const subLessons = lessonsSnap.docs.map(ld => ld.data() as Lesson & { order?: number });
+        subLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         
-        // Merge main book lessons + subcollection lessons, deduplicating by ID
-        const allBookLessons = [...(targetBook.lessons || []), ...subLessons];
-        const dedupedLessons = Array.from(new Map(allBookLessons.map((l: any) => [l.id, l])).values());
+        // Use subcollection lessons as source of truth for live lessons if available
+        const liveLessonsList = !lessonsSnap.empty ? subLessons : (targetBook.lessons || []);
         
-        const sanitizedFirestoreLessons = dedupedLessons
+        const sanitizedFirestoreLessons = liveLessonsList
           .filter((l: any) => l !== null && l !== undefined)
           .map((l: any) => ({
             ...l,
@@ -1199,8 +1212,8 @@ export default function App() {
             // Sort by numeric doc ID to preserve lesson order
             const sorted = snap.docs
               .slice()
-              .sort((a, b) => parseInt(a.id) - parseInt(b.id))
-              .map(d => d.data() as Lesson);
+              .map(d => d.data() as Lesson & { order?: number })
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
             setPreviewLessons(sorted);
           } catch (err: any) {
             alert('Failed to load submission lessons: ' + err.message);
@@ -1800,8 +1813,8 @@ export default function App() {
 
 
 
-        {/* Movable Semi-transparent Floating interactive helpers — hidden while blackboard is open */}
-        {!isBlackboardOpen && (
+        {/* Movable Semi-transparent Floating interactive helpers — hidden while blackboard is open or when showing a PDF chapter */}
+        {!isBlackboardOpen && !(activeBook?.bookType === 'pdf' || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)) && (
         <FloatingButton
           currentLesson={activeLesson}
           onToggleButtonDraw={() => {

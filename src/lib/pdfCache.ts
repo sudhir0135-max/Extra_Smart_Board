@@ -295,6 +295,15 @@ export async function downloadAndCachePdf(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<Blob | null> {
 
+  if (url.startsWith('data:')) {
+    try {
+      const res = await fetch(url);
+      return await res.blob();
+    } catch (e) {
+      console.warn('[pdfCache] data URL fetch error:', e);
+    }
+  }
+
   // ── Strategy 1: Firebase Storage SDK (no CORS, works everywhere) ──
   const isFirebaseUrl =
     url.includes('firebasestorage.googleapis.com') ||

@@ -22,7 +22,7 @@ export interface InteractiveImageDef {
   hotspots: ImageHotspot[];
 }
 
-export type AccountancyTableType = 'journal' | 't_shape_ledger' | 't_shape_ledger_no_date' | 'balance_sheet' | 'balance_sheet_company' | 'notes_to_accounts' | 'trial_balance' | 'custom';
+export type AccountancyTableType = 'journal' | 't_shape_ledger' | 't_shape_ledger_no_date' | 'balance_sheet' | 'balance_sheet_company' | 'notes_to_accounts' | 'bank_reconciliation_statement' | 'trial_balance' | 'custom';
 
 
 export interface AccountancyColumn {
@@ -103,6 +103,7 @@ export interface Lesson {
   inquiryQuestions?: (string | InquiryQuestionObj)[];
   interactiveImages?: InteractiveImageDef[];
   topics?: Topic[];
+  pdfUrl?: string | null;
 }
 
 
@@ -122,6 +123,7 @@ export interface Book {
   title: string;
   author: string;
   source?: string | null;
+  bookType?: 'interactive' | 'pdf';
   color: string;
   coverImage?: string | null;
   classId?: string | null;
@@ -173,12 +175,13 @@ export interface BookEditor {
   pagesReady?: boolean;
 }
 
-export type SyncStatus = 'pending' | 'uploaded' | 'failed' | 'deleted';
+export type SyncStatus = 'pending' | 'uploaded' | 'failed' | 'deleted' | 'synced';
 
 export interface OfflineBookLessons {
   bookId: number;
   lessons: Lesson[];
   sync_status: SyncStatus;
+  updated_at?: string;
 }
 
 export interface EditorSubmission {

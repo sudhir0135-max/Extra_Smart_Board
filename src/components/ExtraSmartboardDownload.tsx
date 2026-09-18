@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle2, DownloadCloud, AlertCircle, HardDrive, Loader2, FolderOpen } from 'lucide-react';
-import { AcademicClass, AcademicSubject, Book, OfflineBookLessons } from '../types';
+import { AcademicClass, AcademicSubject, Book, Lesson, OfflineBookLessons } from '../types';
 import { dbLocal } from '../lib/db';
 import { downloadAndCacheImage, extractImagesFromLesson } from '../lib/imageCache';
 
@@ -107,7 +107,7 @@ export default function ExtraSmartboardDownload({
           // 1. Fetch and cache lessons from Firestore subcollection for offline use
           try {
             const lessonsSnap = await getDocs(collection(db, 'books', book.id.toString(), 'lessons'));
-            const subLessons = lessonsSnap.docs.map(d => d.data());
+            const subLessons = lessonsSnap.docs.map(d => d.data() as Lesson);
             
             // Extract images from subcollection lessons
             for (const lesson of subLessons) {

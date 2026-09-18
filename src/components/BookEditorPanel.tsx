@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Book, Lesson, Topic, FlashQuestion, BookEditor } from '../types';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { uploadImageToStorage, uploadHtmlToStorage } from '../lib/firebaseHelper';
+import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
 import { hasTextContent } from '../lib/contentUtils';
 import {
@@ -162,6 +162,8 @@ export default function BookEditorPanel({
   const [topicTitleDraft, setTopicTitleDraft] = useState('');
   const [topicVideoUrlDraft, setTopicVideoUrlDraft] = useState('');
 
+  const [pdfUploading, setPdfUploading] = useState(false);
+
   const flashMessage = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 3000);
@@ -175,12 +177,35 @@ export default function BookEditorPanel({
       lessons: modifiedBook.lessons,
       sync_status: 'pending'
     });
+
+    if (saveBookToFirebase) {
+      try {
+        await saveBookToFirebase(modifiedBook);
+      } catch (err) {
+        console.error('[BookEditorPanel] Auto-sync to Firebase failed:', err);
+      }
+    }
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const assignedBook = books.find(b => b.id === assignedBookId) || null;
   const activeLesson = assignedBook ? assignedBook.lessons.find(l => l.id === selectedLessonId) || null : null;
   const selectedTopic = activeLesson?.topics?.find(t => t.id === selectedTopicId) || null;
+
+  // Auto-sync any existing local offline draft to Firebase on initial load of assignedBookId
+  useEffect(() => {
+    if (!assignedBookId || !saveBookToFirebase || isPreviewMode) return;
+    dbLocal.offline_lessons.get(assignedBookId).then(offline => {
+      if (offline && offline.sync_status === 'pending') {
+        const bookToSync = books.find(b => b.id === assignedBookId);
+        if (bookToSync) {
+          saveBookToFirebase(bookToSync).catch(err => {
+            console.error('[BookEditorPanel] Initial pending sync to Firebase failed:', err);
+          });
+        }
+      }
+    }).catch(console.error);
+  }, [assignedBookId]);
 
   // Reset topic states when chapter selection changes
   useEffect(() => {
@@ -987,6 +1012,174 @@ export default function BookEditorPanel({
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Book Classification & Type Settings */}
+                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-indigo-400 block font-bold">Textbook Category Classification</span>
+                      <h3 className="text-sm font-bold text-white mt-0.5">Select Book Display Mode</h3>
+                    </div>
+                    <div className="flex items-center gap-2 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
+                      <button
+                        onClick={async () => {
+                          if (!assignedBook || assignedBook.bookType === 'interactive') return;
+                          try {
+                            const { doc, updateDoc } = await import('firebase/firestore');
+                            await updateDoc(doc(db, 'books', assignedBook.id.toString()), { bookType: 'interactive' });
+                            await dbLocal.offline_lessons.put({
+                              bookId: assignedBook.id,
+                              lessons: assignedBook.lessons,
+                              sync_status: 'synced',
+                              updated_at: new Date().toISOString()
+                            }).catch(console.error);
+                            if (saveBookToFirebase) {
+                              await saveBookToFirebase({ ...assignedBook, bookType: 'interactive' });
+                            }
+                            flashMessage('Book classified as Interactive Book.');
+                          } catch (err: any) {
+                            alert('Failed to update book category: ' + (err?.message || err));
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                          (!assignedBook.bookType || assignedBook.bookType === 'interactive')
+                            ? 'bg-indigo-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        📖 Interactive Book
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!assignedBook || assignedBook.bookType === 'pdf') return;
+                          try {
+                            const { doc, updateDoc } = await import('firebase/firestore');
+                            await updateDoc(doc(db, 'books', assignedBook.id.toString()), { bookType: 'pdf' });
+                            await dbLocal.offline_lessons.put({
+                              bookId: assignedBook.id,
+                              lessons: assignedBook.lessons,
+                              sync_status: 'synced',
+                              updated_at: new Date().toISOString()
+                            }).catch(console.error);
+                            if (saveBookToFirebase) {
+                              await saveBookToFirebase({ ...assignedBook, bookType: 'pdf' });
+                            }
+                            flashMessage('Book classified as PDF Book.');
+                          } catch (err: any) {
+                            alert('Failed to update book category: ' + (err?.message || err));
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                          assignedBook.bookType === 'pdf'
+                            ? 'bg-amber-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        📄 PDF Book
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chapter-wise PDF Upload & Management */}
+                <div className="bg-[#0b0e1b] border border-amber-500/30 rounded-xl p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-amber-400 block font-bold">Chapter PDF Attachment</span>
+                      <h3 className="text-sm font-bold text-white mt-0.5">Upload Chapter-wise PDF Document</h3>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-2 rounded-lg cursor-pointer transition-all shadow-md">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{pdfUploading ? 'Uploading PDF...' : activeLesson.pdfUrl ? 'Replace Chapter PDF' : 'Upload Chapter PDF'}</span>
+                        <input
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          disabled={pdfUploading}
+                          onChange={async (e) => {
+                            if (!e.target.files || e.target.files.length === 0) return;
+                            const file = e.target.files[0];
+                            const oldPdfUrl = activeLesson.pdfUrl;
+                            setPdfUploading(true);
+                            try {
+                              const url = await uploadPdfToStorage(file);
+                              const modifiedBook = {
+                                ...assignedBook,
+                                lessons: assignedBook.lessons.map(l => {
+                                  if (l.id !== activeLesson.id) return l;
+                                  return { ...l, pdfUrl: url };
+                                })
+                              };
+                              await saveBookLocally(modifiedBook);
+                              if (oldPdfUrl) {
+                                deletePdfFromStorage(oldPdfUrl).catch(console.warn);
+                              }
+                              flashMessage(`Chapter PDF '${file.name}' attached successfully!`);
+                            } catch (err: any) {
+                              alert('Failed to upload PDF: ' + (err?.message || err));
+                            } finally {
+                              setPdfUploading(false);
+                              e.target.value = '';
+                            }
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {activeLesson.pdfUrl && (
+                        <button
+                          onClick={async () => {
+                            if (window.confirm('Detach PDF from this chapter?')) {
+                              const oldPdfUrl = activeLesson.pdfUrl;
+                              const modifiedBook = {
+                                ...assignedBook,
+                                lessons: assignedBook.lessons.map(l => {
+                                  if (l.id !== activeLesson.id) return l;
+                                  return { ...l, pdfUrl: null };
+                                })
+                              };
+                              await saveBookLocally(modifiedBook);
+                              if (oldPdfUrl) {
+                                deletePdfFromStorage(oldPdfUrl).catch(console.warn);
+                              }
+                              flashMessage('Chapter PDF detached.');
+                            }
+                          }}
+                          className="flex items-center gap-1 bg-rose-600/30 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold px-3 py-2 rounded-lg transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Detach PDF
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {activeLesson.pdfUrl ? (
+                    <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <FileText className="w-5 h-5 text-amber-400 shrink-0" />
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-slate-200 block truncate">
+                            {activeLesson.pdfUrl.split('/').pop()?.split('?')[0] || 'Chapter_Document.pdf'}
+                          </span>
+                          <span className="text-[10px] font-mono text-emerald-400">PDF Attached &amp; Linked for Chapter Display</span>
+                        </div>
+                      </div>
+                      <a
+                        href={activeLesson.pdfUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 shrink-0 ml-2"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Preview PDF
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="p-4 border border-dashed border-slate-800 rounded-lg text-center text-xs text-slate-400 font-mono">
+                      No PDF file attached to this chapter yet. Click "Upload Chapter PDF" above to select a PDF.
+                    </div>
+                  )}
                 </div>
 
                 {/* Topic Selector & Management Header Bar */}
