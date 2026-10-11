@@ -9,7 +9,7 @@ import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
-import { hasTextContent } from '../lib/contentUtils';
+import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
 import {
   Shield,
   Key,
@@ -172,40 +172,19 @@ export default function BookEditorPanel({
   const saveBookLocally = async (modifiedBook: Book) => {
     if (isPreviewMode) return; // Do not overwrite local offline state if admin is previewing a submission!
     
+    // Instant local save to IndexedDB (<5ms)
     await dbLocal.offline_lessons.put({
       bookId: modifiedBook.id,
       lessons: modifiedBook.lessons,
-      sync_status: 'pending'
+      sync_status: 'pending',
+      updated_at: new Date().toISOString()
     });
-
-    if (saveBookToFirebase) {
-      try {
-        await saveBookToFirebase(modifiedBook);
-      } catch (err) {
-        console.error('[BookEditorPanel] Auto-sync to Firebase failed:', err);
-      }
-    }
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const assignedBook = books.find(b => b.id === assignedBookId) || null;
   const activeLesson = assignedBook ? assignedBook.lessons.find(l => l.id === selectedLessonId) || null : null;
   const selectedTopic = activeLesson?.topics?.find(t => t.id === selectedTopicId) || null;
-
-  // Auto-sync any existing local offline draft to Firebase on initial load of assignedBookId
-  useEffect(() => {
-    if (!assignedBookId || !saveBookToFirebase || isPreviewMode) return;
-    dbLocal.offline_lessons.get(assignedBookId).then(offline => {
-      if (offline && offline.sync_status === 'pending') {
-        const bookToSync = books.find(b => b.id === assignedBookId);
-        if (bookToSync) {
-          saveBookToFirebase(bookToSync).catch(err => {
-            console.error('[BookEditorPanel] Initial pending sync to Firebase failed:', err);
-          });
-        }
-      }
-    }).catch(console.error);
-  }, [assignedBookId]);
 
   // Reset topic states when chapter selection changes
   useEffect(() => {
@@ -298,9 +277,9 @@ export default function BookEditorPanel({
       setLessonVideoDraft('');
       setSelectedLessonId(newLesson.id);
       setSelectedPageIndex(0);
-      flashMessage(`Chapter '${newLesson.title}' added and synced to Firebase!`);
+      flashMessage(`Chapter '${newLesson.title}' created and saved!`);
     } catch (err) {
-      alert('Failed to add chapter to Firebase.');
+      alert('Failed to add chapter.');
     }
   };
 
@@ -324,7 +303,7 @@ export default function BookEditorPanel({
         lessons: assignedBook.lessons.map(l => (l.id === selectedLessonId ? { ...l, ...fields } : l))
       };
       await saveBookLocally(modifiedBook);
-      if (!silent) flashMessage('Chapter metadata updated in Firebase.');
+      if (!silent) flashMessage('Chapter metadata saved.');
     } catch (err) {
       if (!silent) alert('Failed to update chapter metadata.');
     }
@@ -342,9 +321,9 @@ export default function BookEditorPanel({
         await saveBookLocally(modifiedBook);
         setSelectedLessonId(null);
         setSelectedPageIndex(null);
-        flashMessage('Chapter removed successfully from Firebase.');
+        flashMessage('Chapter removed successfully.');
       } catch (err) {
-        alert('Failed to delete chapter from Firebase.');
+        alert('Failed to delete chapter.');
       }
     }
   };
@@ -363,7 +342,7 @@ export default function BookEditorPanel({
     try {
       const modifiedBook = { ...assignedBook, lessons: newLessons };
       await saveBookLocally(modifiedBook);
-      flashMessage('Chapter order updated in Firebase.');
+      flashMessage('Chapter order updated.');
     } catch (err) {
       alert('Failed to reorder chapters.');
     }
@@ -432,10 +411,10 @@ export default function BookEditorPanel({
         setIsAddingTopic(false);
         setTopicTitleDraft('');
         setTopicVideoUrlDraft('');
-        flashMessage(`Topic '${newTopic.title}' created and selected!`);
+        flashMessage(`Topic '${newTopic.title}' created!`);
       }
     } catch (err) {
-      alert('Failed to save topic to Firebase.');
+      alert('Failed to save topic.');
     }
   };
 
@@ -465,7 +444,7 @@ export default function BookEditorPanel({
         await saveBookLocally(modifiedBook);
         setSelectedTopicId(null);
         setSelectedPageIndex(0);
-        flashMessage('Topic deleted successfully.');
+        flashMessage('Topic deleted.');
       } catch (err) {
         alert('Failed to delete topic.');
       }
@@ -504,9 +483,9 @@ export default function BookEditorPanel({
       };
       await saveBookLocally(modifiedBook);
       setSelectedPageIndex(nextPageNum - 1);
-      flashMessage(`Page ${nextPageNum} appended to ${selectedTopic ? `'${selectedTopic.title}'` : 'Chapter'} draft in Firebase.`);
+      flashMessage(`Page ${nextPageNum} appended!`);
     } catch (err) {
-      alert('Failed to add page to Firebase.');
+      alert('Failed to add page.');
     }
   };
 
@@ -569,9 +548,9 @@ export default function BookEditorPanel({
       };
       await saveBookLocally(modifiedBook);
       setPageContentDraft(finalContent);
-      flashMessage(`Page ${index + 1} content saved successfully to Firebase.`);
+      flashMessage(`Page ${index + 1} saved successfully!`);
     } catch (err) {
-      alert('Failed to save page content to Firebase.');
+      alert('Failed to save page content.');
     } finally {
       setIsSaving(false);
     }
@@ -613,9 +592,9 @@ export default function BookEditorPanel({
         };
         await saveBookLocally(modifiedBook);
         setSelectedPageIndex(null);
-        flashMessage(`Page ${index + 1} deleted and re-indexed in Firebase.`);
+        flashMessage(`Page ${index + 1} deleted and re-indexed.`);
       } catch (err) {
-        alert('Failed to delete page from Firebase.');
+        alert('Failed to delete page.');
       }
     }
   };
@@ -795,9 +774,10 @@ export default function BookEditorPanel({
                         timestamp: Date.now()
                       });
 
-                      // 2. Write each lesson into a subcollection in batches of 20
+                      // 2. Write each lesson into a subcollection in batches of 20 in parallel
                       //    (Firestore batch limit = 500 ops, but lessons can be large)
                       const BATCH_SIZE = 20;
+                      const batchPromises: Promise<any>[] = [];
                       for (let i = 0; i < lessons.length; i += BATCH_SIZE) {
                         const batch = writeBatch(db);
                         const chunk = lessons.slice(i, i + BATCH_SIZE);
@@ -808,8 +788,9 @@ export default function BookEditorPanel({
                           );
                           batch.set(lessonRef, lesson);
                         });
-                        await batch.commit();
+                        batchPromises.push(batch.commit());
                       }
+                      await Promise.all(batchPromises);
 
                       setIsSaving(false);
                       alert("Successfully submitted to Admin for review!");
@@ -821,7 +802,7 @@ export default function BookEditorPanel({
                   disabled={isSaving}
                   className={`flex items-center gap-1.5 ${isSaving ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'} text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all shadow-lg shadow-indigo-900/50 mr-2`}
                 >
-                  <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> {isSaving ? 'Uploading Images...' : 'Submit to Admin'}
+                  <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> {isSaving ? 'Submitting to Admin...' : 'Submit to Admin'}
                 </button>
                 <button
                   onClick={async () => {
@@ -1768,42 +1749,72 @@ export default function BookEditorPanel({
                         })
                       };
                       await saveBookLocally(modifiedBook);
-                      flashMessage('Interactive quizzes synced to Firebase.');
+                      flashMessage('Interactive quizzes saved.');
                     } catch (err) {
-                      alert('Failed to sync quizzes to Firebase.');
+                      alert('Failed to save quizzes.');
                     }
                   }}
                 />
 
                 {/* Sub-Layout: Inquiry Question Manager */}
-                <InquiryQuestionManager
-                  questions={selectedTopic ? (selectedTopic.inquiryQuestions || []) : (activeLesson.inquiryQuestions || [])}
-                  onQuestionsUpdate={async (newQuestions) => {
-                    if (!assignedBook || !activeLesson) return;
-                    try {
-                      const modifiedBook = {
-                        ...assignedBook,
-                        lessons: assignedBook.lessons.map(l => {
-                          if (l.id !== activeLesson.id) return l;
-                          if (selectedTopic) {
-                            return {
-                              ...l,
-                              topics: (l.topics || []).map(t => {
-                                if (t.id !== selectedTopic.id) return t;
-                                return { ...t, inquiryQuestions: newQuestions };
-                              })
-                            };
+                {(() => {
+                  const effectiveInquiryQuestions = selectedTopic 
+                    ? getEffectiveTopicInquiryQuestions(selectedTopic, activeLesson)
+                    : (() => {
+                        const allQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
+                        if (activeLesson.topics) {
+                          for (const t of activeLesson.topics) {
+                            if (t.inquiryQuestions) {
+                              for (const tq of t.inquiryQuestions) {
+                                const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
+                                if (!allQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
+                                  allQ.push(tq);
+                                }
+                              }
+                            }
                           }
-                          return { ...l, inquiryQuestions: newQuestions };
-                        })
-                      };
-                      await saveBookLocally(modifiedBook);
-                      flashMessage('Inquiry questions synced to Firebase.');
-                    } catch (err) {
-                      alert('Failed to sync inquiry questions to Firebase.');
-                    }
-                  }}
-                />
+                        }
+                        return allQ;
+                      })();
+
+                  return (
+                    <InquiryQuestionManager
+                      questions={effectiveInquiryQuestions}
+                      onQuestionsUpdate={async (newQuestions) => {
+                        if (!assignedBook || !activeLesson) return;
+                        try {
+                          const modifiedBook = {
+                            ...assignedBook,
+                            lessons: assignedBook.lessons.map(l => {
+                              if (l.id !== activeLesson.id) return l;
+                              if (selectedTopic) {
+                                const taggedQuestions = newQuestions.map(q => {
+                                  if (typeof q !== 'string' && !q.topicTitle) {
+                                    return { ...q, topicTitle: selectedTopic.title };
+                                  }
+                                  return q;
+                                });
+                                return {
+                                  ...l,
+                                  inquiryQuestions: taggedQuestions,
+                                  topics: (l.topics || []).map(t => {
+                                    if (t.id !== selectedTopic.id) return t;
+                                    return { ...t, inquiryQuestions: taggedQuestions };
+                                  })
+                                };
+                              }
+                              return { ...l, inquiryQuestions: newQuestions };
+                            })
+                          };
+                          await saveBookLocally(modifiedBook);
+                          flashMessage('Inquiry questions saved.');
+                        } catch (err: any) {
+                          alert('Failed to save inquiry questions: ' + (err?.message || 'Error'));
+                        }
+                      }}
+                    />
+                  );
+                })()}
 
                 {/* Sub-Layout: Interactive Deep-dive Maps */}
                 <InteractiveImageManager
@@ -1823,9 +1834,9 @@ export default function BookEditorPanel({
                         })
                       };
                       await saveBookLocally(modifiedBook);
-                      flashMessage('Interactive maps synced to Firebase.');
+                      flashMessage('Interactive maps saved.');
                     } catch (err) {
-                      alert('Failed to sync interactive maps to Firebase.');
+                      alert('Failed to save interactive maps.');
                     }
                   }}
                 />

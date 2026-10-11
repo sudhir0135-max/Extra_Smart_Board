@@ -2023,25 +2023,42 @@ export default function AdminPanel({
                                       }}
                                     />
 
-                                    <InquiryQuestionManager
-                                      questions={activeLesson.inquiryQuestions || []}
-                                      onQuestionsUpdate={async (newQuestions) => {
-                                        if (!activeBook || !activeLesson) return;
-                                        try {
-                                          const modifiedBook = {
-                                            ...activeBook,
-                                            lessons: (activeBook.lessons || []).map(l => {
-                                              if (l.id !== activeLesson.id) return l;
-                                              return { ...l, inquiryQuestions: newQuestions };
-                                            })
-                                          };
-                                          await saveBookToFirebase(modifiedBook);
-                                          flashMessage('Inquiry questions synced to Firebase.');
-                                        } catch (err) {
-                                          alert('Failed to sync inquiry questions to Firebase.');
+                                    {(() => {
+                                      const allIQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
+                                      if (activeLesson.topics) {
+                                        for (const t of activeLesson.topics) {
+                                          if (t.inquiryQuestions) {
+                                            for (const tq of t.inquiryQuestions) {
+                                              const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
+                                              if (!allIQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
+                                                allIQ.push(tq);
+                                              }
+                                            }
+                                          }
                                         }
-                                      }}
-                                    />
+                                      }
+                                      return (
+                                        <InquiryQuestionManager
+                                          questions={allIQ}
+                                          onQuestionsUpdate={async (newQuestions) => {
+                                            if (!activeBook || !activeLesson) return;
+                                            try {
+                                              const modifiedBook = {
+                                                ...activeBook,
+                                                lessons: (activeBook.lessons || []).map(l => {
+                                                  if (l.id !== activeLesson.id) return l;
+                                                  return { ...l, inquiryQuestions: newQuestions };
+                                                })
+                                              };
+                                              await saveBookToFirebase(modifiedBook);
+                                              flashMessage('Inquiry questions synced to Firebase.');
+                                            } catch (err: any) {
+                                              alert('Failed to sync inquiry questions to Firebase: ' + (err?.message || 'Network error'));
+                                            }
+                                          }}
+                                        />
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               ) : (

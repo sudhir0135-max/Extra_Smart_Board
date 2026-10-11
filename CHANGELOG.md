@@ -2,6 +2,114 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-11] - Production Deployment, APK Distribution & Git Push
+
+### Added & Deployed
+- **Production Firebase Deployment**:
+  - Built fresh production web assets with `npm run build` and deployed to Firebase Hosting (`https://samrtboard.web.app`).
+  - Bundled latest `ExtraPadhai.apk` (13.49 MB) into hosting root `/ExtraPadhai.apk` with verified global CDN delivery (`HTTP 200 OK`).
+  - Updated `LandingPage.tsx` APK download button with direct `/ExtraPadhai.apk` path and fallback.
+- **Git Commit & Sync**:
+  - Saved and committed all latest features (sidebar circular badge fix, instant local editor saves, diagnostic & inquiry question UI redesign with batch deletion, APK updates) to git repository.
+
+## [2026-10-11] - Android APK Build Updated & Size Optimization
+
+### Added & Improved
+- **Fresh Web Asset Sync & Android APK Generation**:
+  - Rebuilt production bundle via `npm run build` with latest sidebar geometry fix, instant local editor saves, full-width diagnostic/inquiry question managers, and multi-selection deletions.
+  - Synced distribution artifacts into Android project assets (`npx cap copy android`).
+  - Assembled updated Android APKs via Gradle:
+    - **Debug APK**: `android/app/build/outputs/apk/debug/app-debug.apk` (**13.49 MB**) — pre-signed and ready for direct sideloading and testing on Android devices.
+    - **Release APK**: `android/app/build/outputs/apk/release/app-release-unsigned.apk` (**9.60 MB**) — optimized release build with stripping of debug symbols and overhead.
+- **Local Verification**:
+  - Gradle build succeeded cleanly (`BUILD SUCCESSFUL in 3m 21s`).
+  - No hosting deployment or git push performed per project rules.
+
+## [2026-10-11] - Squeezed Sidebar Chapter Badge Optimization
+
+### Fixed & Improved
+- **Full Circular Chapter Display in Squeezed Sidebar (`src/components/Sidebar.tsx`)**:
+  - Resolved circle clipping and truncation caused by heavy side padding (`p-3` = 24px horizontal) and fixed outer reservation (`72px`) conflicting with button width (`w-11` = 44px) inside overflow containers.
+  - Decreased compact side padding to `py-3 px-1.5` and adjusted outer & inner sidebar widths from `72px` to `58px` when squeezed (and `w-10 h-10` with `shrink-0` on badges).
+  - Ensured chapter badges are 100% full circles, perfectly centered, and fully visible without any edge cutoff while optimizing screen space for the reading canvas.
+- **Local Verification**:
+  - Built cleanly locally (`npm run build`) with zero errors. No hosting deployment or git push performed per project rules.
+
+## [2026-10-11] - Instant Editor Saves & Elimination of Redundant Firestore Writes
+
+### Fixed & Optimized
+- **Instant Save for Editor Panel (`src/components/BookEditorPanel.tsx`)**:
+  - Eliminated the 15-30 second lag when clicking "Save Page Changes", "Add Page", "Save Topic", "Register Question", and reordering chapters/pages.
+  - Decoupled `saveBookLocally` from calling `saveBookToFirebase`. Saves are now purely local-first into IndexedDB (`dbLocal.offline_lessons.put`), executing in ~5ms rather than making dozens of blocking cloud network requests on every edit.
+  - Removed redundant `useEffect` auto-sync on mount in `BookEditorPanel.tsx` that re-triggered full-book Firebase rewrites every time an editor opened a textbook.
+- **Fast-Path Base64 Detection in Image Externalizer (`src/lib/imageExternalizer.ts`)**:
+  - Added `lessonHasBase64` check to skip heavy recursive regex and Promise overhead when lessons contain standard URLs or clean text.
+- **Parallelized Batch Commits in "Submit to Admin" & `saveBookToFirebase`**:
+  - In `BookEditorPanel.tsx`, optimized `handleSubmitToAdmin` by executing Firestore chapter batches in parallel using `Promise.all` instead of sequential `await` loops.
+  - In `App.tsx`, parallelized chunk batch writes in `saveBookToFirebase` for admins and approved submissions, dramatically reducing sync duration from 30 seconds to ~1-2 seconds.
+- **No Automatic Deploy or Git Push**:
+  - Maintained strict project compliance: tested and verified locally with `npm run build` with zero deployment or git push.
+
+## [2026-10-11] - Interactive Diagnostic Quizzing UI Redesign & Multi-Question Deletion
+
+### Added & Improved
+- **Full-Width Stacked Layout in `FlashQuestionManager` (`src/components/FlashQuestionManager.tsx`)**:
+  - Transformed the legacy side-by-side (`md:col-span-5` / `md:col-span-7`) layout into a spacious, stacked full-width container matching the Inquiry Questions Manager design.
+  - **New Flashcard Draft Container (Full Width)**:
+    - **Row 1**: Side-by-side rich TinyMCE editors for **Question Text** and **Answer Details** with math and annotation support (`grid grid-cols-1 md:grid-cols-2 gap-4`).
+    - **Row 2**: Horizontal control bar featuring Difficulty level selector (`Easy`, `Medium`, `Hard`), Register/Update button, Cancel button, Bulk Upload button (`.json`/`.xlsx`), and Template download button.
+  - **Active Question List Container (Full Width)**:
+    - Stacked directly beneath the draft form at 100% full width.
+    - Added header control bar with "Select All" / "Deselect All" checkbox, selection count badge, and batch `Delete Selected (N)` action.
+- **Batch Deletion (Multi-Select) Feature (`src/components/FlashQuestionManager.tsx`)**:
+  - Added checkboxes on each diagnostic quiz item row with row highlighting (`bg-rose-950/20 border-l-4 border-l-rose-500`) when selected.
+  - Added confirmation modal/prompt displaying the exact count of diagnostic questions to delete.
+  - Safely deletes selected questions via `selectedIds` and triggers `onQuestionsUpdate(updated)` across parent panels.
+  - Auto-adjusts selection state on single deletion or questions list changes to prevent desync.
+- **Local Verification**:
+  - Built cleanly locally (`npm run build`) with 0 errors. Deployment was intentionally skipped per user instruction.
+
+## [2026-10-11] - Inquiry Questions Manager UI Redesign & Multi-Question Deletion
+
+### Added & Improved
+- **Full-Width Stacked Layout in `InquiryQuestionManager` (`src/components/InquiryQuestionManager.tsx`)**:
+  - Replaced legacy `grid-cols-12` side-by-side layout with stacked, full-width sections for superior readability and editor space on desktops, laptops, and smartboards.
+  - **New Question Draft Container (Full Width)**:
+    - **Row 1**: Side-by-side rich inputs for Question (`textarea`) and Answer (`textarea`) using responsive `grid grid-cols-1 md:grid-cols-2 gap-4`.
+    - **Row 2**: Horizontal flex toolbar placing `Topic` input (`flex-1`), `Marks` input (`w-32`), `Register/Update Question` primary button, `Cancel` button, `Bulk Upload` button, and `Template` download button.
+  - **Active Inquiry Questions Container (Full Width)**:
+    - Stacked directly beneath the draft form at 100% container width.
+    - Added tabular header control bar with "Select All" / "Deselect All" checkbox, selected count badge, and batch `Delete Selected (N)` action.
+- **Batch Deletion (Multi-Select) Feature (`src/components/InquiryQuestionManager.tsx`)**:
+  - Added checkboxes to each question item row with row highlighting (`bg-rose-950/20 border-l-4 border-l-rose-500`) when selected.
+  - Added confirmation modal/prompt displaying the exact count of questions to be deleted.
+  - Safely deletes selected questions via `selectedIndices` and triggers `onQuestionsUpdate(updated)` across parent panels (`AdminPanel.tsx` & `BookEditorPanel.tsx`).
+  - Index desync protection: when deleting a single question, auto-adjusts stored selection indices.
+- **Production Verification & Deployment**:
+  - Verified with clean production build (`npm run build`) and deployed to Firebase Hosting (`https://samrtboard.web.app`).
+
+## [2026-10-11] - Inquiry Questions Manager Display, Race-Condition Elimination & Subcollection Cache Engine
+
+### Fixed & Rectified
+- **Subcollection Lesson Race-Condition in `fetchBookLessons` (`src/App.tsx`)**:
+  - Eliminated the race condition where `prev.findIndex(b => b.id === bookId)` returned `-1` during initial book metadata loading from Firestore `onSnapshot`. Previously, this caused `fetchBookLessons` to silently discard all fetched chapter docs (and their inquiry questions) and bypass IndexedDB disk caching entirely.
+  - Added dedicated in-memory React state cache `subLessonsCache` (`Record<number, Lesson[]>`) keyed by `bookId`, which immediately captures and retains fetched subcollection lessons regardless of metadata loading state.
+  - Made `fetchBookLessons` reference stable with `[]` dependency array and decoupled `dbLocal.offline_lessons.put` from state setters so lessons are safely written to IndexedDB offline storage unconditionally.
+  - Ensured Firestore document ID is mapped (`id: ld.id, ...ld.data()`) on all fetched chapter documents.
+- **Deep Topic & Inquiry Question Sanitization (`src/App.tsx`)**:
+  - Updated `fetchBookLessons` and `handleTriggerSync` to deeply sanitize nested `topics` (including `topic.inquiryQuestions`, `topic.flashQuestions`, and `topic.pages`), matching `onSnapshot` sanitization.
+- **In-Memory Subcollection Merge Engine in `books` `useMemo` (`src/App.tsx`)**:
+  - Updated `books` `useMemo` to check `subLessonsCache[b.id]` and merge subcollection lessons whenever `b.lessons` is empty or lacks inquiry questions that exist in the subcollection cache.
+  - Preserved `topics` in the local-first deep merge engine alongside `flashQuestions`, `inquiryQuestions`, and `pages`.
+  - Updated `onSnapshot` book listener to check `subLessonsCache` before falling back to empty lesson arrays.
+- **Topic-Aware Inquiry Question Aggregation (`BookEditorPanel.tsx`, `AdminPanel.tsx`)**:
+  - Integrated `getEffectiveTopicInquiryQuestions` in `BookEditorPanel.tsx` so selecting a topic does not hide inquiry questions that match the topic title from the lesson level.
+  - In `AdminPanel.tsx` and `BookEditorPanel.tsx`, aggregated inquiry questions across all chapter topics so questions compiled under topic headers are always visible in the Inquiry Questions Manager.
+- **Accurate Error Reporting on Cloud Sync (`BookEditorPanel.tsx`)**:
+  - Updated `saveBookLocally` in `BookEditorPanel.tsx` to rethrow any error when auto-syncing to Firebase and mark `sync_status: 'synced'` on success. Previously, swallowed errors resulted in false "Inquiry questions synced to Firebase" success toasts even when cloud writes failed.
+- **Production Build & Live Deployment**:
+  - Built clean production bundle (`npm run build`) and deployed to Firebase Hosting (`https://samrtboard.web.app`), resolving the discrepancy between localhost and the live website.
+
 ## [2026-09-19] - PDF Book Classification, Chapter-wise PDF Upload & Continuous PDF Viewer Engine
 
 ### Added

@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   HelpCircle, Upload, X, Save, ArrowLeft, ArrowRight,
   Image as ImageIcon, Plus, Trash2, ExternalLink,
-  MessageSquare, HelpCircle as QuestionIcon, CheckCircle2
+  MessageSquare, HelpCircle as QuestionIcon, CheckCircle2,
+  FileSpreadsheet, CheckSquare, Square
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { InquiryQuestionObj } from '../types';
@@ -24,6 +25,37 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
   const [newMarks, setNewMarks] = useState<number | ''>('');
   const [newTopicTitle, setNewTopicTitle] = useState('');
   const [editingQIdx, setEditingQIdx] = useState<number | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+
+  // Keep selected indices bounded if questions array changes
+  useEffect(() => {
+    setSelectedIndices(prev => prev.filter(i => i < questions.length));
+  }, [questions.length]);
+
+  const toggleSelectQuestion = (idx: number) => {
+    setSelectedIndices(prev => 
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIndices.length === questions.length) {
+      setSelectedIndices([]);
+    } else {
+      setSelectedIndices(questions.map((_, i) => i));
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIndices.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedIndices.length} selected inquiry question${selectedIndices.length > 1 ? 's' : ''}?`)) {
+      return;
+    }
+    const toDelete = new Set(selectedIndices);
+    const updated = questions.filter((_, idx) => !toDelete.has(idx));
+    setSelectedIndices([]);
+    onQuestionsUpdate(updated);
+  };
 
   // Advanced Editor Modal State
   const [isAdvancedEditorOpen, setIsAdvancedEditorOpen] = useState(false);
@@ -269,6 +301,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
   const handleDeleteQuestion = (idx: number) => {
     const updated = [...questions];
     updated.splice(idx, 1);
+    setSelectedIndices(prev => prev.filter(i => i !== idx).map(i => (i > idx ? i - 1 : i)));
     onQuestionsUpdate(updated);
   };
 
@@ -316,9 +349,84 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
     else setAdvAnswerImagePosition(pos);
   };
 
+  const handleDownloadTemplate = () => {
+    try {
+      const worksheet = XLSX.utils.json_to_sheet([
+        { Question: "How does this relate to chapter 1?", Answer: "Your answer here...", Topic: "Introduction", Marks: 5 },
+        { Question: "What are the real-world applications?", Answer: "Model answer...", Topic: "Real-world Applications", Marks: 3 }
+      ]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Inquiry Questions");
+      XLSX.writeFile(workbook, "inquiry_template.xlsx");
+    } catch (e) {
+      alert("Failed to generate Excel template");
+    }
+  };
+
+  const handleBulkUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+
+    if (file.name.endsWith('.json')) {
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        try {
+          const parsed = JSON.parse(content);
+          if (Array.isArray(parsed)) {
+            onQuestionsUpdate([...questions, ...parsed]);
+            alert(`Successfully bulk loaded ${parsed.length} questions!`);
+          }
+        } catch (err) { alert("Invalid JSON file"); }
+      };
+      reader.readAsText(file);
+    } else {
+      reader.onload = (event) => {
+        try {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+
+          const newQuestions: (string | InquiryQuestionObj)[] = rows.map((r, idx) => {
+            const qText = String(r.Question || r.question || '').trim();
+            const aText = String(r.Answer || r.answer || '').trim();
+            const topicTitleStr = String(r.Topic || r.topic || r['Topic Title'] || r.topicTitle || '').trim();
+            const rawMarks = r.Marks !== undefined ? r.Marks : (r.marks !== undefined ? r.marks : (r.Mark !== undefined ? r.Mark : r.mark));
+            const parsedMarks = rawMarks !== undefined && rawMarks !== null && rawMarks !== '' && !isNaN(Number(rawMarks)) ? Number(rawMarks) : null;
+
+            if (!qText) return null;
+
+            return {
+              id: `up-iq-${Date.now()}-${idx}`,
+              text: qText,
+              answerText: aText || null,
+              marks: parsedMarks,
+              topicTitle: topicTitleStr || null,
+              imagePosition: 'right',
+              answerImagePosition: 'right'
+            } as InquiryQuestionObj;
+          }).filter((q): q is NonNullable<typeof q> => q !== null);
+
+          if (newQuestions.length > 0) {
+            onQuestionsUpdate([...questions, ...newQuestions]);
+            alert(`Successfully bulk loaded ${newQuestions.length} questions from Excel!`);
+          } else {
+            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer', 'Topic', 'Marks'.");
+          }
+        } catch (err) {
+          alert("Failed to parse XLSX file");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    e.target.value = '';
+  };
+
   return (
-    <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-4 w-full mt-4 relative">
-      <div className="flex items-center justify-between">
+    <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-5 w-full mt-4 relative">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5 font-sans">
           <HelpCircle className="w-4 h-4 text-emerald-400" /> Inquiry Questions Manager
         </h3>
@@ -344,78 +452,94 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
-        {/* Add question form block */}
-        <div className="md:col-span-5 bg-slate-950/50 border border-slate-850 p-4 rounded-xl space-y-3">
-          <span className="text-[8.5px] uppercase font-mono tracking-widest text-[#10b981] block font-extrabold">New Question Draft</span>
+      {/* 1. New Question Draft Container (Full Width) */}
+      <div className="w-full bg-slate-950/60 border border-slate-850 p-4.5 rounded-xl space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase font-mono tracking-widest text-[#10b981] font-extrabold flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+            {editingQIdx !== null ? `Editing Question #${editingQIdx + 1}` : 'New Question Draft'}
+          </span>
+          {editingQIdx !== null && (
+            <span className="text-[10px] font-mono text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2.5 py-0.5 rounded-full font-bold">
+              Edit Mode
+            </span>
+          )}
+        </div>
 
-          <div className="space-y-2.5">
-            {/* Question field */}
-            <div>
-              <label className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1 block flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" />
-                Question
-              </label>
-              <textarea
-                rows={3}
-                value={newQText}
-                onChange={e => setNewQText(e.target.value)}
-                placeholder="Open-ended inquiry question text..."
-                className="w-full bg-[#03060c] border border-slate-700 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 resize-none transition-colors"
-              />
-            </div>
+        {/* Row 1: Question and Answer input text areas in first row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Question Textarea */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" />
+              Question Text <span className="text-rose-400 font-sans">*</span>
+            </label>
+            <textarea
+              rows={3}
+              value={newQText}
+              onChange={e => setNewQText(e.target.value)}
+              placeholder="Enter open-ended inquiry question text..."
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 resize-none transition-colors leading-relaxed"
+            />
+          </div>
 
-            {/* Answer field */}
-            <div>
-              <label className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1 block flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-                Answer <span className="text-slate-700 normal-case">(optional)</span>
-              </label>
-              <textarea
-                rows={3}
-                value={newAText}
-                onChange={e => setNewAText(e.target.value)}
-                placeholder="Model answer for this question..."
-                className="w-full bg-[#03060c] border border-slate-700 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 resize-none transition-colors"
-              />
-            </div>
+          {/* Answer Textarea */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+              Answer / Model Solution <span className="text-slate-600 normal-case font-normal">(optional)</span>
+            </label>
+            <textarea
+              rows={3}
+              value={newAText}
+              onChange={e => setNewAText(e.target.value)}
+              placeholder="Enter model answer or solution..."
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 resize-none transition-colors leading-relaxed"
+            />
+          </div>
+        </div>
 
-            {/* Topic field */}
-            <div>
-              <label className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1 block flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 inline-block" />
-                Topic / Sub-heading <span className="text-slate-700 normal-case">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={newTopicTitle}
-                onChange={e => setNewTopicTitle(e.target.value)}
-                placeholder="e.g. Introduction, Real-world Applications..."
-                className="w-full bg-[#03060c] border border-slate-700 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors"
-              />
-            </div>
+        {/* Row 2: Topic, Marks, Register Question Button, Bulk Upload Button, Template Download */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-end gap-3 pt-1">
+          {/* Topic Field */}
+          <div className="flex-1 min-w-[200px] space-y-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 inline-block" />
+              Topic / Sub-heading <span className="text-slate-600 normal-case font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={newTopicTitle}
+              onChange={e => setNewTopicTitle(e.target.value)}
+              placeholder="e.g. Introduction, Real-world Applications..."
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors h-[38px]"
+            />
+          </div>
 
-            {/* Marks field */}
-            <div>
-              <label className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1 block flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                Marks <span className="text-slate-700 normal-case">(numeric, optional)</span>
-              </label>
-              <input
-                type="number"
-                value={newMarks}
-                onChange={e => setNewMarks(e.target.value === '' ? '' : Number(e.target.value))}
-                placeholder="e.g. 1, 2, 5, 10"
-                className="w-full bg-[#03060c] border border-slate-700 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
-              />
-            </div>
+          {/* Marks Field */}
+          <div className="w-full md:w-32 space-y-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+              Marks <span className="text-slate-600 normal-case font-normal">(opt)</span>
+            </label>
+            <input
+              type="number"
+              value={newMarks}
+              onChange={e => setNewMarks(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="e.g. 5"
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors font-mono h-[38px]"
+            />
+          </div>
 
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleAddQuestion}
-              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-550 text-white rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-550 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer h-[38px] flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 whitespace-nowrap"
             >
-              {editingQIdx !== null ? 'Update Question' : 'Register Question'}
+              <Plus className="w-4 h-4" /> {editingQIdx !== null ? 'Update Question' : 'Register Question'}
             </button>
+
             {editingQIdx !== null && (
               <button
                 onClick={() => {
@@ -425,123 +549,112 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                   setNewMarks('');
                   setNewTopicTitle('');
                 }}
-                className="w-full mt-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer"
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer h-[38px] whitespace-nowrap"
               >
-                Cancel Edit
+                Cancel
               </button>
             )}
 
-            <div className="relative mt-2">
-              <label className="w-full flex items-center justify-center gap-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer border border-slate-700">
-                <Upload className="w-3.5 h-3.5" /> Bulk Upload JSON/XLSX
-                <input
-                  type="file"
-                  accept=".json,.xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
+            {/* Bulk Upload Button */}
+            <label className="px-3.5 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer border border-slate-700 h-[38px] flex items-center gap-1.5 whitespace-nowrap shadow-sm">
+              <Upload className="w-3.5 h-3.5 text-indigo-400" /> Bulk Upload JSON/XLSX
+              <input
+                type="file"
+                accept=".json,.xlsx,.xls"
+                className="hidden"
+                onChange={handleBulkUploadFile}
+              />
+            </label>
 
-                    if (file.name.endsWith('.json')) {
-                      reader.onload = (event) => {
-                        const content = event.target?.result as string;
-                        try {
-                          const parsed = JSON.parse(content);
-                          if (Array.isArray(parsed)) {
-                            onQuestionsUpdate([...questions, ...parsed]);
-                            alert(`Successfully bulk loaded ${parsed.length} questions!`);
-                          }
-                        } catch (err) { alert("Invalid JSON file"); }
-                      };
-                      reader.readAsText(file);
-                    } else {
-                      reader.onload = (event) => {
-                        try {
-                          const data = new Uint8Array(event.target?.result as ArrayBuffer);
-                          const workbook = XLSX.read(data, { type: 'array' });
-                          const sheetName = workbook.SheetNames[0];
-                          const sheet = workbook.Sheets[sheetName];
-                          const rows = XLSX.utils.sheet_to_json(sheet) as any[];
-
-                          const newQuestions: (string | InquiryQuestionObj)[] = rows.map((r, idx) => {
-                            const qText = String(r.Question || r.question || '').trim();
-                            const aText = String(r.Answer || r.answer || '').trim();
-                            const topicTitleStr = String(r.Topic || r.topic || r['Topic Title'] || r.topicTitle || '').trim();
-                            const rawMarks = r.Marks !== undefined ? r.Marks : (r.marks !== undefined ? r.marks : (r.Mark !== undefined ? r.Mark : r.mark));
-                            const parsedMarks = rawMarks !== undefined && rawMarks !== null && rawMarks !== '' && !isNaN(Number(rawMarks)) ? Number(rawMarks) : null;
-
-                            if (!qText) return null;
-
-                            return {
-                              id: `up-iq-${Date.now()}-${idx}`,
-                              text: qText,
-                              answerText: aText || null,
-                              marks: parsedMarks,
-                              topicTitle: topicTitleStr || null,
-                              imagePosition: 'right',
-                              answerImagePosition: 'right'
-                            } as InquiryQuestionObj;
-                          }).filter((q): q is NonNullable<typeof q> => q !== null);
-
-                          if (newQuestions.length > 0) {
-                            onQuestionsUpdate([...questions, ...newQuestions]);
-                            alert(`Successfully bulk loaded ${newQuestions.length} questions from Excel!`);
-                          } else {
-                            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer', 'Topic', 'Marks'.");
-                          }
-                        } catch (err) {
-                          alert("Failed to parse XLSX file");
-                        }
-                      };
-                      reader.readAsArrayBuffer(file);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            </div>
-            <div className="flex justify-end mt-1">
-              <button
-                onClick={() => {
-                  try {
-                    const worksheet = XLSX.utils.json_to_sheet([
-                      { Question: "How does this relate to chapter 1?", Answer: "Your answer here...", Topic: "Introduction", Marks: 5 },
-                      { Question: "What are the real-world applications?", Answer: "Model answer...", Topic: "Real-world Applications", Marks: 3 }
-                    ]);
-                    const workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, "Inquiry Questions");
-                    XLSX.writeFile(workbook, "inquiry_template.xlsx");
-                  } catch (e) {
-                    alert("Failed to generate Excel template");
-                  }
-                }}
-                className="text-[9px] text-emerald-400 hover:text-emerald-300 uppercase font-mono tracking-wider cursor-pointer transition-colors bg-transparent border-none"
-              >
-                Download Template XLSX
-              </button>
-            </div>
+            {/* Download Template Button */}
+            <button
+              onClick={handleDownloadTemplate}
+              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-emerald-400 hover:text-emerald-300 rounded-lg text-xs font-mono uppercase tracking-wider transition-all duration-200 cursor-pointer border border-slate-800 h-[38px] flex items-center gap-1.5 whitespace-nowrap"
+              title="Download Excel Template"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Template
+            </button>
           </div>
         </div>
+      </div>
 
-        {/* Active Question Catalog list */}
-        <div className="md:col-span-7 space-y-2.5">
-          <span className="text-[9.5px] font-mono tracking-wider text-slate-500 uppercase block">Active Inquiry Questions ({questions.length})</span>
-          <div className="bg-slate-950/20 rounded-xl border border-slate-850 divide-y divide-slate-850/50">
-            {questions.length === 0 ? (
-              <div className="p-4 text-center select-none text-[11px] text-slate-500 font-serif italic">
-                No open-ended questions compiled yet. Use the draft panel to formulate questions.
-              </div>
-            ) : (
-              questions.map((q, qIdx) => {
-                const textPreview = typeof q === 'string' ? q : (q.text.replace(/<[^>]+>/g, '').substring(0, 100) + (q.text.length > 100 ? '...' : ''));
-                const answered = hasAnswer(q);
-                const answerPreview = getAnswerPreview(q);
-                return (
-                <div key={qIdx} className="p-3 text-xs flex gap-3 bg-slate-950/30">
+      {/* 2. Active Inquiry Questions Container (Full Width, Beneath New Question Draft) */}
+      <div className="w-full space-y-3 pt-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 p-2.5 px-3.5 rounded-lg border border-slate-850">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono tracking-wider text-slate-400 uppercase font-bold">
+              Active Inquiry Questions ({questions.length})
+            </span>
+            {questions.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={questions.length > 0 && selectedIndices.length === questions.length}
+                  onChange={handleSelectAll}
+                  className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 cursor-pointer accent-rose-500"
+                />
+                <span className="text-[10px] font-mono uppercase text-slate-500">
+                  {selectedIndices.length === questions.length ? 'Deselect All' : 'Select All'}
+                </span>
+              </label>
+            )}
+          </div>
+
+          {/* Bulk Selection Actions */}
+          {selectedIndices.length > 0 && (
+            <div className="flex items-center gap-2 animate-in fade-in duration-200">
+              <span className="text-xs font-mono font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded">
+                {selectedIndices.length} Selected
+              </span>
+              <button
+                onClick={handleDeleteSelected}
+                className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-900/30"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete Selected ({selectedIndices.length})
+              </button>
+              <button
+                onClick={() => setSelectedIndices([])}
+                className="px-2 py-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer bg-transparent border-none"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-slate-950/20 rounded-xl border border-slate-850 divide-y divide-slate-850/50">
+          {questions.length === 0 ? (
+            <div className="p-6 text-center select-none text-xs text-slate-500 font-serif italic">
+              No open-ended questions compiled yet. Use the draft panel above to formulate questions or use bulk upload.
+            </div>
+          ) : (
+            questions.map((q, qIdx) => {
+              const textPreview = typeof q === 'string' ? q : (q.text.replace(/<[^>]+>/g, '').substring(0, 140) + (q.text.length > 140 ? '...' : ''));
+              const answered = hasAnswer(q);
+              const answerPreview = getAnswerPreview(q);
+              const isSelected = selectedIndices.includes(qIdx);
+
+              return (
+                <div
+                  key={qIdx}
+                  className={`p-3 text-xs flex items-start gap-3 transition-colors ${
+                    isSelected ? 'bg-rose-950/20 border-l-4 border-l-rose-500' : 'bg-slate-950/30 hover:bg-slate-900/40'
+                  }`}
+                >
+                  {/* Select Checkbox */}
+                  <div className="pt-0.5 flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelectQuestion(qIdx)}
+                      className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 cursor-pointer accent-rose-500"
+                      title={`Select Question Q${qIdx + 1}`}
+                    />
+                  </div>
+
                   <div className="space-y-1.5 w-full min-w-0">
-                    {/* Question row */}
-                    <div className="flex items-start justify-between gap-2">
+                    {/* Question Row */}
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           {typeof q !== 'string' && q.topicTitle && (
@@ -554,13 +667,18 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                               {q.marks} Marks
                             </span>
                           )}
+                          {typeof q !== 'string' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
+                              Rich Text
+                            </span>
+                          )}
                         </div>
-                        <span className="font-bold text-emerald-400 block pr-2 break-words">
+                        <span className="font-bold text-emerald-400 block pr-2 break-words text-xs leading-relaxed">
                           Q{qIdx + 1}. {textPreview}
-                          {typeof q !== 'string' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">Rich Text</span>}
                         </span>
                       </div>
-                      {/* Question actions */}
+
+                      {/* Question Actions */}
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <button
                           onClick={() => handleToggleDisplayMode(qIdx)}
@@ -589,7 +707,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                       </div>
                     </div>
 
-                    {/* Answer row */}
+                    {/* Answer Row */}
                     <div className="flex items-center justify-between gap-2 pl-3 border-l-2 border-slate-800">
                       <div className="min-w-0 flex-1 flex items-center gap-2">
                         {answered ? (
@@ -610,7 +728,9 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                       {typeof q !== 'string' ? (
                         <button
                           onClick={() => handleEditAnswer(qIdx)}
-                          className={`text-[10px] cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap flex-shrink-0 ${answered ? 'text-amber-400 hover:text-amber-300' : 'text-slate-500 hover:text-amber-400'}`}
+                          className={`text-[10px] cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap flex-shrink-0 ${
+                            answered ? 'text-amber-400 hover:text-amber-300' : 'text-slate-500 hover:text-amber-400'
+                          }`}
                         >
                           {answered ? 'Edit A' : '+ Add A'}
                         </button>
@@ -620,9 +740,9 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                     </div>
                   </div>
                 </div>
-              )})
-            )}
-          </div>
+              );
+            })
+          )}
         </div>
       </div>
 

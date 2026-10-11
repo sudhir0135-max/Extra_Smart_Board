@@ -127,6 +127,48 @@ async function externalizeInteractiveImages(interactiveImages: InteractiveImageD
   );
 }
 
+/**
+ * Fast check if any field inside a lesson contains base64 data-URIs.
+ * Avoids unnecessary thousands of allocations/regex scans if images are already hosted URLs.
+ */
+function lessonHasBase64(lesson: Lesson): boolean {
+  for (const page of lesson.pages ?? []) {
+    if (isBase64(page.leftImage) || isBase64(page.centerImage) || isBase64(page.rightImage)) return true;
+    if (page.content && page.content.includes('data:image/')) return true;
+  }
+  for (const q of lesson.inquiryQuestions ?? []) {
+    if (typeof q !== 'string') {
+      if (isBase64(q.image) || isBase64(q.answerImage)) return true;
+      if (q.text && q.text.includes('data:image/')) return true;
+      if (q.answerText && q.answerText.includes('data:image/')) return true;
+    }
+  }
+  for (const fq of lesson.flashQuestions ?? []) {
+    if (fq.question && fq.question.includes('data:image/')) return true;
+    if (fq.answer && fq.answer.includes('data:image/')) return true;
+  }
+  if (lesson.topics) {
+    for (const t of lesson.topics) {
+      for (const page of t.pages ?? []) {
+        if (isBase64(page.leftImage) || isBase64(page.centerImage) || isBase64(page.rightImage)) return true;
+        if (page.content && page.content.includes('data:image/')) return true;
+      }
+      for (const q of t.inquiryQuestions ?? []) {
+        if (typeof q !== 'string') {
+          if (isBase64(q.image) || isBase64(q.answerImage)) return true;
+          if (q.text && q.text.includes('data:image/')) return true;
+          if (q.answerText && q.answerText.includes('data:image/')) return true;
+        }
+      }
+      for (const fq of t.flashQuestions ?? []) {
+        if (fq.question && fq.question.includes('data:image/')) return true;
+        if (fq.answer && fq.answer.includes('data:image/')) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ─── public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -134,6 +176,11 @@ async function externalizeInteractiveImages(interactiveImages: InteractiveImageD
  * and return a new Lesson object with all base64 replaced by URLs.
  */
 export async function externalizeLessonImages(lesson: Lesson, bookId: number, subjectName?: string): Promise<Lesson> {
+  // Fast path: if there are no base64 images in this lesson, skip recursive externalization
+  if (!lessonHasBase64(lesson)) {
+    return lesson;
+  }
+
   const basePath = `books/${bookId}/lessons/${lesson.id}/images`;
 
   const processedPages = await Promise.all(
@@ -235,8 +282,9 @@ export async function externalizeBookImages(book: Book): Promise<Book> {
   const coverImage = await externalizeField(book.coverImage, coverPath);
 
   const lessons = await Promise.all(
-    book.lessons.map((lesson) => externalizeLessonImages(lesson, book.id))
+    (book.lessons || []).map((lesson) => externalizeLessonImages(lesson, book.id))
   );
 
   return { ...book, coverImage: coverImage ?? null, lessons };
 }
+

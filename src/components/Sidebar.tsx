@@ -40,10 +40,10 @@ export default function Sidebar({
   setImageViewMode,
 }: SidebarProps) {
   return (
-    <div className="relative h-full flex-shrink-0 z-40" style={{ width: '72px' }}>
+    <div className="relative h-full flex-shrink-0 z-40" style={{ width: isExpanded ? '320px' : '58px' }}>
       <div
         className={`absolute top-0 left-0 h-full bg-[#0c1220] border-r border-slate-900 flex flex-col overflow-hidden text-slate-200 select-none transition-all duration-300 shadow-2xl ${
-          isExpanded ? 'w-[320px]' : 'w-[72px]'
+          isExpanded ? 'w-[320px]' : 'w-[58px]'
         }`}
         id="sidebar"
       >
@@ -51,7 +51,9 @@ export default function Sidebar({
 
       {/* Chapters / Lessons Content list container */}
       <div
-        className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3 cursor-pointer"
+        className={`flex-1 overflow-y-auto no-scrollbar space-y-3 cursor-pointer ${
+          isExpanded ? 'p-3' : 'py-3 px-1.5'
+        }`}
         id="lessons-list"
         onClick={(e) => {
           if (!isExpanded) {
@@ -106,7 +108,7 @@ export default function Sidebar({
                     e.stopPropagation();
                     onSelectLesson(lesson.id);
                   }}
-                  className={`w-11 h-11 mx-auto rounded-full flex items-center justify-center font-mono text-[16.5px] transition-all cursor-pointer relative ${
+                  className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center font-mono text-[15px] shrink-0 transition-all cursor-pointer relative ${
                     isActive
                       ? 'bg-amber-400 text-slate-950 font-black border border-amber-300 shadow-md shadow-amber-500/10'
                       : 'bg-slate-950 text-slate-400 hover:text-slate-100 hover:bg-slate-900/40 border border-slate-850'

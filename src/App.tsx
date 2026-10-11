@@ -53,6 +53,7 @@ export default function App() {
 
   // Primary database and loading structures
   const [firebaseBooks, setFirebaseBooks] = useState<Book[]>([]);
+  const [subLessonsCache, setSubLessonsCache] = useState<Record<number, Lesson[]>>({});
   const offlineBookLessons = useLiveQuery(() => dbLocal.offline_lessons.toArray());
   const [editorSubmissions, setEditorSubmissions] = useState<EditorSubmission[]>([]);
   const [previewSubmissionBookId, setPreviewSubmissionBookId] = useState<number | null>(null);
@@ -162,6 +163,10 @@ export default function App() {
         loadedBooks.sort((a,b) => a.id - b.id);
         setFirebaseBooks(prev => {
           const newBooks = loadedBooks.map(lb => {
+            const cached = subLessonsCache[lb.id];
+            if (cached && cached.length > 0) {
+              return { ...lb, lessons: cached };
+            }
             const existingBook = prev.find(p => p.id === lb.id);
             if (existingBook && existingBook.lessons && existingBook.lessons.length > 0 && (!lb.lessons || lb.lessons.length === 0)) {
               return { ...lb, lessons: existingBook.lessons };
@@ -206,9 +211,10 @@ export default function App() {
       await deleteBatch.commit();
     }
 
-    // Save lessons chapter-wise to avoid 1MB limit and show granular progress
+    // Save lessons chapter-wise to avoid 1MB limit in parallel chunks
     if (firestoreBook.lessons) {
       const BATCH_SIZE = 20;
+      const batchPromises: Promise<any>[] = [];
       for (let i = 0; i < firestoreBook.lessons.length; i += BATCH_SIZE) {
         const batch = writeBatch(db);
         const chunk = firestoreBook.lessons.slice(i, i + BATCH_SIZE);
@@ -219,12 +225,18 @@ export default function App() {
             order: globalOrder
           });
         });
-        await batch.commit();
-        addToast(`Lessons ${i + 1}-${Math.min(i + BATCH_SIZE, firestoreBook.lessons.length)} synchronized.`, 'cloud');
+        batchPromises.push(batch.commit());
       }
+      await Promise.all(batchPromises);
+      addToast(`${firestoreBook.lessons.length} lessons synchronized successfully.`, 'cloud');
     }
 
-    // ALSO update IndexedDB local storage so offline_lessons matches the newly saved lessons!
+    // ALSO update in-memory cache and IndexedDB local storage so offline_lessons matches the newly saved lessons!
+    setSubLessonsCache(prev => ({
+      ...prev,
+      [firestoreBook.id]: firestoreBook.lessons || []
+    }));
+
     await dbLocal.offline_lessons.put({
       bookId: firestoreBook.id,
       lessons: firestoreBook.lessons || [],
@@ -295,9 +307,11 @@ export default function App() {
       const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
       
       if (!lessonsSnap.empty) {
-        const subLessons = lessonsSnap.docs.map(ld => ld.data() as Lesson & { order?: number });
+        const subLessons = lessonsSnap.docs.map(ld => ({
+          id: ld.id,
+          ...ld.data()
+        }) as Lesson & { order?: number });
         subLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        let fetchedValidLesson = false;
         
         const sanitizedLessons = subLessons
           .filter((l: any) => l !== null && l !== undefined)
@@ -305,9 +319,38 @@ export default function App() {
             ...l,
             pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
             flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
-            inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+            inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined),
+            topics: Array.isArray(l.topics) ? l.topics.map((t: any) => ({
+              ...t,
+              pages: (Array.isArray(t.pages) ? t.pages : (t.pages ? Object.values(t.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+              flashQuestions: (Array.isArray(t.flashQuestions) ? t.flashQuestions : (t.flashQuestions ? Object.values(t.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+              inquiryQuestions: (Array.isArray(t.inquiryQuestions) ? t.inquiryQuestions : (t.inquiryQuestions ? Object.values(t.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+            })).filter((t: any) => t !== null && t !== undefined) : undefined
           }));
 
+        // 1. Immediately cache in React state so UI has it regardless of firebaseBooks loading state
+        setSubLessonsCache(prev => ({
+          ...prev,
+          [bookId]: sanitizedLessons
+        }));
+
+        // 2. Persist subcollection lessons to local disk storage (IndexedDB)
+        dbLocal.offline_lessons.put({
+          bookId: bookId,
+          bookTitle: 'Textbook',
+          lessons: sanitizedLessons,
+          sync_status: 'synced',
+          updated_at: new Date().toISOString()
+        }).catch(console.error);
+
+        // 3. Pre-cache chapter PDFs locally in background
+        sanitizedLessons.forEach(l => {
+          if (l.pdfUrl && l.pdfUrl.trim().length > 0) {
+            downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
+          }
+        });
+
+        // 4. Update firebaseBooks state if book already exists in array
         setFirebaseBooks(prev => {
           const bookIndex = prev.findIndex(b => b.id === bookId);
           if (bookIndex === -1) return prev;
@@ -315,39 +358,18 @@ export default function App() {
           const book = prev[bookIndex];
           const newBooks = [...prev];
           newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
-
-          // Persist subcollection lessons to local disk storage
-          dbLocal.offline_lessons.put({
-            bookId: bookId,
-            bookTitle: book.title || 'Textbook',
-            lessons: sanitizedLessons,
-            sync_status: 'synced',
-            updated_at: new Date().toISOString()
-          }).catch(console.error);
-
-          // Pre-cache chapter PDFs locally in background
-          sanitizedLessons.forEach(l => {
-            if (l.pdfUrl && l.pdfUrl.trim().length > 0) {
-              downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
-            }
-          });
-          
-          const isValidLesson = sanitizedLessons.some(l => l.id === activeLessonId);
-          if (sanitizedLessons.length > 0 && !isValidLesson) {
-             fetchedValidLesson = true;
-          }
-
           return newBooks;
         });
-        
-        if (fetchedValidLesson) {
-           setActiveLessonId(subLessons[0]?.id);
+
+        // 5. Update active lesson ID safely without closure staleness
+        if (subLessons.length > 0) {
+          setActiveLessonId(prev => sanitizedLessons.some(l => l.id === prev) ? prev : subLessons[0]?.id);
         }
       }
     } catch (err) {
       console.error(`Error loading subcollection lessons for book ${bookId}`, err);
     }
-  }, [activeLessonId]);
+  }, []);
 
   useEffect(() => {
     if (!selectedBookId) return;
@@ -410,6 +432,22 @@ export default function App() {
       }));
     }
 
+    // Merge in-memory subcollection lessons cache into baseBooks if b.lessons is empty or missing inquiry questions
+    baseBooks = baseBooks.map(b => {
+      const cached = subLessonsCache[b.id];
+      if (cached && cached.length > 0) {
+        if (!b.lessons || b.lessons.length === 0) {
+          return { ...b, lessons: cached };
+        }
+        const bHasIQ = b.lessons.some(l => l.inquiryQuestions && l.inquiryQuestions.length > 0);
+        const cachedHasIQ = cached.some(l => l.inquiryQuestions && l.inquiryQuestions.length > 0);
+        if (!bHasIQ && cachedHasIQ) {
+          return { ...b, lessons: cached };
+        }
+      }
+      return b;
+    });
+
     if (!offlineBookLessons || offlineBookLessons.length === 0) {
       return baseBooks;
     }
@@ -429,7 +467,8 @@ export default function App() {
               // explicitly prefer live arrays if offline arrays are empty or missing
               flashQuestions: (ol.flashQuestions && ol.flashQuestions.length > 0) ? ol.flashQuestions : (liveL.flashQuestions || []),
               inquiryQuestions: (ol.inquiryQuestions && ol.inquiryQuestions.length > 0) ? ol.inquiryQuestions : (liveL.inquiryQuestions || []),
-              pages: (ol.pages && ol.pages.length > 0) ? ol.pages : (liveL.pages || [])
+              pages: (ol.pages && ol.pages.length > 0) ? ol.pages : (liveL.pages || []),
+              topics: (ol.topics && ol.topics.length > 0) ? ol.topics : (liveL.topics || [])
             };
           }
           return ol;
@@ -448,7 +487,7 @@ export default function App() {
       }
       return b;
     });
-  }, [firebaseBooks, offlineBookLessons, previewSubmissionBookId, previewLessons]);
+  }, [firebaseBooks, offlineBookLessons, previewSubmissionBookId, previewLessons, subLessonsCache]);
 
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
@@ -916,8 +955,10 @@ export default function App() {
 
       for (const targetBook of targetBooks) {
         const bookId = targetBook.id;
-        const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
-        const subLessons = lessonsSnap.docs.map(ld => ld.data() as Lesson & { order?: number });
+        const subLessons = lessonsSnap.docs.map(ld => ({
+          id: ld.id,
+          ...ld.data()
+        }) as Lesson & { order?: number });
         subLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         
         // Use subcollection lessons as source of truth for live lessons if available
@@ -929,10 +970,22 @@ export default function App() {
             ...l,
             pages: (Array.isArray(l.pages) ? l.pages : (l.pages ? Object.values(l.pages) : [])).filter((p: any) => p !== null && p !== undefined),
             flashQuestions: (Array.isArray(l.flashQuestions) ? l.flashQuestions : (l.flashQuestions ? Object.values(l.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
-            inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+            inquiryQuestions: (Array.isArray(l.inquiryQuestions) ? l.inquiryQuestions : (l.inquiryQuestions ? Object.values(l.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined),
+            topics: Array.isArray(l.topics) ? l.topics.map((t: any) => ({
+              ...t,
+              pages: (Array.isArray(t.pages) ? t.pages : (t.pages ? Object.values(t.pages) : [])).filter((p: any) => p !== null && p !== undefined),
+              flashQuestions: (Array.isArray(t.flashQuestions) ? t.flashQuestions : (t.flashQuestions ? Object.values(t.flashQuestions) : [])).filter((fq: any) => fq !== null && fq !== undefined),
+              inquiryQuestions: (Array.isArray(t.inquiryQuestions) ? t.inquiryQuestions : (t.inquiryQuestions ? Object.values(t.inquiryQuestions) : [])).filter((iq: any) => iq !== null && iq !== undefined)
+            })).filter((t: any) => t !== null && t !== undefined) : undefined
           }));
 
         totalSyncedLessons += sanitizedFirestoreLessons.length;
+
+        // Immediately update in-memory cache
+        setSubLessonsCache(prev => ({
+          ...prev,
+          [bookId]: sanitizedFirestoreLessons
+        }));
 
         // Check IndexedDB offline storage
         const offlineData = await dbLocal.offline_lessons.get(bookId);
