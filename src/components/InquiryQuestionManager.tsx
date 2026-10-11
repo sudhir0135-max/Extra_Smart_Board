@@ -15,22 +15,53 @@ import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/ti
 export interface InquiryQuestionManagerProps {
   questions: (string | InquiryQuestionObj)[];
   onQuestionsUpdate: (newQuestions: (string | InquiryQuestionObj)[]) => void;
+  activeTopicTitle?: string;
 }
 
 type EditorTab = 'question' | 'answer';
 
-export default function InquiryQuestionManager({ questions, onQuestionsUpdate }: InquiryQuestionManagerProps) {
+export default function InquiryQuestionManager({ questions, onQuestionsUpdate, activeTopicTitle }: InquiryQuestionManagerProps) {
   const [newQText, setNewQText] = useState('');
   const [newAText, setNewAText] = useState('');
   const [newMarks, setNewMarks] = useState<number | ''>('');
-  const [newTopicTitle, setNewTopicTitle] = useState('');
+  const [newTopicTitle, setNewTopicTitle] = useState(activeTopicTitle || '');
   const [editingQIdx, setEditingQIdx] = useState<number | null>(null);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+  const [filterTopic, setFilterTopic] = useState<'all' | 'active'>('all');
+
+  // Pre-fill topic field when activeTopicTitle changes and not editing
+  useEffect(() => {
+    if (activeTopicTitle && editingQIdx === null) {
+      setNewTopicTitle(activeTopicTitle);
+    }
+  }, [activeTopicTitle, editingQIdx]);
 
   // Keep selected indices bounded if questions array changes
   useEffect(() => {
     setSelectedIndices(prev => prev.filter(i => i < questions.length));
   }, [questions.length]);
+
+  const activeTopicQuestionsCount = React.useMemo(() => {
+    if (!activeTopicTitle) return 0;
+    const activeLower = activeTopicTitle.trim().toLowerCase();
+    return questions.filter(q => {
+      if (typeof q === 'string') return false;
+      return (q.topicTitle || '').trim().toLowerCase() === activeLower;
+    }).length;
+  }, [questions, activeTopicTitle]);
+
+  const displayedQuestions = React.useMemo(() => {
+    if (!activeTopicTitle || filterTopic === 'all') {
+      return questions.map((q, origIdx) => ({ q, origIdx }));
+    }
+    const activeLower = activeTopicTitle.trim().toLowerCase();
+    return questions
+      .map((q, origIdx) => ({ q, origIdx }))
+      .filter(({ q }) => {
+        if (typeof q === 'string') return false;
+        return (q.topicTitle || '').trim().toLowerCase() === activeLower;
+      });
+  }, [questions, activeTopicTitle, filterTopic]);
 
   const toggleSelectQuestion = (idx: number) => {
     setSelectedIndices(prev => 
@@ -39,10 +70,12 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
   };
 
   const handleSelectAll = () => {
-    if (selectedIndices.length === questions.length) {
-      setSelectedIndices([]);
+    const displayedOrigIndices = displayedQuestions.map(d => d.origIdx);
+    const allDisplayedSelected = displayedOrigIndices.length > 0 && displayedOrigIndices.every(i => selectedIndices.includes(i));
+    if (allDisplayedSelected) {
+      setSelectedIndices(prev => prev.filter(i => !displayedOrigIndices.includes(i)));
     } else {
-      setSelectedIndices(questions.map((_, i) => i));
+      setSelectedIndices(prev => Array.from(new Set([...prev, ...displayedOrigIndices])));
     }
   };
 
@@ -267,7 +300,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
     setNewQText('');
     setNewAText('');
     setNewMarks('');
-    setNewTopicTitle('');
+    setNewTopicTitle(activeTopicTitle || '');
   };
 
   const handleEditQuestion = (q: string | InquiryQuestionObj, idx: number) => {
@@ -547,7 +580,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                   setNewQText('');
                   setNewAText('');
                   setNewMarks('');
-                  setNewTopicTitle('');
+                  setNewTopicTitle(activeTopicTitle || '');
                 }}
                 className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer h-[38px] whitespace-nowrap"
               >
@@ -581,20 +614,52 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
       {/* 2. Active Inquiry Questions Container (Full Width, Beneath New Question Draft) */}
       <div className="w-full space-y-3 pt-1">
         <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 p-2.5 px-3.5 rounded-lg border border-slate-850">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[10px] font-mono tracking-wider text-slate-400 uppercase font-bold">
               Active Inquiry Questions ({questions.length})
             </span>
-            {questions.length > 0 && (
+
+            {/* Topic Filter Pills */}
+            {activeTopicTitle && (
+              <div className="flex items-center gap-1 bg-slate-900/80 p-0.5 rounded-lg border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFilterTopic('all')}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                    filterTopic === 'all'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  All Chapter Questions ({questions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterTopic('active')}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    filterTopic === 'active'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  <span>This Topic: {activeTopicTitle}</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-black/40 font-mono">
+                    {activeTopicQuestionsCount}
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {displayedQuestions.length > 0 && (
               <label className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={questions.length > 0 && selectedIndices.length === questions.length}
+                  checked={displayedQuestions.length > 0 && displayedQuestions.every(d => selectedIndices.includes(d.origIdx))}
                   onChange={handleSelectAll}
                   className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 cursor-pointer accent-rose-500"
                 />
                 <span className="text-[10px] font-mono uppercase text-slate-500">
-                  {selectedIndices.length === questions.length ? 'Deselect All' : 'Select All'}
+                  {displayedQuestions.length > 0 && displayedQuestions.every(d => selectedIndices.includes(d.origIdx)) ? 'Deselect All' : 'Select All'}
                 </span>
               </label>
             )}
@@ -623,20 +688,33 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
         </div>
 
         <div className="bg-slate-950/20 rounded-xl border border-slate-850 divide-y divide-slate-850/50">
-          {questions.length === 0 ? (
-            <div className="p-6 text-center select-none text-xs text-slate-500 font-serif italic">
-              No open-ended questions compiled yet. Use the draft panel above to formulate questions or use bulk upload.
+          {displayedQuestions.length === 0 ? (
+            <div className="p-6 text-center select-none text-xs text-slate-500 font-serif italic space-y-2">
+              {questions.length === 0 ? (
+                <div>No open-ended questions compiled yet for this chapter. Use the draft panel above to formulate questions or use bulk upload.</div>
+              ) : (
+                <div className="space-y-2">
+                  <p>No inquiry questions tagged with topic "{activeTopicTitle}" yet ({questions.length} total questions exist in this chapter).</p>
+                  <button
+                    type="button"
+                    onClick={() => setFilterTopic('all')}
+                    className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg text-xs font-bold transition-all cursor-pointer font-sans not-italic"
+                  >
+                    View All Chapter Questions ({questions.length})
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
-            questions.map((q, qIdx) => {
+            displayedQuestions.map(({ q, origIdx }) => {
               const textPreview = typeof q === 'string' ? q : (q.text.replace(/<[^>]+>/g, '').substring(0, 140) + (q.text.length > 140 ? '...' : ''));
               const answered = hasAnswer(q);
               const answerPreview = getAnswerPreview(q);
-              const isSelected = selectedIndices.includes(qIdx);
+              const isSelected = selectedIndices.includes(origIdx);
 
               return (
                 <div
-                  key={qIdx}
+                  key={origIdx}
                   className={`p-3 text-xs flex items-start gap-3 transition-colors ${
                     isSelected ? 'bg-rose-950/20 border-l-4 border-l-rose-500' : 'bg-slate-950/30 hover:bg-slate-900/40'
                   }`}
@@ -646,9 +724,9 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => toggleSelectQuestion(qIdx)}
+                      onChange={() => toggleSelectQuestion(origIdx)}
                       className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 cursor-pointer accent-rose-500"
-                      title={`Select Question Q${qIdx + 1}`}
+                      title={`Select Question Q${origIdx + 1}`}
                     />
                   </div>
 
@@ -674,14 +752,14 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                           )}
                         </div>
                         <span className="font-bold text-emerald-400 block pr-2 break-words text-xs leading-relaxed">
-                          Q{qIdx + 1}. {textPreview}
+                          Q{origIdx + 1}. {textPreview}
                         </span>
                       </div>
 
                       {/* Question Actions */}
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <button
-                          onClick={() => handleToggleDisplayMode(qIdx)}
+                          onClick={() => handleToggleDisplayMode(origIdx)}
                           className={`px-2 py-0.5 rounded text-[9.5px] font-bold font-mono transition-all cursor-pointer border ${
                             typeof q !== 'string' && q.displayMode === 'accountancy_tabs'
                               ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
@@ -693,13 +771,13 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                         </button>
 
                         <button
-                          onClick={() => handleEditQuestion(q, qIdx)}
+                          onClick={() => handleEditQuestion(q, origIdx)}
                           className="text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap"
                         >
                           Edit Q
                         </button>
                         <button
-                          onClick={() => handleDeleteQuestion(qIdx)}
+                          onClick={() => handleDeleteQuestion(origIdx)}
                           className="text-[10px] text-rose-400 hover:text-rose-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider"
                         >
                           Delete
@@ -727,7 +805,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate }:
                       {/* Answer action — only for rich-text questions (InquiryQuestionObj) */}
                       {typeof q !== 'string' ? (
                         <button
-                          onClick={() => handleEditAnswer(qIdx)}
+                          onClick={() => handleEditAnswer(origIdx)}
                           className={`text-[10px] cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap flex-shrink-0 ${
                             answered ? 'text-amber-400 hover:text-amber-300' : 'text-slate-500 hover:text-amber-400'
                           }`}

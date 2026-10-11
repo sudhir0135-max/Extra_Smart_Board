@@ -44,7 +44,8 @@ import {
   AlignRight,
   AlignJustify,
   CheckCircle2,
-  Cloud
+  Cloud,
+  Clock
 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
@@ -63,7 +64,9 @@ interface BookEditorPanelProps {
   currentUser?: any;
   isPreviewMode?: boolean;
   previewBookId?: number | null;
-  onApproveSubmission?: (bookId: number, lessons: Lesson[]) => Promise<void>;
+  previewPendingLessonIds?: string[];
+  previewDeletedLessonIds?: string[];
+  onApproveSubmission?: (bookId: number, lessons: Lesson[], lessonIdToApprove?: string) => Promise<void>;
   fetchBookLessons?: (bookId: number) => Promise<void>;
 }
 
@@ -78,6 +81,8 @@ export default function BookEditorPanel({
   currentUser,
   isPreviewMode,
   previewBookId,
+  previewPendingLessonIds = [],
+  previewDeletedLessonIds = [],
   onApproveSubmission,
 }: BookEditorPanelProps) {
   // Removed internal mock login states
@@ -85,6 +90,28 @@ export default function BookEditorPanel({
     isPreviewMode && previewBookId != null ? previewBookId : null
   );
   const [authLoading, setAuthLoading] = useState(!isPreviewMode);
+
+  // Editor-side: listen to editor_submissions to highlight chapters that are awaiting admin approval
+  const [editorPendingLessonIds, setEditorPendingLessonIds] = useState<string[]>([]);
+  const [editorDeletedLessonIds, setEditorDeletedLessonIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (isPreviewMode || !assignedBookId) return;
+    let unsub = () => {};
+    import('firebase/firestore').then(({ onSnapshot, doc }) => {
+      unsub = onSnapshot(doc(db, 'editor_submissions', assignedBookId.toString()), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setEditorPendingLessonIds(data.pendingLessonIds || []);
+          setEditorDeletedLessonIds(data.deletedLessonIds || []);
+        } else {
+          setEditorPendingLessonIds([]);
+          setEditorDeletedLessonIds([]);
+        }
+      }, (err) => console.error("Editor pending submission listener error:", err));
+    });
+    return () => unsub();
+  }, [isPreviewMode, assignedBookId]);
 
   useEffect(() => {
     // In preview mode, the admin has already provided the bookId via prop — skip auth check entirely.
@@ -360,18 +387,36 @@ export default function BookEditorPanel({
       let modifiedBook: Book;
 
       if (isEditingTopic && selectedTopic) {
+        const oldTitle = selectedTopic.title.trim();
+        const newTitle = topicTitleDraft.trim();
+        const oldTitleLower = oldTitle.toLowerCase();
+
         modifiedBook = {
           ...assignedBook,
           lessons: assignedBook.lessons.map(l => {
             if (l.id !== activeLesson.id) return l;
+            // Update topicTitle on any inquiry questions referencing the old title
+            const updatedInquiry = (l.inquiryQuestions || []).map(q => {
+              if (typeof q !== 'string' && q.topicTitle && q.topicTitle.trim().toLowerCase() === oldTitleLower) {
+                return { ...q, topicTitle: newTitle };
+              }
+              return q;
+            });
             return {
               ...l,
+              inquiryQuestions: updatedInquiry,
               topics: (l.topics || []).map(t => {
                 if (t.id !== selectedTopic.id) return t;
                 return {
                   ...t,
-                  title: topicTitleDraft.trim(),
-                  videoUrl: topicVideoUrlDraft.trim() || null
+                  title: newTitle,
+                  videoUrl: topicVideoUrlDraft.trim() || null,
+                  inquiryQuestions: (t.inquiryQuestions || []).map(q => {
+                    if (typeof q !== 'string' && q.topicTitle && q.topicTitle.trim().toLowerCase() === oldTitleLower) {
+                      return { ...q, topicTitle: newTitle };
+                    }
+                    return q;
+                  })
                 };
               })
             };
@@ -379,7 +424,7 @@ export default function BookEditorPanel({
         };
         await saveBookLocally(modifiedBook);
         setIsEditingTopic(false);
-        flashMessage(`Topic '${topicTitleDraft.trim()}' updated!`);
+        flashMessage(`Topic '${newTitle}' updated!`);
       } else {
         const newTopic: Topic = {
           id: `topic-${Date.now()}`,
@@ -723,13 +768,28 @@ export default function BookEditorPanel({
               <>
                 <button
                   onClick={async () => {
-                    if (onApproveSubmission && assignedBook) {
-                      await onApproveSubmission(assignedBook.id, assignedBook.lessons);
+                    if (onApproveSubmission && assignedBook && selectedLessonId) {
+                      await onApproveSubmission(assignedBook.id, assignedBook.lessons, selectedLessonId);
                     }
                   }}
-                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white p-2 px-4 rounded-lg text-xs font-bold uppercase tracking-wider select-none cursor-pointer transition-all mr-2 shadow-lg shadow-emerald-900/50"
+                  disabled={!selectedLessonId}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider select-none cursor-pointer transition-all mr-2 shadow-lg shadow-emerald-900/50"
+                  title="Approve and sync the currently selected chapter to the live curriculum"
                 >
-                  <CheckCircle2 className="w-4 h-4" /> Approve & Sync Live
+                  <CheckCircle2 className="w-4 h-4" /> Approve This Chapter
+                </button>
+                <button
+                  onClick={async () => {
+                    if (onApproveSubmission && assignedBook) {
+                      if (window.confirm("Approve and sync ALL chapters in this submission live at once?")) {
+                        await onApproveSubmission(assignedBook.id, assignedBook.lessons);
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 p-2 px-3 rounded-lg text-xs font-medium select-none cursor-pointer transition-all mr-2 border border-slate-700"
+                  title="Approve all submitted chapters at once"
+                >
+                  Approve All
                 </button>
                 <button
                   onClick={onClose}
@@ -743,66 +803,103 @@ export default function BookEditorPanel({
                 <button
                   onClick={async () => {
                     if (!assignedBook || !currentUser) return;
+                    if (!selectedLessonId || !activeLesson) {
+                      alert("Please select a chapter from the list on the left to submit.");
+                      return;
+                    }
+
                     try {
-                      // Ensure any un-saved text inputs (like Video URL) are captured right before submit
-                      await handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts }, true);
-                      
-                      const { doc, setDoc, collection, writeBatch } = await import('firebase/firestore');
+                      const { doc, setDoc, getDoc } = await import('firebase/firestore');
                       const offlineBook = await dbLocal.offline_lessons.get(assignedBook.id);
                       if (!offlineBook) {
-                        alert("No local data to submit.");
+                        alert("No local data found for this book.");
                         return;
                       }
 
-                      const bookIdStr = assignedBook.id.toString();
-                      const rawLessons: any[] = offlineBook.lessons ?? [];
+                      // Find the selected lesson in offline storage
+                      const rawLesson = (offlineBook.lessons ?? []).find((l: any) => l.id === selectedLessonId);
+                      if (!rawLesson) {
+                        alert("Selected chapter not found in local offline storage.");
+                        return;
+                      }
+
+                      // Patch in-flight text drafts for the active chapter
+                      const patchedLesson = {
+                        ...rawLesson,
+                        title: activeLessonTitleDraft || rawLesson.title,
+                        subtitle: activeLessonSubtitleDraft !== undefined ? activeLessonSubtitleDraft : rawLesson.subtitle,
+                        videoUrls: activeLessonVideoDrafts !== undefined ? activeLessonVideoDrafts : rawLesson.videoUrls,
+                      };
 
                       setIsSaving(true);
-                      
-                      // 0. Externalize base64 images to Firebase Storage to prevent 1MB Firestore limit crash
-                      const { externalizeLessonImages } = await import('../lib/imageExternalizer');
-                      const lessons = (await Promise.all(
-                        rawLessons.map(lesson => externalizeLessonImages(lesson, assignedBook.id))
-                      )).map(l => JSON.parse(JSON.stringify(l)));
 
-                      // 1. Write lightweight metadata doc (no lessons array = stays tiny)
-                      await setDoc(doc(db, 'editor_submissions', bookIdStr), {
+                      // Externalize any base64 images in this lesson to Firebase Storage
+                      const { externalizeLessonImages } = await import('../lib/imageExternalizer');
+                      const cleanLesson = JSON.parse(JSON.stringify(
+                        await externalizeLessonImages(patchedLesson, assignedBook.id)
+                      ));
+
+                      const bookIdStr = assignedBook.id.toString();
+                      const lessonOrder = assignedBook.lessons.findIndex(l => l.id === selectedLessonId);
+                      const lessonWithOrder = { ...cleanLesson, order: lessonOrder >= 0 ? lessonOrder : 0 };
+
+                      // Check serialized byte length. Firestore max doc size is 1,048,576 bytes.
+                      // If JSON is > 750,000 bytes, offload the full lesson payload to Firebase Storage
+                      // and store a pointer doc in Firestore to guarantee we never hit the 1MB limit.
+                      let docToWrite = lessonWithOrder;
+                      const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
+                      if (jsonLength > 750000) {
+                        const { uploadLargeLessonPayload } = await import('../lib/firebaseHelper');
+                        const storagePath = `editor_submissions/${bookIdStr}/lessons/${selectedLessonId}`;
+                        const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
+                        docToWrite = pointerLesson;
+                      }
+
+                      // Write this chapter to editor_submissions/{bookId}/lessons/{lessonId}
+                      const lessonRef = doc(db, 'editor_submissions', bookIdStr, 'lessons', selectedLessonId);
+                      await setDoc(lessonRef, docToWrite);
+
+                      // Update parent metadata doc
+                      const metaRef = doc(db, 'editor_submissions', bookIdStr);
+                      const currentMetaSnap = await getDoc(metaRef);
+                      const existingMeta = currentMetaSnap.exists() ? currentMetaSnap.data() : null;
+                      const existingPending: string[] = existingMeta?.pendingLessonIds || [];
+                      const updatedPending = Array.from(new Set([...existingPending, selectedLessonId]));
+                      const updatedDeleted: string[] = (existingMeta?.deletedLessonIds || []).filter((id: string) => id !== selectedLessonId);
+
+                      await setDoc(metaRef, {
                         bookId: assignedBook.id,
                         editorId: currentUser.uid || currentUser.id,
                         editorEmail: currentUser.email,
-                        lessonCount: lessons.length,
+                        lessonCount: updatedPending.length,
+                        pendingLessonIds: updatedPending,
+                        deletedLessonIds: updatedDeleted,
                         timestamp: Date.now()
-                      });
+                      }, { merge: true });
 
-                      // 2. Write each lesson into a subcollection in batches of 20 in parallel
-                      //    (Firestore batch limit = 500 ops, but lessons can be large)
-                      const BATCH_SIZE = 20;
-                      const batchPromises: Promise<any>[] = [];
-                      for (let i = 0; i < lessons.length; i += BATCH_SIZE) {
-                        const batch = writeBatch(db);
-                        const chunk = lessons.slice(i, i + BATCH_SIZE);
-                        chunk.forEach((lesson, j) => {
-                          const lessonRef = doc(
-                            collection(db, 'editor_submissions', bookIdStr, 'lessons'),
-                            String(i + j)
-                          );
-                          batch.set(lessonRef, lesson);
-                        });
-                        batchPromises.push(batch.commit());
-                      }
-                      await Promise.all(batchPromises);
+                      setEditorPendingLessonIds(updatedPending);
+                      setEditorDeletedLessonIds(updatedDeleted);
 
                       setIsSaving(false);
-                      alert("Successfully submitted to Admin for review!");
+                      flashMessage(`Chapter "${cleanLesson.title}" submitted to Admin for review!`);
+                      alert(`Chapter "${cleanLesson.title}" successfully submitted to Admin for review!`);
                     } catch (err: any) {
                       setIsSaving(false);
-                      alert("Failed to submit to Admin: " + err.message);
+                      alert("Failed to submit chapter to Admin: " + err.message);
                     }
                   }}
-                  disabled={isSaving}
-                  className={`flex items-center gap-1.5 ${isSaving ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'} text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all shadow-lg shadow-indigo-900/50 mr-2`}
+                  disabled={isSaving || !selectedLessonId}
+                  className={`flex items-center gap-1.5 ${
+                    isSaving 
+                      ? 'bg-indigo-400 cursor-wait' 
+                      : !selectedLessonId
+                      ? 'bg-indigo-600/50 cursor-not-allowed opacity-60'
+                      : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'
+                  } text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all shadow-lg shadow-indigo-900/50 mr-2`}
+                  title={selectedLessonId ? `Submit "${activeLesson?.title || 'Chapter'}" to Admin` : "Select a chapter to submit"}
                 >
-                  <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> {isSaving ? 'Submitting to Admin...' : 'Submit to Admin'}
+                  <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> 
+                  {isSaving ? 'Submitting...' : 'Submit this Chapter'}
                 </button>
                 <button
                   onClick={async () => {
@@ -891,6 +988,29 @@ export default function BookEditorPanel({
               ) : (
                 assignedBook.lessons.map((les, index) => {
                   const isActive = selectedLessonId === les.id;
+                  // In preview mode: check previewPendingLessonIds and previewDeletedLessonIds
+                  // In editor mode: check editorPendingLessonIds and editorDeletedLessonIds
+                  const isPending = isPreviewMode 
+                    ? previewPendingLessonIds.includes(les.id)
+                    : editorPendingLessonIds.includes(les.id);
+                  const isMarkedDeleted = isPreviewMode
+                    ? previewDeletedLessonIds.includes(les.id)
+                    : editorDeletedLessonIds.includes(les.id);
+
+                  // Border and background classes based on state
+                  let cardBgBorderClass = 'bg-slate-950/20 border-slate-850 hover:bg-slate-900/40 text-slate-300';
+                  if (isMarkedDeleted) {
+                    cardBgBorderClass = isActive
+                      ? 'bg-rose-950/50 border-rose-500 text-rose-200'
+                      : 'bg-rose-950/25 border-rose-700/60 hover:bg-rose-900/30 text-rose-300';
+                  } else if (isPending) {
+                    cardBgBorderClass = isActive
+                      ? 'bg-amber-950/50 border-amber-400 text-amber-100 ring-1 ring-amber-400/50'
+                      : 'bg-amber-950/25 border-amber-500/60 hover:bg-amber-900/30 text-amber-200';
+                  } else if (isActive) {
+                    cardBgBorderClass = 'bg-slate-900 border-indigo-500/40 text-white';
+                  }
+
                   return (
                     <div
                       key={les.id}
@@ -898,16 +1018,32 @@ export default function BookEditorPanel({
                         setSelectedLessonId(les.id);
                         setSelectedPageIndex(0);
                       }}
-                      className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col justify-between group ${
-                        isActive
-                          ? 'bg-slate-900 border-indigo-500/40 text-white'
-                          : 'bg-slate-950/20 border-slate-850 hover:bg-slate-900/40 text-slate-300'
-                      }`}
+                      className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col justify-between group relative ${cardBgBorderClass}`}
                     >
                       <div className="flex justify-between items-start">
-                        <div className="pr-2">
-                          <div className="text-[7.5px] uppercase font-mono tracking-widest text-[#a855f7] block">
-                            CHAPTER {index + 1}
+                        <div className="pr-2 flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`text-[7.5px] uppercase font-mono tracking-widest block font-bold ${
+                              isMarkedDeleted 
+                                ? 'text-rose-400' 
+                                : isPending 
+                                ? 'text-amber-400' 
+                                : 'text-[#a855f7]'
+                            }`}>
+                              CHAPTER {index + 1}
+                            </span>
+                            {isPending && (
+                              <span className="inline-flex items-center gap-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded px-1 text-[8px] font-mono font-bold uppercase tracking-wider animate-pulse">
+                                <Clock className="w-2.5 h-2.5" />
+                                {isPreviewMode ? 'Submitted' : 'Pending'}
+                              </span>
+                            )}
+                            {isMarkedDeleted && (
+                              <span className="inline-flex items-center gap-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded px-1 text-[8px] font-mono font-bold uppercase tracking-wider">
+                                <Trash2 className="w-2.5 h-2.5" />
+                                Delete Req
+                              </span>
+                            )}
                           </div>
                           <h4 className="text-xs font-bold mt-1 line-clamp-1">{les.title}</h4>
                           {les.subtitle && (
@@ -916,28 +1052,30 @@ export default function BookEditorPanel({
                             </span>
                           )}
                         </div>
-                        <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleMoveLesson(index, 'up'); }}
-                            disabled={index === 0}
-                            className={`p-1 rounded bg-slate-800 text-slate-300 ${index === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-indigo-500 hover:text-white'}`}
-                            title="Move Chapter Up"
-                          >
-                            <ArrowUp className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleMoveLesson(index, 'down'); }}
-                            disabled={index === assignedBook.lessons.length - 1}
-                            className={`p-1 rounded bg-slate-800 text-slate-300 ${index === assignedBook.lessons.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-indigo-500 hover:text-white'}`}
-                            title="Move Chapter Down"
-                          >
-                            <ArrowDown className="w-3 h-3" />
-                          </button>
-                        </div>
+                        {!isPreviewMode && (
+                          <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleMoveLesson(index, 'up'); }}
+                              disabled={index === 0}
+                              className={`p-1 rounded bg-slate-800 text-slate-300 ${index === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-indigo-500 hover:text-white'}`}
+                              title="Move Chapter Up"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleMoveLesson(index, 'down'); }}
+                              disabled={index === assignedBook.lessons.length - 1}
+                              className={`p-1 rounded bg-slate-800 text-slate-300 ${index === assignedBook.lessons.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-indigo-500 hover:text-white'}`}
+                              title="Move Chapter Down"
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center justify-between text-[9px] text-slate-550 mt-2 font-mono">
-                        <span>{les.pages.length} Pages</span>
-                        <span>{les.flashQuestions.length} Quizzes</span>
+                        <span>{les.pages?.length || 0} Pages</span>
+                        <span>{les.flashQuestions?.length || 0} Quizzes</span>
                       </div>
                     </div>
                   );
@@ -964,12 +1102,62 @@ export default function BookEditorPanel({
                       >
                         <Save className="w-3.5 h-3.5" /> Save Meta
                       </button>
-                      <button
-                        onClick={() => handleDeleteLesson(activeLesson.id)}
-                        className="p-1 px-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Purge Chapter
-                      </button>
+                      {!isPreviewMode && (
+                        <button
+                          onClick={async () => {
+                            if (!assignedBook || !currentUser || !activeLesson) return;
+                            const choice = window.prompt(
+                              `Delete Chapter "${activeLesson.title}"?\n\nType:\n"1" = Purge locally only\n"2" = Submit Deletion Request to Admin\n\n(or Cancel)`
+                            );
+                            if (choice === '1') {
+                              await handleDeleteLesson(activeLesson.id);
+                            } else if (choice === '2') {
+                              try {
+                                setIsSaving(true);
+                                const { doc, setDoc, getDoc, deleteDoc } = await import('firebase/firestore');
+                                const bookIdStr = assignedBook.id.toString();
+                                const metaRef = doc(db, 'editor_submissions', bookIdStr);
+                                const currentMetaSnap = await getDoc(metaRef);
+                                const existingMeta = currentMetaSnap.exists() ? currentMetaSnap.data() : null;
+                                
+                                const existingPending: string[] = (existingMeta?.pendingLessonIds || []).filter((id: string) => id !== activeLesson.id);
+                                const existingDeleted: string[] = existingMeta?.deletedLessonIds || [];
+                                const updatedDeleted = Array.from(new Set([...existingDeleted, activeLesson.id]));
+
+                                // Remove from lessons subcollection if it was previously submitted as an edit
+                                await deleteDoc(doc(db, 'editor_submissions', bookIdStr, 'lessons', activeLesson.id)).catch(() => {});
+
+                                await setDoc(metaRef, {
+                                  bookId: assignedBook.id,
+                                  editorId: currentUser.uid || currentUser.id,
+                                  editorEmail: currentUser.email,
+                                  lessonCount: existingPending.length + updatedDeleted.length,
+                                  pendingLessonIds: existingPending,
+                                  deletedLessonIds: updatedDeleted,
+                                  timestamp: Date.now()
+                                }, { merge: true });
+
+                                setEditorPendingLessonIds(existingPending);
+                                setEditorDeletedLessonIds(updatedDeleted);
+
+                                // Also delete locally
+                                await handleDeleteLesson(activeLesson.id);
+
+                                setIsSaving(false);
+                                flashMessage(`Chapter deletion request submitted to Admin.`);
+                                alert(`Chapter deletion request submitted to Admin for review.`);
+                              } catch (err: any) {
+                                setIsSaving(false);
+                                alert("Failed to submit chapter deletion: " + err.message);
+                              }
+                            }
+                          }}
+                          className="p-1 px-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Purge chapter locally or submit deletion request to Admin"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Purge Chapter
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1758,28 +1946,25 @@ export default function BookEditorPanel({
 
                 {/* Sub-Layout: Inquiry Question Manager */}
                 {(() => {
-                  const effectiveInquiryQuestions = selectedTopic 
-                    ? getEffectiveTopicInquiryQuestions(selectedTopic, activeLesson)
-                    : (() => {
-                        const allQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
-                        if (activeLesson.topics) {
-                          for (const t of activeLesson.topics) {
-                            if (t.inquiryQuestions) {
-                              for (const tq of t.inquiryQuestions) {
-                                const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
-                                if (!allQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
-                                  allQ.push(tq);
-                                }
-                              }
-                            }
+                  // Aggregate all questions across chapter and nested topics so questions never vanish
+                  const allQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
+                  if (activeLesson.topics) {
+                    for (const t of activeLesson.topics) {
+                      if (t.inquiryQuestions) {
+                        for (const tq of t.inquiryQuestions) {
+                          const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
+                          if (!allQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
+                            allQ.push(tq);
                           }
                         }
-                        return allQ;
-                      })();
+                      }
+                    }
+                  }
 
                   return (
                     <InquiryQuestionManager
-                      questions={effectiveInquiryQuestions}
+                      questions={allQ}
+                      activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
                       onQuestionsUpdate={async (newQuestions) => {
                         if (!assignedBook || !activeLesson) return;
                         try {
@@ -1787,23 +1972,20 @@ export default function BookEditorPanel({
                             ...assignedBook,
                             lessons: assignedBook.lessons.map(l => {
                               if (l.id !== activeLesson.id) return l;
-                              if (selectedTopic) {
-                                const taggedQuestions = newQuestions.map(q => {
-                                  if (typeof q !== 'string' && !q.topicTitle) {
-                                    return { ...q, topicTitle: selectedTopic.title };
-                                  }
-                                  return q;
-                                });
-                                return {
-                                  ...l,
-                                  inquiryQuestions: taggedQuestions,
-                                  topics: (l.topics || []).map(t => {
-                                    if (t.id !== selectedTopic.id) return t;
-                                    return { ...t, inquiryQuestions: taggedQuestions };
-                                  })
-                                };
-                              }
-                              return { ...l, inquiryQuestions: newQuestions };
+                              return {
+                                ...l,
+                                inquiryQuestions: newQuestions,
+                                topics: (l.topics || []).map(t => {
+                                  const tTitleLower = (t.title || '').trim().toLowerCase();
+                                  return {
+                                    ...t,
+                                    inquiryQuestions: newQuestions.filter(q => {
+                                      if (typeof q === 'string') return false;
+                                      return (q.topicTitle || '').trim().toLowerCase() === tTitleLower;
+                                    })
+                                  };
+                                })
+                              };
                             })
                           };
                           await saveBookLocally(modifiedBook);

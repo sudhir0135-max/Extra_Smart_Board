@@ -104,6 +104,8 @@ export interface Lesson {
   interactiveImages?: InteractiveImageDef[];
   topics?: Topic[];
   pdfUrl?: string | null;
+  /** Storage URL containing the full JSON payload when lesson exceeds Firestore 1MB document limit */
+  payloadUrl?: string | null;
 }
 
 
@@ -179,6 +181,7 @@ export type SyncStatus = 'pending' | 'uploaded' | 'failed' | 'deleted' | 'synced
 
 export interface OfflineBookLessons {
   bookId: number;
+  bookTitle?: string;
   lessons: Lesson[];
   sync_status: SyncStatus;
   updated_at?: string;
@@ -192,6 +195,10 @@ export interface EditorSubmission {
   lessons?: Lesson[];
   lessonCount?: number;
   timestamp: number;
+  /** IDs of chapters that have pending submissions */
+  pendingLessonIds?: string[];
+  /** IDs of chapters marked for deletion */
+  deletedLessonIds?: string[];
 }
 
 export interface BookBookmark {

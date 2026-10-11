@@ -2047,7 +2047,18 @@ export default function AdminPanel({
                                                 ...activeBook,
                                                 lessons: (activeBook.lessons || []).map(l => {
                                                   if (l.id !== activeLesson.id) return l;
-                                                  return { ...l, inquiryQuestions: newQuestions };
+                                                  const newQuestionKeys = new Set(newQuestions.map(q => typeof q === 'string' ? q : (q.id || q.text)));
+                                                  return {
+                                                    ...l,
+                                                    inquiryQuestions: newQuestions,
+                                                    topics: (l.topics || []).map(t => ({
+                                                      ...t,
+                                                      inquiryQuestions: (t.inquiryQuestions || []).filter(tq => {
+                                                        const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
+                                                        return newQuestionKeys.has(key);
+                                                      })
+                                                    }))
+                                                  };
                                                 })
                                               };
                                               await saveBookToFirebase(modifiedBook);
@@ -2217,14 +2228,19 @@ export default function AdminPanel({
                                 ))}
                               </select>
 
-                              {u.assignedBookId && editorSubmissions?.find(s => s.bookId === u.assignedBookId) && (
-                                <button
-                                  onClick={() => onReviewSubmission?.(u.assignedBookId)}
-                                  className="ml-auto bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 font-bold px-2 py-1 rounded text-[10px] uppercase tracking-wider flex items-center gap-1 transition-colors"
-                                >
-                                  Review Submission
-                                </button>
-                              )}
+                              {u.assignedBookId && (() => {
+                                const sub = editorSubmissions?.find(s => s.bookId === u.assignedBookId);
+                                if (!sub) return null;
+                                const pendingCount = (sub.pendingLessonIds?.length || 0) + (sub.deletedLessonIds?.length || 0) || sub.lessonCount || 1;
+                                return (
+                                  <button
+                                    onClick={() => onReviewSubmission?.(u.assignedBookId)}
+                                    className="ml-auto bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 font-bold px-2 py-1 rounded text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-colors animate-pulse"
+                                  >
+                                    Review Submission ({pendingCount} {pendingCount === 1 ? 'Ch' : 'Chs'})
+                                  </button>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>

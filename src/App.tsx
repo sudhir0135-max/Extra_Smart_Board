@@ -58,6 +58,8 @@ export default function App() {
   const [editorSubmissions, setEditorSubmissions] = useState<EditorSubmission[]>([]);
   const [previewSubmissionBookId, setPreviewSubmissionBookId] = useState<number | null>(null);
   const [previewLessons, setPreviewLessons] = useState<Lesson[] | null>(null);
+  const [previewPendingLessonIds, setPreviewPendingLessonIds] = useState<string[]>([]);
+  const [previewDeletedLessonIds, setPreviewDeletedLessonIds] = useState<string[]>([]);
   const [externalTopicModal, setExternalTopicModal] = useState<{ topic: Topic; panel: 'video' | 'questions' | 'notes' } | null>(null);
   
   const [isBooksLoaded, setIsBooksLoaded] = useState(false);
@@ -215,16 +217,28 @@ export default function App() {
     if (firestoreBook.lessons) {
       const BATCH_SIZE = 20;
       const batchPromises: Promise<any>[] = [];
+      const { uploadLargeLessonPayload } = await import('./lib/firebaseHelper');
+
       for (let i = 0; i < firestoreBook.lessons.length; i += BATCH_SIZE) {
         const batch = writeBatch(db);
         const chunk = firestoreBook.lessons.slice(i, i + BATCH_SIZE);
-        chunk.forEach((lesson, indexInChunk) => {
+
+        for (let indexInChunk = 0; indexInChunk < chunk.length; indexInChunk++) {
+          const lesson = chunk[indexInChunk];
           const globalOrder = i + indexInChunk;
-          batch.set(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), {
-            ...lesson,
-            order: globalOrder
-          });
-        });
+          const lessonWithOrder = { ...lesson, order: globalOrder };
+
+          // If serialized lesson exceeds 750KB, offload full data to Storage and store pointer doc
+          let docToWrite = lessonWithOrder;
+          const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
+          if (jsonLength > 750000) {
+            const storagePath = `books/${firestoreBook.id}/lessons/${lesson.id}`;
+            const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
+            docToWrite = pointerLesson;
+          }
+
+          batch.set(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), docToWrite);
+        }
         batchPromises.push(batch.commit());
       }
       await Promise.all(batchPromises);
@@ -305,13 +319,18 @@ export default function App() {
     try {
       const { collection, getDocs } = await import('firebase/firestore');
       const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
-      
       if (!lessonsSnap.empty) {
-        const subLessons = lessonsSnap.docs.map(ld => ({
+        const { resolveLessonPayload } = await import('./lib/firebaseHelper');
+        const rawSubLessons = lessonsSnap.docs.map(ld => ({
           id: ld.id,
           ...ld.data()
         }) as Lesson & { order?: number });
-        subLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        rawSubLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        
+        // Resolve any lessons stored in Firebase Storage payloadUrl (>750KB)
+        const subLessons: (Lesson & { order?: number })[] = await Promise.all(
+          rawSubLessons.map(l => resolveLessonPayload(l))
+        );
         
         const sanitizedLessons = subLessons
           .filter((l: any) => l !== null && l !== undefined)
@@ -410,11 +429,24 @@ export default function App() {
   const isNative = Capacitor.isNativePlatform() || isSimulatingApk;
 
   const books = React.useMemo(() => {
-    // PREVIEW MODE: If an admin is reviewing a submission, force the submitted lessons into the live book.
+    // PREVIEW MODE: If an admin is reviewing a submission, overlay submitted/preview chapters onto the live book.
     if (previewSubmissionBookId !== null) {
       return firebaseBooks.map(b => {
         if (b.id === previewSubmissionBookId && previewLessons) {
-          return { ...b, lessons: previewLessons };
+          const liveLessons = b.lessons || [];
+          const previewLessonMap = new Map(previewLessons.map(l => [l.id, l]));
+          const deletedSet = new Set(previewDeletedLessonIds);
+          // Start with live lessons, replacing any that have preview updates and excluding deleted
+          const merged = liveLessons
+            .filter(l => !deletedSet.has(l.id))
+            .map(l => previewLessonMap.get(l.id) || l);
+          // Append any brand new chapters that only exist in previewLessons
+          for (const pl of previewLessons) {
+            if (!liveLessons.some(l => l.id === pl.id) && !deletedSet.has(pl.id)) {
+              merged.push(pl);
+            }
+          }
+          return { ...b, lessons: merged };
         }
         return b;
       });
@@ -428,6 +460,8 @@ export default function App() {
         title: ol.bookTitle || `Textbook #${ol.bookId}`,
         description: '',
         coverImage: '',
+        author: '',
+        color: 'from-blue-600 to-indigo-700',
         lessons: ol.lessons || []
       }));
     }
@@ -464,11 +498,10 @@ export default function App() {
             return {
               ...liveL, // base is live (has all new properties)
               ...ol,    // offline overrides live (keeps local edits)
-              // explicitly prefer live arrays if offline arrays are empty or missing
-              flashQuestions: (ol.flashQuestions && ol.flashQuestions.length > 0) ? ol.flashQuestions : (liveL.flashQuestions || []),
-              inquiryQuestions: (ol.inquiryQuestions && ol.inquiryQuestions.length > 0) ? ol.inquiryQuestions : (liveL.inquiryQuestions || []),
-              pages: (ol.pages && ol.pages.length > 0) ? ol.pages : (liveL.pages || []),
-              topics: (ol.topics && ol.topics.length > 0) ? ol.topics : (liveL.topics || [])
+              flashQuestions: ol.flashQuestions !== undefined ? ol.flashQuestions : (liveL.flashQuestions || []),
+              inquiryQuestions: ol.inquiryQuestions !== undefined ? ol.inquiryQuestions : (liveL.inquiryQuestions || []),
+              pages: ol.pages !== undefined ? ol.pages : (liveL.pages || []),
+              topics: ol.topics !== undefined ? ol.topics : (liveL.topics || [])
             };
           }
           return ol;
@@ -487,7 +520,7 @@ export default function App() {
       }
       return b;
     });
-  }, [firebaseBooks, offlineBookLessons, previewSubmissionBookId, previewLessons, subLessonsCache]);
+  }, [firebaseBooks, offlineBookLessons, previewSubmissionBookId, previewLessons, previewPendingLessonIds, previewDeletedLessonIds, subLessonsCache]);
 
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
@@ -955,6 +988,7 @@ export default function App() {
 
       for (const targetBook of targetBooks) {
         const bookId = targetBook.id;
+        const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
         const subLessons = lessonsSnap.docs.map(ld => ({
           id: ld.id,
           ...ld.data()
@@ -1298,14 +1332,36 @@ export default function App() {
         onReviewSubmission={async (bookId) => {
           setSelectedBookId(bookId);
           try {
-            const { collection, getDocs } = await import('firebase/firestore');
-            const snap = await getDocs(collection(db, 'editor_submissions', bookId.toString(), 'lessons'));
-            // Sort by numeric doc ID to preserve lesson order
-            const sorted = snap.docs
+            const { collection, getDocs, doc, getDoc } = await import('firebase/firestore');
+            const bookIdStr = bookId.toString();
+            
+            // 1. Fetch metadata doc for pending / deleted lesson tracking
+            const metaDoc = await getDoc(doc(db, 'editor_submissions', bookIdStr));
+            const metaData = metaDoc.exists() ? metaDoc.data() : null;
+            const pendingIds: string[] = metaData?.pendingLessonIds || [];
+            const deletedIds: string[] = metaData?.deletedLessonIds || [];
+
+            // 2. Fetch submission lessons subcollection
+            const snap = await getDocs(collection(db, 'editor_submissions', bookIdStr, 'lessons'));
+            const { resolveLessonPayload } = await import('./lib/firebaseHelper');
+            const rawLoaded = snap.docs
               .slice()
-              .map(d => d.data() as Lesson & { order?: number })
+              .map(d => ({ ...d.data(), id: d.id } as Lesson & { order?: number }))
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-            setPreviewLessons(sorted);
+
+            // Resolve any chapters whose full payload was offloaded to Firebase Storage (>750KB)
+            const loadedLessons: Lesson[] = await Promise.all(
+              rawLoaded.map(l => resolveLessonPayload(l))
+            );
+
+            // If pendingLessonIds was not recorded explicitly, infer from all subcollection docs
+            const effectivePendingIds = pendingIds.length > 0 
+              ? pendingIds 
+              : loadedLessons.map(l => l.id);
+
+            setPreviewLessons(loadedLessons);
+            setPreviewPendingLessonIds(effectivePendingIds);
+            setPreviewDeletedLessonIds(deletedIds);
           } catch (err: any) {
             alert('Failed to load submission lessons: ' + err.message);
             return;
@@ -1372,29 +1428,88 @@ export default function App() {
         currentUser={currentUser}
         isPreviewMode={previewSubmissionBookId !== null}
         previewBookId={previewSubmissionBookId}
-        onApproveSubmission={async (bookId, lessons) => {
+        previewPendingLessonIds={previewPendingLessonIds}
+        previewDeletedLessonIds={previewDeletedLessonIds}
+        onApproveSubmission={async (bookId, lessons, lessonIdToApprove) => {
           try {
             const b = firebaseBooks.find(fb => fb.id === bookId);
-            if (b) {
+            if (!b) return;
+
+            const { doc, deleteDoc, setDoc, collection, getDocs, writeBatch } = await import('firebase/firestore');
+            const bookIdStr = bookId.toString();
+
+            if (lessonIdToApprove) {
+              // ── Per-Chapter Approval ───────────────────────────────────────
+              const isMarkedDeleted = previewDeletedLessonIds.includes(lessonIdToApprove);
+              let updatedLessons: Lesson[];
+
+              if (isMarkedDeleted) {
+                // Delete chapter from live book
+                updatedLessons = (b.lessons || []).filter(l => l.id !== lessonIdToApprove);
+              } else {
+                // Find approved chapter content from the submitted lessons or live preview
+                const approvedLesson = lessons.find(l => l.id === lessonIdToApprove);
+                if (!approvedLesson) {
+                  alert("Chapter to approve not found.");
+                  return;
+                }
+                const existingIndex = (b.lessons || []).findIndex(l => l.id === lessonIdToApprove);
+                if (existingIndex >= 0) {
+                  updatedLessons = (b.lessons || []).map(l => l.id === lessonIdToApprove ? approvedLesson : l);
+                } else {
+                  updatedLessons = [...(b.lessons || []), approvedLesson];
+                }
+              }
+
+              // Save updated book to Firebase (syncs subcollection & metadata)
+              await saveBookToFirebase({ ...b, lessons: updatedLessons });
+
+              // Delete this chapter doc from editor_submissions subcollection
+              await deleteDoc(doc(db, 'editor_submissions', bookIdStr, 'lessons', lessonIdToApprove)).catch(() => {});
+
+              // Update metadata doc: remove from pendingLessonIds and deletedLessonIds
+              const remainingPending = previewPendingLessonIds.filter(id => id !== lessonIdToApprove);
+              const remainingDeleted = previewDeletedLessonIds.filter(id => id !== lessonIdToApprove);
+
+              setPreviewPendingLessonIds(remainingPending);
+              setPreviewDeletedLessonIds(remainingDeleted);
+              setPreviewLessons(prev => (prev || []).filter(l => l.id !== lessonIdToApprove));
+
+              if (remainingPending.length === 0 && remainingDeleted.length === 0) {
+                // All submitted chapters approved: delete parent submission doc
+                await deleteDoc(doc(db, 'editor_submissions', bookIdStr)).catch(() => {});
+                setToasts(prev => [...prev, { id: Date.now().toString(), text: 'All submitted chapters approved and synced live!', type: 'success' }]);
+                setPreviewLessons(null);
+                setPreviewSubmissionBookId(null);
+                setActiveScreen('admin');
+              } else {
+                // Update parent submission doc with remaining pending list
+                await setDoc(doc(db, 'editor_submissions', bookIdStr), {
+                  lessonCount: remainingPending.length,
+                  pendingLessonIds: remainingPending,
+                  deletedLessonIds: remainingDeleted,
+                }, { merge: true });
+                setToasts(prev => [...prev, { id: Date.now().toString(), text: 'Chapter approved and synced live!', type: 'success' }]);
+              }
+            } else {
+              // ── Approve All Chapters at Once ──────────────────────────────
               const updatedBook = { ...b, lessons };
               await saveBookToFirebase(updatedBook);
-              // Delete all lesson sub-docs then the parent metadata doc
-              const { doc, deleteDoc, collection, getDocs, writeBatch } = await import('firebase/firestore');
-              const bookIdStr = bookId.toString();
               const lessonsSnap = await getDocs(collection(db, 'editor_submissions', bookIdStr, 'lessons'));
               const batch = writeBatch(db);
               lessonsSnap.docs.forEach(d => batch.delete(d.ref));
               await batch.commit();
-              await deleteDoc(doc(db, 'editor_submissions', bookIdStr));
+              await deleteDoc(doc(db, 'editor_submissions', bookIdStr)).catch(() => {});
 
-              setToasts(prev => [...prev, { id: Date.now().toString(), text: 'Submission Approved and Synced Live!', type: 'success' }]);
+              setToasts(prev => [...prev, { id: Date.now().toString(), text: 'All chapters approved and synced live!', type: 'success' }]);
+              setPreviewLessons(null);
+              setPreviewSubmissionBookId(null);
+              setPreviewPendingLessonIds([]);
+              setPreviewDeletedLessonIds([]);
+              setActiveScreen('admin');
             }
           } catch(err: any) {
-            alert('Failed to approve submission: ' + err.message);
-          } finally {
-            setPreviewLessons(null);
-            setPreviewSubmissionBookId(null);
-            setActiveScreen('admin');
+            alert('Failed to approve chapter: ' + err.message);
           }
         }}
       />

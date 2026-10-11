@@ -188,3 +188,58 @@ export function buildLessonStoragePath(
 ): string {
   return `books/${classId}/${subjectId}/${bookId}/${lessonId}`;
 }
+
+/**
+ * Uploads a large lesson object (>750KB) as a raw JSON payload to Firebase Storage
+ * and returns a lightweight pointer document with payloadUrl.
+ */
+export async function uploadLargeLessonPayload(
+  lesson: any,
+  storagePath: string
+): Promise<{ pointerLesson: any; payloadUrl: string }> {
+  const jsonString = JSON.stringify(lesson);
+  const fileRef = ref(storage, `${storagePath}/payload.json`);
+  await uploadString(fileRef, jsonString, 'raw', {
+    contentType: 'application/json'
+  });
+  const payloadUrl = await getDownloadURL(fileRef);
+
+  // Return a lightweight version containing basic metadata + payloadUrl
+  const pointerLesson = {
+    ...lesson,
+    payloadUrl,
+    // Truncate heavy inquiryQuestions and topics on the Firestore doc to keep it ~2KB
+    inquiryQuestions: [],
+    topics: (lesson.topics || []).map((t: any) => ({
+      ...t,
+      inquiryQuestions: [],
+      pages: []
+    }))
+  };
+
+  return { pointerLesson, payloadUrl };
+}
+
+/**
+ * Resolves a lesson that may have its full data stored in a Firebase Storage payloadUrl.
+ * If payloadUrl is present, fetches and parses the JSON, then merges it with the lesson metadata.
+ */
+export async function resolveLessonPayload(lesson: any): Promise<any> {
+  if (!lesson || !lesson.payloadUrl) return lesson;
+  try {
+    const res = await fetch(lesson.payloadUrl);
+    if (res.ok) {
+      const fullData = await res.json();
+      return {
+        ...fullData,
+        id: lesson.id,
+        order: lesson.order !== undefined ? lesson.order : fullData.order,
+        payloadUrl: lesson.payloadUrl
+      };
+    }
+  } catch (err) {
+    console.error("Failed to fetch large lesson payload from Storage:", err);
+  }
+  return lesson;
+}
+

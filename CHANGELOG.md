@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-12] - Large Chapter Automatic Storage Offloading (1MB Firestore Limit Fix)
+
+### Fixed & Resolved
+- **Firestore 1,048,576 Bytes Limit on Large Chapter Submissions (`BookEditorPanel.tsx`, `App.tsx`, `firebaseHelper.ts`)**:
+  - **Root Cause**: Chapters containing 100+ comprehensive inquiry questions with complex multi-column accountancy tables and rich formatted text (such as *"Issue of Debentures"* containing 107 questions) exceeded Firestore's hard document limit of 1MB (reaching 2,001,992 bytes). Writing directly to Firestore document `editor_submissions/{bookId}/lessons/{lessonId}` resulted in Firebase error `cannot be written because its size exceeds the maximum allowed size of 1,048,576 bytes`.
+  - **Automatic Storage Offloading**: Added `uploadLargeLessonPayload` and `resolveLessonPayload` in `firebaseHelper.ts`.
+  - When submitting a chapter, if the serialized payload exceeds 750,000 bytes, the complete JSON chapter object is automatically saved to Firebase Storage (`editor_submissions/{bookId}/lessons/{lessonId}/payload.json`).
+  - A lightweight pointer document (~2KB) containing metadata and `payloadUrl` is written to Firestore.
+  - On the Admin Review side (`onReviewSubmission` in `App.tsx`) and when fetching subcollection lessons (`fetchBookLessons` in `App.tsx`), `resolveLessonPayload` transparently fetches and merges the complete payload from Storage.
+  - Also protected `saveBookToFirebase` in `App.tsx` so approved live chapters of any size (>1MB) are safely offloaded to Storage (`books/{bookId}/lessons/{lessonId}/payload.json`) with zero size constraints.
+
+
+
+### Added & Optimized
+- **Per-Chapter "Submit this Chapter" (`BookEditorPanel.tsx`)**:
+  - Transformed the monolithic submission flow into a lightweight, chapter-specific submission model.
+  - When the editor clicks **"Submit this Chapter"** in the top bar header, only the active/selected chapter is externalized and uploaded to `editor_submissions/{bookId}/lessons/{lessonId}`.
+  - Submitting a single chapter takes ~1-2KB rather than rewriting the entire textbook, eliminating redundant network traffic and saving bandwidth.
+- **Chapter Status Visual Highlights with Amber Chips (`BookEditorPanel.tsx`)**:
+  - In both the Editor panel and the Admin Preview panel, chapters with pending submissions are visually distinguished with a glowing **amber chip** (`bg-amber-950/25 border-amber-500/60 text-amber-200`) and an animated `⏳ Submitted / Pending` badge.
+  - Chapters marked for deletion are highlighted in rose red (`Delete Req`).
+  - Normal approved chapters retain their default clean styling (`CHAPTER N`).
+- **Granular "Approve This Chapter" & Live Sync (`BookEditorPanel.tsx`, `App.tsx`)**:
+  - In Admin Preview Mode, the admin can inspect any chapter and click **"Approve This Chapter"**.
+  - Only that selected chapter is merged and pushed live into the Firestore curriculum (`books/{bookId}/lessons/{lessonId}`).
+  - Once approved, the chapter's submission doc is deleted and its chip automatically transitions back from amber to normal.
+  - A fallback **"Approve All"** button remains available if the admin wishes to approve all pending submissions at once.
+- **Chapter Deletion Request Submissions (`BookEditorPanel.tsx`, `App.tsx`)**:
+  - Clicking "Purge Chapter" now allows editors to submit a formal deletion request to the Admin (`deletedLessonIds`).
+  - Admin sees the chapter highlighted in red (`Delete Req`) and approving it deletes the chapter from the live curriculum.
+- **Admin Review Badge Count (`AdminPanel.tsx`)**:
+  - Updated the glowing "Review Submission" button in the Admin Panel to show the exact count of pending chapters (e.g. `Review Submission (2 Chs)`).
+
+
+
+### Fixed
+- **Questions Vanished After "Submit to Admin" (`BookEditorPanel.tsx`)**:
+  - Root cause: The submit handler was calling `handleUpdateLessonMeta(...)` **before** reading from IndexedDB. `handleUpdateLessonMeta` reads `assignedBook` from stale React state (which may not yet include freshly XLSX-uploaded questions), then wrote that stripped version **back to IndexedDB**, overwriting all inquiry questions. The subsequent `dbLocal.offline_lessons.get()` then read the question-stripped data.
+  - Fix: Removed the `handleUpdateLessonMeta` pre-call entirely. Now reads from IndexedDB first, then **patches** just `title`/`subtitle`/`videoUrls` drafts inline on the IndexedDB data, preserving all inquiry questions.
+- **Chapter Order Scrambled in Admin Submission Review (`BookEditorPanel.tsx`)**:
+  - Root cause: Lessons written to `editor_submissions/{bookId}/lessons/` had no `order` field. The Admin review `onReviewSubmission` sorts by `a.order ?? 0`, so all chapters sorted to `0` and were returned in arbitrary Firestore iteration order.
+  - Fix: Each lesson doc is now written with `{ ...lesson, order: i + j }` so chapter order is perfectly preserved in the Admin review panel.
+
+## [2026-10-11] - Inquiry Question Deletion Persistence & Resurrection Bug Fix
+
+### Fixed & Resolved
+- **Inquiry Questions Resurrection on Deletion (`App.tsx`)**:
+  - Fixed an issue where deleting questions via "Delete Selected" or single "Delete" in `InquiryQuestionManager` was immediately undone because the local-first merge in `App.tsx` union-merged missing questions from in-memory/server state (`liveL.inquiryQuestions`) back into the offline draft.
+  - Updated `App.tsx` merge to treat defined offline arrays (`ol.inquiryQuestions !== undefined`, `ol.flashQuestions !== undefined`) as the definitive local source of truth so deletions (including batch deletions) immediately take effect and persist.
+- **Topic-Level Inquiry Question Pruning in Admin Panel (`AdminPanel.tsx`)**:
+  - Updated `onQuestionsUpdate` in `AdminPanel.tsx` to prune deleted questions from `t.inquiryQuestions` across all chapter topics so deleted questions are not resurrected by `allIQ` on subsequent renders.
+
+### Fixed & Resolved
+- **Inquiry Questions Vanishing on Topic Change (`BookEditorPanel.tsx`)**:
+  - Eliminated the bug where selecting or changing a Chapter Topic in the dropdown hid all questions in the chapter that didn't match the selected topic's exact title string (`getEffectiveTopicInquiryQuestions` filtering `[]` when topics were newly created or questions were chapter-level).
+  - Decoupled chapter inquiry questions from topic filtering: `BookEditorPanel` now always aggregates and passes the complete chapter question bank (`allQ`) to `InquiryQuestionManager` so questions never vanish when navigating topics.
+- **Accidental Wipeout Prevention on Topic Save (`BookEditorPanel.tsx`)**:
+  - Fixed destructive `onQuestionsUpdate` logic that previously replaced `activeLesson.inquiryQuestions` with only the active topic's questions (`l.inquiryQuestions = taggedQuestions`), which had wiped out other chapter questions.
+  - Updating questions now safely preserves all chapter questions in `l.inquiryQuestions` while syncing topic-matching subsets into `topic.inquiryQuestions`.
+- **Topic Rename Synchronization (`BookEditorPanel.tsx`)**:
+  - In `handleSaveTopic`, renaming a topic now automatically cascades and updates `topicTitle` across all questions in `l.inquiryQuestions` and `t.inquiryQuestions` matching the previous title, preventing questions from being orphaned on rename.
+- **Topic Filter Pills & Auto-fill in Inquiry Questions Manager (`InquiryQuestionManager.tsx`)**:
+  - Added optional `activeTopicTitle` prop to `InquiryQuestionManager`. When a topic is active, drafting a new question automatically pre-fills the Topic field with `activeTopicTitle`.
+  - Added interactive filter pills (`All Chapter Questions (N)` vs `This Topic: X (M)`), defaulting to All Chapter Questions so users can easily see all questions or toggle topic-specific questions with zero data hiding.
+- **Local-First Union Recovery Merge (`App.tsx`)**:
+  - Enhanced IndexedDB offline lesson merge in `App.tsx` to perform union deduplication on `inquiryQuestions` and topic questions, instantly restoring any live server questions if local offline cache was previously truncated.
+
 ## [2026-10-11] - Production Deployment, APK Distribution & Git Push
 
 ### Added & Deployed
