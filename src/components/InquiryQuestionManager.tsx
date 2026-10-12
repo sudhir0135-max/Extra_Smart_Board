@@ -3,7 +3,7 @@ import {
   HelpCircle, Upload, X, Save, ArrowLeft, ArrowRight,
   Image as ImageIcon, Plus, Trash2, ExternalLink,
   MessageSquare, HelpCircle as QuestionIcon, CheckCircle2,
-  FileSpreadsheet, CheckSquare, Square
+  FileSpreadsheet, CheckSquare, Square, Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { InquiryQuestionObj } from '../types';
@@ -14,7 +14,7 @@ import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/ti
 
 export interface InquiryQuestionManagerProps {
   questions: (string | InquiryQuestionObj)[];
-  onQuestionsUpdate: (newQuestions: (string | InquiryQuestionObj)[]) => void;
+  onQuestionsUpdate: (newQuestions: (string | InquiryQuestionObj)[]) => void | Promise<void>;
   activeTopicTitle?: string;
   availableTopics?: string[];
 }
@@ -55,6 +55,13 @@ export default function InquiryQuestionManager({
       return (q.topicTitle || '').trim().toLowerCase() === activeLower;
     }).length;
   }, [questions, activeTopicTitle]);
+
+  // If user was filtering by active topic and that topic now has 0 questions, fallback to 'all' so questions never vanish
+  useEffect(() => {
+    if (filterTopic === 'active' && activeTopicQuestionsCount === 0 && questions.length > 0) {
+      setFilterTopic('all');
+    }
+  }, [filterTopic, activeTopicQuestionsCount, questions.length]);
 
   const displayedQuestions = React.useMemo(() => {
     if (!activeTopicTitle || filterTopic === 'all') {
@@ -115,6 +122,7 @@ export default function InquiryQuestionManager({
   // Topic & Marks drafts for Advanced Editor
   const [advMarksDraft, setAdvMarksDraft] = useState<number | ''>('');
   const [advTopicTitleDraft, setAdvTopicTitleDraft] = useState('');
+  const [advDisplayModeDraft, setAdvDisplayModeDraft] = useState<'standard' | 'accountancy_tabs'>('standard');
 
   const [isUploading, setIsUploading] = useState(false);
 
@@ -170,6 +178,7 @@ export default function InquiryQuestionManager({
       setAdvAnswerImagePosition('right');
       setAdvMarksDraft('');
       setAdvTopicTitleDraft('');
+      setAdvDisplayModeDraft('standard');
     } else if (q) {
       setAdvTextDraft(q.text || '');
       setAdvImageDraft(q.image || null);
@@ -179,6 +188,7 @@ export default function InquiryQuestionManager({
       setAdvAnswerImagePosition(q.answerImagePosition || 'right');
       setAdvMarksDraft(q.marks !== undefined && q.marks !== null ? q.marks : '');
       setAdvTopicTitleDraft(q.topicTitle || '');
+      setAdvDisplayModeDraft(q.displayMode === 'accountancy_tabs' ? 'accountancy_tabs' : 'standard');
     } else {
       setAdvTextDraft('');
       setAdvImageDraft(null);
@@ -188,6 +198,7 @@ export default function InquiryQuestionManager({
       setAdvAnswerImagePosition('right');
       setAdvMarksDraft('');
       setAdvTopicTitleDraft('');
+      setAdvDisplayModeDraft('standard');
     }
   };
 
@@ -204,7 +215,15 @@ export default function InquiryQuestionManager({
     setActiveTab(tab);
   };
 
-  const handleSaveAdvanced = () => {
+  // Saving progress state for Advanced Editor
+  const [isSavingAdv, setIsSavingAdv] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
+
+  const handleSaveAdvanced = async () => {
+    if (isSavingAdv) return;
+    setIsSavingAdv(true);
+    setSaveProgress(20);
+
     // Always flush editor content before saving
     const content = editorRef.current ? editorRef.current.getContent() : (activeTab === 'question' ? advTextDraft : advAnswerTextDraft);
 
@@ -230,15 +249,33 @@ export default function InquiryQuestionManager({
       answerImagePosition: advAnswerImagePosition,
       marks: parsedMarks,
       topicTitle: parsedTopic,
-      ...(typeof currentQ !== 'string' ? { displayMode: currentQ.displayMode, tabs: currentQ.tabs } : {}),
+      displayMode: advDisplayModeDraft,
+      ...(typeof currentQ !== 'string' ? { tabs: currentQ.tabs } : {}),
     };
     const updated = [...questions];
     updated[advancedEditorIndex] = updatedQ;
-    onQuestionsUpdate(updated);
 
-    // Update local drafts so they stay in sync
-    if (activeTab === 'question') setAdvTextDraft(content);
-    else setAdvAnswerTextDraft(content);
+    setSaveProgress(50);
+
+    try {
+      // Await direct save to Firebase database
+      await Promise.resolve(onQuestionsUpdate(updated));
+      setSaveProgress(100);
+
+      // Brief delay so user sees 100% confirmation completion before modal closes
+      await new Promise(resolve => setTimeout(resolve, 400));
+
+      // Update local drafts so they stay in sync
+      if (activeTab === 'question') setAdvTextDraft(content);
+      else setAdvAnswerTextDraft(content);
+
+      setIsAdvancedEditorOpen(false);
+    } catch (err: any) {
+      alert('Failed to save to Firebase database: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsSavingAdv(false);
+      setSaveProgress(0);
+    }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,26 +348,8 @@ export default function InquiryQuestionManager({
   };
 
   const handleEditQuestion = (q: string | InquiryQuestionObj, idx: number) => {
-    if (typeof q === 'string') {
-      setEditingQIdx(idx);
-      setNewQText(q);
-      setNewAText('');
-      setNewMarks('');
-      setNewTopicTitle('');
-    } else {
-      // For simple (non-rich) InquiryQuestionObj, edit inline in the draft panel
-      const hasRichText = q.text && (q.text.includes('<') || q.answerText?.includes('<'));
-      if (!hasRichText) {
-        setEditingQIdx(idx);
-        setNewQText(q.text.replace(/<[^>]+>/g, ''));
-        setNewAText((q.answerText || '').replace(/<[^>]+>/g, ''));
-        setNewMarks(q.marks !== undefined && q.marks !== null ? q.marks : '');
-        setNewTopicTitle(q.topicTitle || '');
-      } else {
-        loadIntoAdvancedEditor(idx, 'question');
-        setIsAdvancedEditorOpen(true);
-      }
-    }
+    loadIntoAdvancedEditor(idx, 'question');
+    setIsAdvancedEditorOpen(true);
   };
 
   const handleEditAnswer = (idx: number) => {
@@ -747,23 +766,23 @@ export default function InquiryQuestionManager({
                     />
                   </div>
 
-                  <div className="space-y-1.5 w-full min-w-0">
-                    {/* Question Row */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3 w-full min-w-0">
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      {/* Question Row */}
+                      <div>
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           {typeof q !== 'string' && q.topicTitle && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 font-mono uppercase">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 font-mono uppercase tracking-wide">
                               Topic: {q.topicTitle}
                             </span>
                           )}
                           {typeof q !== 'string' && q.marks !== undefined && q.marks !== null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
                               {q.marks} Marks
                             </span>
                           )}
                           {typeof q !== 'string' && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
                               Rich Text
                             </span>
                           )}
@@ -773,65 +792,56 @@ export default function InquiryQuestionManager({
                         </span>
                       </div>
 
-                      {/* Question Actions */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => handleToggleDisplayMode(origIdx)}
-                          className={`px-2 py-0.5 rounded text-[9.5px] font-bold font-mono transition-all cursor-pointer border ${
-                            typeof q !== 'string' && q.displayMode === 'accountancy_tabs'
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
-                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
-                          }`}
-                          title="Toggle Question Display Manner (Standard List vs Accountancy Multi-Tab)"
-                        >
-                          {typeof q !== 'string' && q.displayMode === 'accountancy_tabs' ? '📊 Accountancy Mode' : '📄 Standard Mode'}
-                        </button>
-
-                        <button
-                          onClick={() => handleEditQuestion(q, origIdx)}
-                          className="text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap"
-                        >
-                          Edit Q
-                        </button>
-                        <button
-                          onClick={() => handleDeleteQuestion(origIdx)}
-                          className="text-[10px] text-rose-400 hover:text-rose-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider"
-                        >
-                          Delete
-                        </button>
+                      {/* Answer Row */}
+                      <div className="flex items-center justify-between gap-2 pl-3 border-l-2 border-slate-800">
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
+                          {answered ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                              <span className="text-[10px] text-amber-300/80 truncate">
+                                A: {answerPreview}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="w-3 h-3 text-slate-600 flex-shrink-0" />
+                              <span className="text-[10px] text-slate-600 italic">No answer yet</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Answer Row */}
-                    <div className="flex items-center justify-between gap-2 pl-3 border-l-2 border-slate-800">
-                      <div className="min-w-0 flex-1 flex items-center gap-2">
-                        {answered ? (
-                          <>
-                            <CheckCircle2 className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                            <span className="text-[10px] text-amber-300/80 truncate">
-                              A: {answerPreview}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <MessageSquare className="w-3 h-3 text-slate-600 flex-shrink-0" />
-                            <span className="text-[10px] text-slate-600 italic">No answer yet</span>
-                          </>
-                        )}
-                      </div>
-                      {/* Answer action — only for rich-text questions (InquiryQuestionObj) */}
-                      {typeof q !== 'string' ? (
-                        <button
-                          onClick={() => handleEditAnswer(origIdx)}
-                          className={`text-[10px] cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap flex-shrink-0 ${
-                            answered ? 'text-amber-400 hover:text-amber-300' : 'text-slate-500 hover:text-amber-400'
-                          }`}
-                        >
-                          {answered ? 'Edit A' : '+ Add A'}
-                        </button>
-                      ) : (
-                        <span className="text-[9px] text-slate-700 italic whitespace-nowrap flex-shrink-0">Use Rich Editor</span>
-                      )}
+                    {/* Question Actions (3 Rows, Right-Aligned) */}
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-2">
+                      {/* Row 1: Mode Toggle */}
+                      <button
+                        onClick={() => handleToggleDisplayMode(origIdx)}
+                        className={`px-2 py-0.5 rounded text-[9.5px] font-bold font-mono transition-all cursor-pointer border text-right whitespace-nowrap ${
+                          typeof q !== 'string' && q.displayMode === 'accountancy_tabs'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                        }`}
+                        title="Toggle Question Display Manner (Standard List vs Accountancy Multi-Tab)"
+                      >
+                        {typeof q !== 'string' && q.displayMode === 'accountancy_tabs' ? '📊 Accountancy Mode' : '📄 Standard Mode'}
+                      </button>
+
+                      {/* Row 2: Edit */}
+                      <button
+                        onClick={() => handleEditQuestion(q, origIdx)}
+                        className="text-[10.5px] text-sky-400 hover:text-sky-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap py-0.5"
+                      >
+                        Edit
+                      </button>
+
+                      {/* Row 3: Delete */}
+                      <button
+                        onClick={() => handleDeleteQuestion(origIdx)}
+                        className="text-[10.5px] text-rose-400 hover:text-rose-300 cursor-pointer bg-transparent border-none font-bold uppercase tracking-wider whitespace-nowrap py-0.5"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -847,14 +857,60 @@ export default function InquiryQuestionManager({
           <div className="bg-[#0b0e1b] border border-slate-700 shadow-2xl rounded-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden relative animate-in fade-in zoom-in duration-200">
 
             {/* Header */}
-            <div className="flex justify-between items-center p-4 border-b border-slate-800 bg-[#0a0d18]">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-indigo-400" />
-                Advanced Editor — Q{advancedEditorIndex + 1}
-              </h2>
-              <button onClick={() => setIsAdvancedEditorOpen(false)} className="p-1 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors cursor-pointer">
+            <div className="flex justify-between items-center p-4 border-b border-slate-800 bg-[#0a0d18] relative">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <HelpCircle className="w-5 h-5 text-indigo-400" />
+                  Advanced Editor — Q{advancedEditorIndex + 1}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setAdvDisplayModeDraft(prev => prev === 'accountancy_tabs' ? 'standard' : 'accountancy_tabs')}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold font-mono transition-all cursor-pointer border flex items-center gap-1.5 ${
+                    advDisplayModeDraft === 'accountancy_tabs'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                      : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
+                  }`}
+                  title="Toggle Question Display Manner (Standard List vs Accountancy Multi-Tab)"
+                >
+                  {advDisplayModeDraft === 'accountancy_tabs' ? '📊 Accountancy Mode' : '📄 Standard Mode'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAdvanced}
+                  disabled={isSavingAdv}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-700/60 disabled:cursor-wait text-white text-xs font-bold uppercase tracking-wider rounded-md shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Save directly to Firebase database and close"
+                >
+                  {isSavingAdv ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving to Firebase...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" /> Save & Close
+                    </>
+                  )}
+                </button>
+              </div>
+              <button
+                onClick={() => !isSavingAdv && setIsAdvancedEditorOpen(false)}
+                disabled={isSavingAdv}
+                className="p-1 hover:bg-rose-500/20 text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
+                title="Close"
+              >
                 <X className="w-6 h-6" />
               </button>
+
+              {/* Progress Bar (appears while saving to Firebase database) */}
+              {isSavingAdv && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-900 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-400 transition-all duration-300 ease-out shadow-[0_0_10px_#34d399]"
+                    style={{ width: `${saveProgress}%` }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Q / A Tab Bar */}
@@ -1016,49 +1072,6 @@ export default function InquiryQuestionManager({
                   </div>
 
                 </div>
-              </div>
-            </div>
-
-            {/* Footer Navigation & Actions */}
-            <div className="flex items-center justify-between p-4 border-t border-slate-800 bg-[#0a0d18]">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    handleSaveAdvanced();
-                    if (advancedEditorIndex > 0) {
-                      loadIntoAdvancedEditor(advancedEditorIndex - 1, activeTab);
-                    }
-                  }}
-                  disabled={advancedEditorIndex === 0}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
-                >
-                  <ArrowLeft className="w-4 h-4" /> Prev Question
-                </button>
-                <button
-                  onClick={() => {
-                    handleSaveAdvanced();
-                    if (advancedEditorIndex < questions.length - 1) {
-                      loadIntoAdvancedEditor(advancedEditorIndex + 1, activeTab);
-                    } else {
-                      loadIntoAdvancedEditor(questions.length, activeTab);
-                    }
-                  }}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
-                >
-                  Next Question <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex gap-3">
-                <button onClick={() => setIsAdvancedEditorOpen(false)} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold rounded-lg transition-colors cursor-pointer">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => { handleSaveAdvanced(); setIsAdvancedEditorOpen(false); }}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold uppercase tracking-wider rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 cursor-pointer"
-                >
-                  <Save className="w-4 h-4" /> Save & Close
-                </button>
               </div>
             </div>
 

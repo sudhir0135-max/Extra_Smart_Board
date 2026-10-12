@@ -2060,7 +2060,15 @@ export default function AdminPanel({
                                             for (const tq of t.inquiryQuestions) {
                                               const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
                                               if (!allIQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
-                                                allIQ.push(tq);
+                                                if (typeof tq === 'string') {
+                                                  allIQ.push({
+                                                    id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                                                    text: tq,
+                                                    topicTitle: t.title || null
+                                                  });
+                                                } else {
+                                                  allIQ.push(tq.topicTitle ? tq : { ...tq, topicTitle: t.title || null });
+                                                }
                                               }
                                             }
                                           }

@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-12] - Advanced Editor Header Redesign & Save Progress Bar
+
+### Added & Improved
+- **Header "Save & Close" & Display Mode Co-location (`InquiryQuestionManager.tsx`)**:
+  - Placed the **"Save & Close"** button directly in the modal header bar immediately adjacent to the **"📊 Accountancy Mode" / "📄 Standard Mode"** toggle button.
+  - Removed the bottom footer ribbon (containing Previous Question, Next Question, Cancel, and redundant Save & Close buttons), allowing more vertical room for TinyMCE rich text editing.
+- **Firebase Database Confirmation & Animated Progress Bar (`InquiryQuestionManager.tsx`)**:
+  - Clicking **"Save & Close"** now displays an animated real-time progress bar across the bottom edge of the header along with a spinning indicator (`Saving to Firebase...`).
+  - The modal stays open during the save and waits until confirmation that the questions and answers have been successfully committed to the Firebase database (`books/{bookId}/lessons/{lessonId}`).
+  - Only after receiving write confirmation from Firebase does the progress bar hit 100% and smoothly close the Advanced Editor.
+
+## [2026-10-12] - Direct Firestore Question Saving & Inquiry UI Refinement
+
+### Added & Improved
+- **Direct Save to Live Firestore Curriculum (`BookEditorPanel.tsx`, `InquiryQuestionManager.tsx`, `FlashQuestionManager.tsx`)**:
+  - Decoupled question saving from the "Submit this Chapter" / admin review workflow.
+  - Both **"Save & Close"** (in Advanced Editor) and **"Register / Update Question"** (in Quick Draft) now immediately write directly to Firestore `books/{bookId}/lessons/{lessonId}` and local IndexedDB (`offline_lessons`).
+  - Added automatic payload offloading (`uploadLargeLessonPayload`) if the chapter exceeds 750KB.
+  - "Submit this Chapter" is now strictly dedicated to chapter pages, images, and video metadata submissions for admin approval.
+- **Accountancy / Standard Display Mode in Advanced Editor (`InquiryQuestionManager.tsx`)**:
+  - Added the **"📊 Accountancy Mode" / "📄 Standard Mode"** toggle button directly inside the **Advanced Editor modal** header bar.
+  - Switching modes inside the Advanced Editor updates `advDisplayModeDraft` and saves the mode upon clicking "Save & Close".
+- **Single "Edit" Button & 3-Row Right-Aligned Actions Layout (`InquiryQuestionManager.tsx`)**:
+  - Replaced duplicate "Edit Q" and "Edit A" buttons with a single **"Edit"** button that directly opens the Advanced Editor.
+  - Organized action buttons on each question row into **3 stacked rows** on the right side of the container, aligned to the right:
+    1. Row 1: `[📊 Accountancy Mode / 📄 Standard Mode]` toggle pill
+    2. Row 2: `[Edit]` button
+    3. Row 3: `[Delete]` button
+- **Increased Topic Badge Typography (`InquiryQuestionManager.tsx`, `FlashQuestionManager.tsx`)**:
+  - Increased topic badge font size from `text-[8px]` to `text-[11px] font-bold font-mono tracking-wide` across both Inquiry Questions and Diagnostic Quizzing lists for clearer visibility.
+
+## [2026-10-12] - Rectification: Inquiry Questions Vanishing on Topic Change
+
+### Fixed & Rectified
+- **Inquiry Questions Vanished When Changing Topic (`BookEditorPanel.tsx`, `AdminPanel.tsx`, `InquiryQuestionManager.tsx`, `FlashQuestionManager.tsx`)**:
+  - **Root Cause 1 (Topic Questions Aggregation Loss)**: When `allQ` was formed in [`BookEditorPanel.tsx`](file:///c:/Single%20Screen/src/components/BookEditorPanel.tsx) and [`AdminPanel.tsx`](file:///c:/Single%20Screen/src/components/AdminPanel.tsx), questions residing under `topic.inquiryQuestions` without an explicit `q.topicTitle` property (or plain string questions) were pushed into `allQ` without assigning `topicTitle: t.title`. When `onQuestionsUpdate(newQuestions)` subsequently ran, `newQuestions.filter(q => q.topicTitle?.toLowerCase() === t.title.toLowerCase())` failed for those questions, wiping them out of `t.inquiryQuestions` upon save.
+  - **Root Cause 2 (Filter Trap in Inquiry & Flash Question Managers)**: If a user clicked "This Topic: X" or selected an active topic in the editor, and then changed a question's topic to another topic or removed it, the active topic filter count reached 0. Because `filterTopic` remained locked to `'active'`, `displayedQuestions` rendered an empty list (`[]`), hiding all remaining chapter questions.
+  - **Fix 1 (Aggregation Auto-Tagging)**: Updated `allQ` and `allIQ` generation in both `BookEditorPanel.tsx` and `AdminPanel.tsx` to automatically inject `topicTitle: t.title` on questions aggregated from `t.inquiryQuestions` if `topicTitle` is absent.
+  - **Fix 2 (Automatic Filter Fallback to 'all')**: Added an automated fallback effect in both `InquiryQuestionManager.tsx` and `FlashQuestionManager.tsx`: if `filterTopic === 'active'` and the active topic count reaches 0 while chapter questions exist, `filterTopic` automatically falls back to `'all'` so questions remain immediately visible and never vanish from view.
+
 ## [2026-10-12] - Lesson Topic Dropdowns for Diagnostic Quizzing & Inquiry Questions
 
 ### Added & Improved

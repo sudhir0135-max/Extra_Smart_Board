@@ -50,6 +50,13 @@ export default function FlashQuestionManager({
     return questions.filter(q => (q.topicTitle || '').trim().toLowerCase() === activeLower).length;
   }, [questions, activeTopicTitle]);
 
+  // If user was filtering by active topic and that topic now has 0 questions, fallback to 'all' so questions never vanish
+  useEffect(() => {
+    if (filterTopic === 'active' && activeTopicQuestionsCount === 0 && questions.length > 0) {
+      setFilterTopic('all');
+    }
+  }, [filterTopic, activeTopicQuestionsCount, questions.length]);
+
   const displayedQuestions = React.useMemo(() => {
     if (!activeTopicTitle || filterTopic === 'all') {
       return questions;
@@ -512,7 +519,7 @@ export default function FlashQuestionManager({
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
                       {q.topicTitle && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono uppercase">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono uppercase tracking-wide">
                           Topic: {q.topicTitle}
                         </span>
                       )}

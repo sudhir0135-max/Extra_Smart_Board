@@ -2,12 +2,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import React, { useState, useEffect } from 'react';
 import { Book, Lesson, Topic, FlashQuestion, BookEditor } from '../types';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
-import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage } from '../lib/firebaseHelper';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage, uploadLargeLessonPayload } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
 import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
 import {
@@ -206,6 +205,39 @@ export default function BookEditorPanel({
       sync_status: 'pending',
       updated_at: new Date().toISOString()
     });
+  };
+
+  /**
+   * Directly saves questions/lesson updates to Firestore books/{bookId}/lessons/{lessonId}
+   * and IndexedDB so questions are immediately live on Firebase and localhost without needing
+   * "Submit this Chapter" or Admin review.
+   */
+  const saveLessonDirectToFirestore = async (modifiedBook: Book, updatedLesson: Lesson) => {
+    // 1. Save locally to IndexedDB immediately (<5ms)
+    await saveBookLocally(modifiedBook);
+
+    if (isPreviewMode) return;
+
+    // 2. Direct save to live Firestore curriculum
+    try {
+      const bookIdStr = modifiedBook.id.toString();
+      const lessonOrder = modifiedBook.lessons.findIndex(l => l.id === updatedLesson.id);
+      const lessonWithOrder = { ...updatedLesson, order: lessonOrder >= 0 ? lessonOrder : 0 };
+
+      let docToWrite = lessonWithOrder;
+      const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
+      if (jsonLength > 750000) {
+        const storagePath = `books/${bookIdStr}/lessons/${updatedLesson.id}`;
+        const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
+        docToWrite = pointerLesson;
+      }
+
+      const lessonRef = doc(db, 'books', bookIdStr, 'lessons', updatedLesson.id);
+      await setDoc(lessonRef, docToWrite);
+    } catch (err: any) {
+      console.error("Direct Firestore lesson save error:", err);
+      // We do not throw or alert here if offline; IndexedDB already saved it locally
+    }
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -1952,25 +1984,23 @@ export default function BookEditorPanel({
                       onQuestionsUpdate={async (newQuestions) => {
                         if (!assignedBook || !activeLesson) return;
                         try {
-                          const modifiedBook = {
-                            ...assignedBook,
-                            lessons: assignedBook.lessons.map(l => {
-                              if (l.id !== activeLesson.id) return l;
+                          const updatedLesson: Lesson = {
+                            ...activeLesson,
+                            flashQuestions: newQuestions,
+                            topics: (activeLesson.topics || []).map(t => {
+                              const tTitleLower = (t.title || '').trim().toLowerCase();
                               return {
-                                ...l,
-                                flashQuestions: newQuestions,
-                                topics: (l.topics || []).map(t => {
-                                  const tTitleLower = (t.title || '').trim().toLowerCase();
-                                  return {
-                                    ...t,
-                                    flashQuestions: newQuestions.filter(q => (q.topicTitle || '').trim().toLowerCase() === tTitleLower)
-                                  };
-                                })
+                                ...t,
+                                flashQuestions: newQuestions.filter(q => (q.topicTitle || '').trim().toLowerCase() === tTitleLower)
                               };
                             })
                           };
-                          await saveBookLocally(modifiedBook);
-                          flashMessage('Interactive quizzes saved.');
+                          const modifiedBook = {
+                            ...assignedBook,
+                            lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
+                          };
+                          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+                          flashMessage('Interactive quizzes saved to Firebase & local storage.');
                         } catch (err) {
                           alert('Failed to save quizzes.');
                         }
@@ -1989,7 +2019,16 @@ export default function BookEditorPanel({
                         for (const tq of t.inquiryQuestions) {
                           const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
                           if (!allQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
-                            allQ.push(tq);
+                            // Ensure question object has topicTitle assigned from its enclosing topic if not present
+                            if (typeof tq === 'string') {
+                              allQ.push({
+                                id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                                text: tq,
+                                topicTitle: t.title || null
+                              });
+                            } else {
+                              allQ.push(tq.topicTitle ? tq : { ...tq, topicTitle: t.title || null });
+                            }
                           }
                         }
                       }
@@ -2004,28 +2043,26 @@ export default function BookEditorPanel({
                       onQuestionsUpdate={async (newQuestions) => {
                         if (!assignedBook || !activeLesson) return;
                         try {
-                          const modifiedBook = {
-                            ...assignedBook,
-                            lessons: assignedBook.lessons.map(l => {
-                              if (l.id !== activeLesson.id) return l;
+                          const updatedLesson: Lesson = {
+                            ...activeLesson,
+                            inquiryQuestions: newQuestions,
+                            topics: (activeLesson.topics || []).map(t => {
+                              const tTitleLower = (t.title || '').trim().toLowerCase();
                               return {
-                                ...l,
-                                inquiryQuestions: newQuestions,
-                                topics: (l.topics || []).map(t => {
-                                  const tTitleLower = (t.title || '').trim().toLowerCase();
-                                  return {
-                                    ...t,
-                                    inquiryQuestions: newQuestions.filter(q => {
-                                      if (typeof q === 'string') return false;
-                                      return (q.topicTitle || '').trim().toLowerCase() === tTitleLower;
-                                    })
-                                  };
+                                ...t,
+                                inquiryQuestions: newQuestions.filter(q => {
+                                  if (typeof q === 'string') return false;
+                                  return (q.topicTitle || '').trim().toLowerCase() === tTitleLower;
                                 })
                               };
                             })
                           };
-                          await saveBookLocally(modifiedBook);
-                          flashMessage('Inquiry questions saved.');
+                          const modifiedBook = {
+                            ...assignedBook,
+                            lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
+                          };
+                          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+                          flashMessage('Inquiry questions saved to Firebase & local storage.');
                         } catch (err: any) {
                           alert('Failed to save inquiry questions: ' + (err?.message || 'Error'));
                         }
