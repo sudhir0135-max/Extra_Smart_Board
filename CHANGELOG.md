@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-12] - Production Android APK Build Updated & Firebase Distribution
+
+### Added & Deployed
+- **Production Android APK Updated & Size Optimization**:
+  - Rebuilt production bundle (`npm run build`) containing the latest curriculum synchronize resolution and offline question preservation fixes.
+  - Ensured no recursive APK bloat inside `public/` or `android/app/src/main/assets/public/`.
+  - Re-synced clean web distribution assets into the Android native project (`npx cap copy android`).
+  - Assembled updated Android APKs via Gradle:
+    - **Debug APK (Pre-signed)**: `releases/ExtraPadhai_v5.0.apk` & `ExtraPadhai.apk` (**13.49 MB** / 14,144,837 bytes) — ready for direct sideloading and smartboard testing.
+    - **Release APK**: `android/app/build/outputs/apk/release/app-release-unsigned.apk` (**9.61 MB** / 10,076,668 bytes).
+- **Firebase Distribution & Verified Download**:
+  - Bundled updated `ExtraPadhai.apk` into Firebase Hosting root with verified direct global delivery (`https://samrtboard.web.app/ExtraPadhai.apk` - `HTTP 200 OK`, `application/vnd.android.package-archive`).
+  - Landing page **"Download APK"** button downloads the updated 13.49 MB APK package directly.
+
 ## [2026-10-12] - Rectification: Student Panel Synchronize Button & Question Preservation
 
 ### Fixed & Rectified
