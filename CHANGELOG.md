@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-12] - Rectification: Student Panel Synchronize Button & Question Preservation
+
+### Fixed & Rectified
+- **Student Panel Synchronize Button Restores Questions and Prevents Loss (`App.tsx`)**:
+  - **Root Cause**: When chapters with large question banks (>750KB) or storage offloads were saved, their full question payloads were stored in Firebase Storage at `payloadUrl`, leaving the Firestore chapter document with lightweight metadata (`inquiryQuestions: []`). While `fetchBookLessons` called `resolveLessonPayload(l)` to download and expand the questions, `handleTriggerSync` lacked `resolveLessonPayload`. Consequently, clicking "Synchronize" mapped `ld.data()` with empty question arrays, overwriting the in-memory cache (`subLessonsCache`) and IndexedDB local disk (`dbLocal.offline_lessons`) with `inquiryQuestions: []`, making questions vanish from student view.
+  - **Fix**: Updated `handleTriggerSync` in [`App.tsx`](file:///c:/Single%20Screen/src/App.tsx) to resolve any Storage offloaded payloads via `resolveLessonPayload(l)` for every chapter fetched during synchronization before writing to in-memory state and IndexedDB offline cache.
+  - **Firestore Protection**: Confirmed that `handleTriggerSync` is strictly a read/download operation for curriculum chapters and never writes empty questions or stripped lessons back to Firestore `books/{bookId}/lessons`.
+
 ## [2026-10-12] - Advanced Editor Header Redesign & Save Progress Bar
 
 ### Added & Improved

@@ -989,11 +989,17 @@ export default function App() {
       for (const targetBook of targetBooks) {
         const bookId = targetBook.id;
         const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
-        const subLessons = lessonsSnap.docs.map(ld => ({
+        let rawSubLessons = lessonsSnap.docs.map(ld => ({
           id: ld.id,
           ...ld.data()
         }) as Lesson & { order?: number });
-        subLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        rawSubLessons.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        
+        // Resolve any lessons stored in Firebase Storage payloadUrl (>750KB)
+        const { resolveLessonPayload } = await import('./lib/firebaseHelper');
+        const subLessons: (Lesson & { order?: number })[] = await Promise.all(
+          rawSubLessons.map(l => resolveLessonPayload(l))
+        );
         
         // Use subcollection lessons as source of truth for live lessons if available
         const liveLessonsList = !lessonsSnap.empty ? subLessons : (targetBook.lessons || []);
