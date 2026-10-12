@@ -1222,10 +1222,10 @@ export default function AccountancyQuestionModal({
 
             {/* Question Text & Media */}
             <div className="space-y-6">
-              <div className="text-slate-100 text-xs md:text-base lg:text-lg xl:text-xl 2xl:text-2xl min-[3840px]:text-3xl font-medium leading-relaxed font-serif tracking-wide bg-[#181e2a] p-6 md:p-8 rounded-2xl border border-slate-800/40 shadow-lg">
+              <div className="text-[#e8f0fe] text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] font-medium leading-relaxed font-serif tracking-wide bg-[#181e2a] p-6 md:p-8 rounded-2xl border border-slate-800/40 shadow-lg">
                 <div 
                   dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qObj.text) }} 
-                  className="prose prose-invert max-w-none text-xs md:text-base lg:text-lg xl:text-xl 2xl:text-2xl min-[3840px]:text-3xl"
+                  className="prose prose-invert max-w-none text-inherit font-inherit"
                 />
               </div>
 
@@ -1269,7 +1269,7 @@ export default function AccountancyQuestionModal({
                 {qObj.answerText && (
                   <div
                     dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qObj.answerText) }}
-                    className="text-slate-200 text-sm md:text-base lg:text-lg xl:text-xl 2xl:text-2xl min-[3840px]:text-3xl leading-relaxed font-serif"
+                    className="text-[#e8f0fe] text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed font-serif"
                   />
                 )}
 

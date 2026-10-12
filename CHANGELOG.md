@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-12] - Lesson Topic Dropdowns for Diagnostic Quizzing & Inquiry Questions
+
+### Added & Improved
+- **Interactive Diagnostic Quizzing Topic Selector Dropdown (`FlashQuestionManager.tsx`, `types.ts`, `BookEditorPanel.tsx`, `AdminPanel.tsx`)**:
+  - Added `topicTitle?: string | null` to the `FlashQuestion` interface in `types.ts`.
+  - Added a responsive **Topic of Lesson** `<select>` dropdown in the question drafting bar of `FlashQuestionManager.tsx` that lists all chapter topics dynamically, with support for `-- No Topic / Chapter Level --`, active topic pre-filling, and editing existing questions.
+  - Added topic badge pills (`Topic: {q.topicTitle}`) to each diagnostic quiz question row in the active question list.
+  - Added interactive topic filter pills (`All Chapter Quizzes (N)` vs `This Topic: X (M)`) in the active quiz questions header bar.
+  - Updated Bulk Upload (.json / .xlsx) and template generator to support topic classification for diagnostic quizzes.
+  - Updated `BookEditorPanel.tsx` and `AdminPanel.tsx` to aggregate flash questions across chapter and nested topics (`allFQ`), passing `availableTopics` and syncing topic questions to `topic.flashQuestions` so questions never vanish or desync when switching topics.
+  - Cascaded topic renames in `BookEditorPanel.tsx` so modifying a topic title automatically updates all associated flash questions.
+
+- **Inquiry Questions Topic Dropdown in Advanced Editor & Draft Forms (`InquiryQuestionManager.tsx`, `QuestionEditorPage.tsx`)**:
+  - Replaced the freeform Topic Title text input with a `<select>` dropdown in the **Advanced Editor modal** (`InquiryQuestionManager.tsx`), allowing editors to pick directly from the lesson's topics.
+  - Replaced the Topic Title text input in the **main question draft toolbar** of `InquiryQuestionManager.tsx` with a topic `<select>` dropdown.
+  - Replaced the Topic Title text input in the **standalone full-page rich text editor** (`QuestionEditorPage.tsx`) with a `<select>` dropdown populated via session cache.
+
+## [2026-10-12] - Question & Answer Typography Synchronization (Editor vs Student Panel)
+
+### Fixed & Harmonized
+- **Typography Discrepancy Between "Advanced Editor" and Student Panel (`InquiryQuestionManager.tsx`, `QuestionEditorPage.tsx`, `FloatingButton.tsx`, `AccountancyQuestionModal.tsx`)**:
+  - **Font Family**: Harmonized the TinyMCE editor to use `"Cormorant Garamond", Georgia, serif` (`font-serif`), exactly matching the student panel question and solution view font.
+  - **Font Size & Line Height**: Set TinyMCE default body font size to `21px` with `1.625` line height (`leading-relaxed`), providing true WYSIWYG matching to the student panel's smartboard display scale (`text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px]`).
+  - **Font Color & Theme**: Switched TinyMCE to `skin: 'oxide-dark'` and `content_css: 'dark'`, wrapping container in `bg-[#181e2a]` and configuring `body { color: #e8f0fe; background-color: #181e2a; }`.
+  - **Table & Formatting Alignment**: Matched dark table borders (`#334155`), header fills (`rgba(30, 41, 59, 0.8)`), and text contrast so accountancy statements authored in the editor appear identically in the student view.
+  - **Font Family & Font Size Picker**: Added `fontfamily` and `fontsize` controls to the TinyMCE toolbar in both `InquiryQuestionManager.tsx` and `QuestionEditorPage.tsx`.
+  - **Student Modal Consistency**: Standardized text colors and responsive font sizes across both [`FloatingButton.tsx`](file:///c:/Single%20Screen/src/components/FloatingButton.tsx) and [`AccountancyQuestionModal.tsx`](file:///c:/Single%20Screen/src/components/AccountancyQuestionModal.tsx) to `#e8f0fe` with `font-serif`.
+
 ## [2026-10-12] - Large Chapter Automatic Storage Offloading (1MB Firestore Limit Fix)
 
 ### Fixed & Resolved

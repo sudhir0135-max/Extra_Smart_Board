@@ -2003,25 +2003,54 @@ export default function AdminPanel({
                                       INTERACTIVE CHAPTER QUIZZES DIAGNOSTICS ({activeLesson.flashQuestions?.length || 0})
                                     </span>
 
-                                    <FlashQuestionManager
-                                      questions={activeLesson.flashQuestions || []}
-                                      onQuestionsUpdate={async (newQuestions) => {
-                                        if (!activeBook || !activeLesson) return;
-                                        try {
-                                          const modifiedBook = {
-                                            ...activeBook,
-                                            lessons: (activeBook.lessons || []).map(l => {
-                                              if (l.id !== activeLesson.id) return l;
-                                              return { ...l, flashQuestions: newQuestions };
-                                            })
-                                          };
-                                          await saveBookToFirebase(modifiedBook);
-                                          flashMessage('Interactive quizzes synced to Firebase.');
-                                        } catch (err) {
-                                          alert('Failed to sync quizzes to Firebase.');
+                                    {(() => {
+                                      const allFQ: FlashQuestion[] = [...(activeLesson.flashQuestions || [])];
+                                      if (activeLesson.topics) {
+                                        for (const t of activeLesson.topics) {
+                                          if (t.flashQuestions) {
+                                            for (const tfq of t.flashQuestions) {
+                                              if (!allFQ.some(q => q.id === tfq.id)) {
+                                                allFQ.push(tfq.topicTitle ? tfq : { ...tfq, topicTitle: t.title });
+                                              }
+                                            }
+                                          }
                                         }
-                                      }}
-                                    />
+                                      }
+                                      const lessonTopicTitles = (activeLesson.topics || []).map(t => t.title).filter(Boolean);
+
+                                      return (
+                                        <FlashQuestionManager
+                                          questions={allFQ}
+                                          availableTopics={lessonTopicTitles}
+                                          onQuestionsUpdate={async (newQuestions) => {
+                                            if (!activeBook || !activeLesson) return;
+                                            try {
+                                              const modifiedBook = {
+                                                ...activeBook,
+                                                lessons: (activeBook.lessons || []).map(l => {
+                                                  if (l.id !== activeLesson.id) return l;
+                                                  return {
+                                                    ...l,
+                                                    flashQuestions: newQuestions,
+                                                    topics: (l.topics || []).map(t => {
+                                                      const tTitleLower = (t.title || '').trim().toLowerCase();
+                                                      return {
+                                                        ...t,
+                                                        flashQuestions: newQuestions.filter(q => (q.topicTitle || '').trim().toLowerCase() === tTitleLower)
+                                                      };
+                                                    })
+                                                  };
+                                                })
+                                              };
+                                              await saveBookToFirebase(modifiedBook);
+                                              flashMessage('Interactive quizzes synced to Firebase.');
+                                            } catch (err) {
+                                              alert('Failed to sync quizzes to Firebase.');
+                                            }
+                                          }}
+                                        />
+                                      );
+                                    })()}
 
                                     {(() => {
                                       const allIQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
@@ -2040,6 +2069,7 @@ export default function AdminPanel({
                                       return (
                                         <InquiryQuestionManager
                                           questions={allIQ}
+                                          availableTopics={(activeLesson.topics || []).map(t => t.title).filter(Boolean)}
                                           onQuestionsUpdate={async (newQuestions) => {
                                             if (!activeBook || !activeLesson) return;
                                             try {

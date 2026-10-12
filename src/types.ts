@@ -139,6 +139,7 @@ export interface FlashQuestion {
   question: string;
   answer: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
+  topicTitle?: string | null;
 }
 
 export interface DrawingStroke {

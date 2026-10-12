@@ -16,11 +16,17 @@ export interface InquiryQuestionManagerProps {
   questions: (string | InquiryQuestionObj)[];
   onQuestionsUpdate: (newQuestions: (string | InquiryQuestionObj)[]) => void;
   activeTopicTitle?: string;
+  availableTopics?: string[];
 }
 
 type EditorTab = 'question' | 'answer';
 
-export default function InquiryQuestionManager({ questions, onQuestionsUpdate, activeTopicTitle }: InquiryQuestionManagerProps) {
+export default function InquiryQuestionManager({
+  questions,
+  onQuestionsUpdate,
+  activeTopicTitle,
+  availableTopics = [],
+}: InquiryQuestionManagerProps) {
   const [newQText, setNewQText] = useState('');
   const [newAText, setNewAText] = useState('');
   const [newMarks, setNewMarks] = useState<number | ''>('');
@@ -132,6 +138,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate, a
   const openInNewWindow = (lessonTitle?: string) => {
     try {
       localStorage.setItem(`qeditor_${sessionKey}`, JSON.stringify(questions));
+      localStorage.setItem(`qeditor_topics_${sessionKey}`, JSON.stringify(availableTopics));
     } catch (_) {}
     const hash = `#qeditor&session=${sessionKey}&lesson=${encodeURIComponent(lessonTitle || 'Lesson')}`;
     window.open(`${window.location.origin}${window.location.pathname}${hash}`, '_blank', 'noopener');
@@ -538,15 +545,25 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate, a
           <div className="flex-1 min-w-[200px] space-y-1">
             <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-teal-400 inline-block" />
-              Topic / Sub-heading <span className="text-slate-600 normal-case font-normal">(optional)</span>
+              Topic of Lesson <span className="text-slate-600 normal-case font-normal">(optional)</span>
             </label>
-            <input
-              type="text"
+            <select
               value={newTopicTitle}
               onChange={e => setNewTopicTitle(e.target.value)}
-              placeholder="e.g. Introduction, Real-world Applications..."
-              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors h-[38px]"
-            />
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-teal-500 transition-colors h-[38px] font-sans"
+            >
+              <option value="">-- No Topic / Chapter Level --</option>
+              {availableTopics.map((top, idx) => (
+                <option key={idx} value={top}>
+                  {top}
+                </option>
+              ))}
+              {newTopicTitle && !availableTopics.includes(newTopicTitle) && (
+                <option value={newTopicTitle}>
+                  {newTopicTitle} (Current)
+                </option>
+              )}
+            </select>
           </div>
 
           {/* Marks Field */}
@@ -884,7 +901,7 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate, a
                   <label className="text-xs font-mono uppercase tracking-widest text-slate-400 mb-2 block">
                     {activeTab === 'question' ? 'Rich Text Question Content' : 'Rich Text Answer Content'}
                   </label>
-                  <div className="flex-1 border border-slate-800 rounded-lg overflow-hidden bg-white">
+                  <div className="flex-1 border border-slate-800 rounded-lg overflow-hidden bg-[#181e2a]">
                     <Editor
                       key={`${activeTab}-${advancedEditorIndex}`}
                       licenseKey="gpl"
@@ -894,15 +911,15 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate, a
                       init={{
                         height: '100%',
                         menubar: true,
+                        skin: 'oxide-dark',
+                        content_css: 'dark',
                         plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
                         setup: (editor) => {
                           setupTinyMceMath(editor);
                           setupTinyMceAnnotation(editor);
                         },
-                        toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | table | removeformat | help',
-                        content_style: `body { font-family:Helvetica,Arial,sans-serif; font-size:16px; color: #333; line-height: 1.6; padding: 1rem; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #666; font-style: italic; margin: 12px 0; } ${tinymceMathContentStyle} ${tinymceAnnotationContentStyle}`,
-                        skin: 'oxide',
-                        content_css: 'default'
+                        toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote | latex annotation | table | removeformat | help',
+                        content_style: `body { font-family: "Cormorant Garamond", Georgia, serif; font-size: 21px; color: #e8f0fe; background-color: #181e2a; line-height: 1.625; padding: 1.25rem; } blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #cbd5e1; font-style: italic; margin: 12px 0; } table { border-collapse: collapse; width: 100%; margin: 1rem 0; border: 1px solid #334155; } table td, table th { border: 1px solid #334155; padding: 8px 12px; } table th { background: rgba(30, 41, 59, 0.8); font-weight: bold; color: #f8fafc; } img { max-width: 100%; height: auto; border-radius: 8px; } ${tinymceMathContentStyle} ${tinymceAnnotationContentStyle}`
                       }}
                     />
                   </div>
@@ -965,14 +982,26 @@ export default function InquiryQuestionManager({ questions, onQuestionsUpdate, a
                   <div className="space-y-3 pt-4 border-t border-slate-800/80">
                     <label className="text-xs font-mono uppercase tracking-widest text-slate-400 block mb-1">Metadata (Topic & Marks)</label>
                     <div>
-                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Topic Title</label>
-                      <input
-                        type="text"
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                        Topic of Lesson
+                      </label>
+                      <select
                         value={advTopicTitleDraft}
                         onChange={e => setAdvTopicTitleDraft(e.target.value)}
-                        placeholder="e.g. Introduction, Real-world Applications"
-                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"
-                      />
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white focus:outline-none focus:border-teal-500 font-sans"
+                      >
+                        <option value="">-- No Topic / Chapter Level --</option>
+                        {availableTopics.map((top, idx) => (
+                          <option key={idx} value={top}>
+                            {top}
+                          </option>
+                        ))}
+                        {advTopicTitleDraft && !availableTopics.includes(advTopicTitleDraft) && (
+                          <option value={advTopicTitleDraft}>
+                            {advTopicTitleDraft} (Current)
+                          </option>
+                        )}
+                      </select>
                     </div>
                     <div>
                       <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Marks (Numeric)</label>

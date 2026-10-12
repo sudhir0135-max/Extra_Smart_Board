@@ -10,23 +10,53 @@ import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/ti
 export interface FlashQuestionManagerProps {
   questions: FlashQuestion[];
   onQuestionsUpdate: (newQuestions: FlashQuestion[]) => void;
+  availableTopics?: string[];
+  activeTopicTitle?: string;
 }
 
-export default function FlashQuestionManager({ questions, onQuestionsUpdate }: FlashQuestionManagerProps) {
+export default function FlashQuestionManager({
+  questions,
+  onQuestionsUpdate,
+  availableTopics = [],
+  activeTopicTitle,
+}: FlashQuestionManagerProps) {
   const [newQText, setNewQText] = useState('');
   const [newQAns, setNewQAns] = useState('');
   const [newQDiff, setNewQDiff] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
+  const [newQTopic, setNewQTopic] = useState(activeTopicTitle || '');
   const [editingQId, setEditingQId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [filterTopic, setFilterTopic] = useState<'all' | 'active'>('all');
 
   const qTextEditorRef = useRef<any>(null);
   const qAnsEditorRef = useRef<any>(null);
+
+  // Pre-fill topic field when activeTopicTitle changes and not editing
+  useEffect(() => {
+    if (activeTopicTitle && editingQId === null) {
+      setNewQTopic(activeTopicTitle);
+    }
+  }, [activeTopicTitle, editingQId]);
 
   // Keep selected ids bounded if questions array changes
   useEffect(() => {
     const existingIds = new Set(questions.map(q => q.id));
     setSelectedIds(prev => prev.filter(id => existingIds.has(id)));
   }, [questions]);
+
+  const activeTopicQuestionsCount = React.useMemo(() => {
+    if (!activeTopicTitle) return 0;
+    const activeLower = activeTopicTitle.trim().toLowerCase();
+    return questions.filter(q => (q.topicTitle || '').trim().toLowerCase() === activeLower).length;
+  }, [questions, activeTopicTitle]);
+
+  const displayedQuestions = React.useMemo(() => {
+    if (!activeTopicTitle || filterTopic === 'all') {
+      return questions;
+    }
+    const activeLower = activeTopicTitle.trim().toLowerCase();
+    return questions.filter(q => (q.topicTitle || '').trim().toLowerCase() === activeLower);
+  }, [questions, activeTopicTitle, filterTopic]);
 
   const toggleSelectQuestion = (id: string) => {
     setSelectedIds(prev =>
@@ -35,10 +65,12 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.length === questions.length) {
-      setSelectedIds([]);
+    const displayedIds = displayedQuestions.map(q => q.id);
+    const allDisplayedSelected = displayedIds.length > 0 && displayedIds.every(id => selectedIds.includes(id));
+    if (allDisplayedSelected) {
+      setSelectedIds(prev => prev.filter(id => !displayedIds.includes(id)));
     } else {
-      setSelectedIds(questions.map(q => q.id));
+      setSelectedIds(prev => Array.from(new Set([...prev, ...displayedIds])));
     }
   };
 
@@ -67,7 +99,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
         ...q,
         question: currentQText.trim(),
         answer: currentQAns.trim(),
-        difficulty: newQDiff
+        difficulty: newQDiff,
+        topicTitle: newQTopic.trim() || null
       } : q);
       onQuestionsUpdate(updated);
       setEditingQId(null);
@@ -76,7 +109,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
         id: `q-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         question: currentQText.trim(),
         answer: currentQAns.trim(),
-        difficulty: newQDiff
+        difficulty: newQDiff,
+        topicTitle: newQTopic.trim() || null
       };
       onQuestionsUpdate([...questions, newQuestion]);
     }
@@ -84,6 +118,7 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
     setNewQText('');
     setNewQAns('');
     setNewQDiff('Medium');
+    setNewQTopic(activeTopicTitle || '');
     if (qTextEditorRef.current) qTextEditorRef.current.setContent('');
     if (qAnsEditorRef.current) qAnsEditorRef.current.setContent('');
   };
@@ -93,6 +128,7 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
     setNewQText(q.question);
     setNewQAns(q.answer);
     setNewQDiff(q.difficulty);
+    setNewQTopic(q.topicTitle || '');
     if (qTextEditorRef.current) qTextEditorRef.current.setContent(q.question);
     if (qAnsEditorRef.current) qAnsEditorRef.current.setContent(q.answer);
   };
@@ -117,7 +153,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
               id: `up-q-${Date.now()}-${idx}`,
               question: q.question || '',
               answer: q.answer || '',
-              difficulty: q.difficulty || 'Medium'
+              difficulty: q.difficulty || 'Medium',
+              topicTitle: q.topicTitle || q.topic || null
             })).filter(q => q.question && q.answer);
             onQuestionsUpdate([...questions, ...formattedQuestions]);
             alert(`Successfully bulk loaded ${formattedQuestions.length} questions!`);
@@ -138,14 +175,15 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
             id: `up-q-${Date.now()}-${idx}`,
             question: String(r.Question || r.question || ''),
             answer: String(r.Answer || r.answer || ''),
-            difficulty: (r.Difficulty || r.difficulty || 'Medium') as 'Easy' | 'Medium' | 'Hard'
+            difficulty: (r.Difficulty || r.difficulty || 'Medium') as 'Easy' | 'Medium' | 'Hard',
+            topicTitle: r.Topic || r.topic ? String(r.Topic || r.topic) : null
           })).filter(q => q.question && q.answer);
 
           if (formattedQuestions.length > 0) {
             onQuestionsUpdate([...questions, ...formattedQuestions]);
             alert(`Successfully bulk loaded ${formattedQuestions.length} questions from Excel!`);
           } else {
-            alert("No valid questions found in Excel file. Make sure columns are named 'Question', 'Answer', and optional 'Difficulty'.");
+            alert("No valid questions found in Excel file. Make sure columns are named 'Question', 'Answer', and optional 'Difficulty', 'Topic'.");
           }
         } catch (err) {
           alert("Failed to parse XLSX file");
@@ -159,8 +197,8 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
   const handleDownloadTemplate = () => {
     try {
       const worksheet = XLSX.utils.json_to_sheet([
-        { Question: "What is 2+2?", Answer: "4", Difficulty: "Easy" },
-        { Question: "What is the capital of France?", Answer: "Paris", Difficulty: "Medium" }
+        { Question: "What is 2+2?", Answer: "4", Difficulty: "Easy", Topic: availableTopics[0] || "Sample Topic" },
+        { Question: "What is the capital of France?", Answer: "Paris", Difficulty: "Medium", Topic: availableTopics[1] || "Sample Topic" }
       ]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "DiagnosticQuiz");
@@ -253,8 +291,33 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
           </div>
         </div>
 
-        {/* Row 2: Difficulty, Register Question Button, Bulk Upload Button, Template Download */}
-        <div className="flex flex-col md:flex-row items-stretch md:items-end justify-between gap-3 pt-1">
+        {/* Row 2: Topic Selector Dropdown, Difficulty, Register Question Button, Bulk Upload Button, Template Download */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-end gap-3 pt-1">
+          {/* Topic Dropdown */}
+          <div className="flex-1 min-w-[200px] space-y-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
+              Topic of Lesson <span className="text-slate-600 normal-case font-normal">(optional)</span>
+            </label>
+            <select
+              value={newQTopic}
+              onChange={e => setNewQTopic(e.target.value)}
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition-colors h-[38px] font-sans"
+            >
+              <option value="">-- No Topic / Chapter Level --</option>
+              {availableTopics.map((top, idx) => (
+                <option key={idx} value={top}>
+                  {top}
+                </option>
+              ))}
+              {newQTopic && !availableTopics.includes(newQTopic) && (
+                <option value={newQTopic}>
+                  {newQTopic} (Current)
+                </option>
+              )}
+            </select>
+          </div>
+
           {/* Difficulty Selector */}
           <div className="flex flex-col gap-1.5">
             <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
@@ -295,6 +358,7 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
                   setNewQText('');
                   setNewQAns('');
                   setNewQDiff('Medium');
+                  setNewQTopic(activeTopicTitle || '');
                   if (qTextEditorRef.current) qTextEditorRef.current.setContent('');
                   if (qAnsEditorRef.current) qAnsEditorRef.current.setContent('');
                 }}
@@ -330,20 +394,52 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
       {/* 2. Active Diagnostic Questions Container (Full Width, Beneath Draft) */}
       <div className="w-full space-y-3 pt-1">
         <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 p-2.5 px-3.5 rounded-lg border border-slate-850">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[10px] font-mono tracking-wider text-slate-400 uppercase font-bold">
               Active Question List ({questions.length})
             </span>
-            {questions.length > 0 && (
+
+            {/* Topic Filter Pills */}
+            {activeTopicTitle && (
+              <div className="flex items-center gap-1 bg-slate-900/80 p-0.5 rounded-lg border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFilterTopic('all')}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                    filterTopic === 'all'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  All Chapter Quizzes ({questions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterTopic('active')}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    filterTopic === 'active'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  <span>This Topic: {activeTopicTitle}</span>
+                  <span className="bg-indigo-950/60 px-1 py-0.2 rounded font-mono text-[9px] text-indigo-300">
+                    {activeTopicQuestionsCount}
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {displayedQuestions.length > 0 && (
               <label className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={questions.length > 0 && selectedIds.length === questions.length}
+                  checked={displayedQuestions.length > 0 && displayedQuestions.every(q => selectedIds.includes(q.id))}
                   onChange={handleSelectAll}
                   className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 cursor-pointer accent-rose-500"
                 />
                 <span className="text-[10px] font-mono uppercase text-slate-500">
-                  {selectedIds.length === questions.length ? 'Deselect All' : 'Select All'}
+                  {displayedQuestions.length > 0 && displayedQuestions.every(q => selectedIds.includes(q.id)) ? 'Deselect All' : 'Select All'}
                 </span>
               </label>
             )}
@@ -372,12 +468,14 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
         </div>
 
         <div className="bg-slate-950/20 rounded-xl border border-slate-850 divide-y divide-slate-850/50">
-          {questions.length === 0 ? (
+          {displayedQuestions.length === 0 ? (
             <div className="p-6 text-center select-none text-xs text-slate-500 font-serif italic">
-              No review flashcards compiled yet. Use the draft panel above to formulate diagnostic evaluations or use bulk upload.
+              {questions.length === 0
+                ? "No review flashcards compiled yet. Use the draft panel above to formulate diagnostic evaluations or use bulk upload."
+                : `No review flashcards matching this topic ("${activeTopicTitle}").`}
             </div>
           ) : (
-            questions.map((q, qIdx) => {
+            displayedQuestions.map((q, qIdx) => {
               const isSelected = selectedIds.includes(q.id);
 
               return (
@@ -412,15 +510,22 @@ export default function FlashQuestionManager({ questions, onQuestionsUpdate }: F
                   </div>
 
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <span className={`text-[8px] font-mono font-bold uppercase rounded px-1.5 py-0.5 border ${
-                      q.difficulty === 'Easy'
-                        ? 'bg-emerald-950/40 border-emerald-800 text-emerald-400'
-                        : q.difficulty === 'Hard'
-                        ? 'bg-rose-950/40 border-rose-800 text-rose-400'
-                        : 'bg-amber-950/40 border-amber-800 text-amber-400'
-                    }`}>
-                      {q.difficulty}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {q.topicTitle && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono uppercase">
+                          Topic: {q.topicTitle}
+                        </span>
+                      )}
+                      <span className={`text-[8px] font-mono font-bold uppercase rounded px-1.5 py-0.5 border ${
+                        q.difficulty === 'Easy'
+                          ? 'bg-emerald-950/40 border-emerald-800 text-emerald-400'
+                          : q.difficulty === 'Hard'
+                          ? 'bg-rose-950/40 border-rose-800 text-rose-400'
+                          : 'bg-amber-950/40 border-amber-800 text-amber-400'
+                      }`}>
+                        {q.difficulty}
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleEditQuestion(q)}

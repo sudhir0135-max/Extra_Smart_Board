@@ -402,9 +402,17 @@ export default function BookEditorPanel({
               }
               return q;
             });
+            // Update topicTitle on any flash questions referencing the old title
+            const updatedFlash = (l.flashQuestions || []).map(q => {
+              if (q.topicTitle && q.topicTitle.trim().toLowerCase() === oldTitleLower) {
+                return { ...q, topicTitle: newTitle };
+              }
+              return q;
+            });
             return {
               ...l,
               inquiryQuestions: updatedInquiry,
+              flashQuestions: updatedFlash,
               topics: (l.topics || []).map(t => {
                 if (t.id !== selectedTopic.id) return t;
                 return {
@@ -413,6 +421,12 @@ export default function BookEditorPanel({
                   videoUrl: topicVideoUrlDraft.trim() || null,
                   inquiryQuestions: (t.inquiryQuestions || []).map(q => {
                     if (typeof q !== 'string' && q.topicTitle && q.topicTitle.trim().toLowerCase() === oldTitleLower) {
+                      return { ...q, topicTitle: newTitle };
+                    }
+                    return q;
+                  }),
+                  flashQuestions: (t.flashQuestions || []).map(q => {
+                    if (q.topicTitle && q.topicTitle.trim().toLowerCase() === oldTitleLower) {
                       return { ...q, topicTitle: newTitle };
                     }
                     return q;
@@ -1915,34 +1929,55 @@ export default function BookEditorPanel({
                 </div>
 
                 {/* Sub-Layout: Flash Review Quizzing */}
-                <FlashQuestionManager
-                  questions={selectedTopic ? (selectedTopic.flashQuestions || []) : (activeLesson.flashQuestions || [])}
-                  onQuestionsUpdate={async (newQuestions) => {
-                    if (!assignedBook || !activeLesson) return;
-                    try {
-                      const modifiedBook = {
-                        ...assignedBook,
-                        lessons: assignedBook.lessons.map(l => {
-                          if (l.id !== activeLesson.id) return l;
-                          if (selectedTopic) {
-                            return {
-                              ...l,
-                              topics: (l.topics || []).map(t => {
-                                if (t.id !== selectedTopic.id) return t;
-                                return { ...t, flashQuestions: newQuestions };
-                              })
-                            };
+                {(() => {
+                  const allFQ: FlashQuestion[] = [...(activeLesson.flashQuestions || [])];
+                  if (activeLesson.topics) {
+                    for (const t of activeLesson.topics) {
+                      if (t.flashQuestions) {
+                        for (const tfq of t.flashQuestions) {
+                          if (!allFQ.some(q => q.id === tfq.id)) {
+                            allFQ.push(tfq.topicTitle ? tfq : { ...tfq, topicTitle: t.title });
                           }
-                          return { ...l, flashQuestions: newQuestions };
-                        })
-                      };
-                      await saveBookLocally(modifiedBook);
-                      flashMessage('Interactive quizzes saved.');
-                    } catch (err) {
-                      alert('Failed to save quizzes.');
+                        }
+                      }
                     }
-                  }}
-                />
+                  }
+                  const lessonTopicTitles = (activeLesson.topics || []).map(t => t.title).filter(Boolean);
+
+                  return (
+                    <FlashQuestionManager
+                      questions={allFQ}
+                      availableTopics={lessonTopicTitles}
+                      activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
+                      onQuestionsUpdate={async (newQuestions) => {
+                        if (!assignedBook || !activeLesson) return;
+                        try {
+                          const modifiedBook = {
+                            ...assignedBook,
+                            lessons: assignedBook.lessons.map(l => {
+                              if (l.id !== activeLesson.id) return l;
+                              return {
+                                ...l,
+                                flashQuestions: newQuestions,
+                                topics: (l.topics || []).map(t => {
+                                  const tTitleLower = (t.title || '').trim().toLowerCase();
+                                  return {
+                                    ...t,
+                                    flashQuestions: newQuestions.filter(q => (q.topicTitle || '').trim().toLowerCase() === tTitleLower)
+                                  };
+                                })
+                              };
+                            })
+                          };
+                          await saveBookLocally(modifiedBook);
+                          flashMessage('Interactive quizzes saved.');
+                        } catch (err) {
+                          alert('Failed to save quizzes.');
+                        }
+                      }}
+                    />
+                  );
+                })()}
 
                 {/* Sub-Layout: Inquiry Question Manager */}
                 {(() => {
@@ -1964,6 +1999,7 @@ export default function BookEditorPanel({
                   return (
                     <InquiryQuestionManager
                       questions={allQ}
+                      availableTopics={(activeLesson.topics || []).map(t => t.title).filter(Boolean)}
                       activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
                       onQuestionsUpdate={async (newQuestions) => {
                         if (!assignedBook || !activeLesson) return;

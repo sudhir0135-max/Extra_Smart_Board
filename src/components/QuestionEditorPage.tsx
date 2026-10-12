@@ -38,6 +38,17 @@ export default function QuestionEditorPage() {
     return [blankQuestion()];
   });
 
+  const [availableTopics] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`qeditor_topics_${sessionKey}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (_) {}
+    return [];
+  });
+
   const [activeIdx, setActiveIdx] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>('question');
   const [isSaving, setIsSaving] = useState(false);
@@ -411,7 +422,7 @@ export default function QuestionEditorPage() {
               </div>
 
               {/* TinyMCE — keyed on activeIdx + editorMode so it reinitialises when switching */}
-              <div className="flex-1 overflow-hidden bg-white">
+              <div className="flex-1 overflow-hidden bg-[#181e2a]">
                 <Editor
                   key={`${activeIdx}-${editorMode}`}
                   licenseKey="gpl"
@@ -429,7 +440,7 @@ export default function QuestionEditorPage() {
                       'emoticons', 'codesample'
                     ],
                     toolbar:
-                      'undo redo | styles | bold italic underline strikethrough | ' +
+                      'undo redo | styles fontfamily fontsize | bold italic underline strikethrough | ' +
                       'forecolor backcolor | alignleft aligncenter alignright alignjustify | ' +
                       'bullist numlist outdent indent | blockquote | table | image media link | ' +
                       'codesample emoticons | removeformat | fullscreen | help',
@@ -437,15 +448,15 @@ export default function QuestionEditorPage() {
                       'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | ' +
                       'tableinsertcolbefore tableinsertcolafter tabledeletecol',
                     content_style:
-                      'body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 16px; color: #1a1a1a; line-height: 1.7; padding: 1.5rem 2rem; max-width: 100%; }' +
-                      'blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #666; font-style: italic; margin: 12px 0; }' +
-                      'table { border-collapse: collapse; width: 100%; margin: 1rem 0; }' +
-                      'table td, table th { border: 1px solid #ddd; padding: 8px 12px; }' +
-                      'table th { background: #f5f5f5; font-weight: bold; }' +
-                      'img { max-width: 100%; height: auto; border-radius: 6px; }' +
+                      'body { font-family: "Cormorant Garamond", Georgia, serif; font-size: 21px; color: #e8f0fe; background-color: #181e2a; line-height: 1.625; padding: 1.5rem 2rem; max-width: 100%; }' +
+                      'blockquote { border-left: 3px solid #f59e0b; padding-left: 14px; color: #cbd5e1; font-style: italic; margin: 12px 0; }' +
+                      'table { border-collapse: collapse; width: 100%; margin: 1rem 0; border: 1px solid #334155; }' +
+                      'table td, table th { border: 1px solid #334155; padding: 8px 12px; }' +
+                      'table th { background: rgba(30, 41, 59, 0.8); font-weight: bold; color: #f8fafc; }' +
+                      'img { max-width: 100%; height: auto; border-radius: 8px; }' +
                       tinymceAnnotationContentStyle,
-                    skin: 'oxide',
-                    content_css: 'default',
+                    skin: 'oxide-dark',
+                    content_css: 'dark',
                     image_uploadtab: true,
                     automatic_uploads: false,
                     branding: false,
@@ -540,16 +551,22 @@ export default function QuestionEditorPage() {
               </label>
               <div>
                 <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Topic Title</label>
-                <input
-                  type="text"
+                <select
                   value={activeQ.topicTitle || ''}
                   onChange={(e) => {
                     const val = e.target.value;
                     setQuestions(prev => prev.map((q, i) => i === activeIdx ? { ...q, topicTitle: val.trim() || null } : q));
                   }}
-                  placeholder="e.g. Introduction"
-                  className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"
-                />
+                  className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-teal-500 font-sans"
+                >
+                  <option value="">-- No Topic / Chapter Level --</option>
+                  {availableTopics.map((top, idx) => (
+                    <option key={idx} value={top}>{top}</option>
+                  ))}
+                  {activeQ.topicTitle && !availableTopics.includes(activeQ.topicTitle) && (
+                    <option value={activeQ.topicTitle}>{activeQ.topicTitle} (Current)</option>
+                  )}
+                </select>
               </div>
               <div>
                 <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Marks (Numeric)</label>
