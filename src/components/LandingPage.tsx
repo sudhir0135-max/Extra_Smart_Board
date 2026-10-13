@@ -3,10 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { BookOpen, ShieldAlert, GraduationCap, PenTool, ArrowRight, Settings, Sparkles } from 'lucide-react';
-import { storage } from '../lib/firebase';
-import { ref, getDownloadURL } from 'firebase/storage';
 
 interface LandingPageProps {
   onEnterStudents: () => void;
@@ -35,16 +33,7 @@ export default function LandingPage({
   editorsCount,
   globalLogo,
 }: LandingPageProps) {
-  const [apkUrl, setApkUrl] = useState<string>("/ExtraPadhai.apk");
-
-  useEffect(() => {
-    getDownloadURL(ref(storage, 'apk/ExtraPadhai.apk'))
-      .then((url) => setApkUrl(url))
-      .catch((err) => {
-        console.warn("Storage APK URL fetch failed, falling back to hosted static APK:", err);
-        setApkUrl("/ExtraPadhai.apk");
-      });
-  }, []);
+  const apkUrl = "/ExtraPadhai.apk";
 
   return (
     <div className="min-h-screen w-full bg-[#070b13] text-slate-100 flex flex-col justify-between font-sans relative overflow-hidden" id="landing-page-container">

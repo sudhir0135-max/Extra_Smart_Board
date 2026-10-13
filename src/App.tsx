@@ -1628,7 +1628,7 @@ export default function App() {
 
   if (activeScreen === 'grade-selector') {
     const pageContent = (
-      <div className={`${isSimulatingApk ? 'h-full' : 'h-screen'} w-full relative overflow-hidden bg-[#f7fbf0]`} id="app-layout">
+      <div className={`${isSimulatingApk ? 'h-full' : 'h-screen'} w-full relative overflow-hidden bg-[#160b03]`} id="app-layout">
         <GradeSelector
           globalLogo={globalLogo}
           books={getFilteredBooks()}

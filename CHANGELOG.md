@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-14] - APK UI & Functionality Rectification: Fresh Android Build & Download Decoupling
+
+### Fixed & Rectified
+- **Stale Firebase Storage APK Download Link Decoupled (`LandingPage.tsx`)**:
+  - **Root Cause**: The **Download APK** button on the landing page previously executed `getDownloadURL(ref(storage, 'apk/ExtraPadhai.apk'))`, which overrode the download target with an ancient APK uploaded to Firebase Storage on **August 26, 2026**. Consequently, any user or device downloading the APK from the web received the obsolete August 26 build containing the old light-themed 2D card grid UI (Image 2) and missing all modern functions (Wooden Shelf library view, 1MB storage offload resolution, direct Firestore question saving, accountancy modes, offline synchronization).
+  - **Fix**: Removed the stale Firebase Storage download URL lookup in [`LandingPage.tsx`](file:///c:/Single%20Screen/src/components/LandingPage.tsx). The **Download APK** button now directly downloads the bundled, updated `/ExtraPadhai.apk` with proper `application/vnd.android.package-archive` attachment headers.
+- **Grade Selector Page Container Theme Matching (`App.tsx`)**:
+  - Updated the outer layout background in [`App.tsx`](file:///c:/Single%20Screen/src/App.tsx) for `activeScreen === 'grade-selector'` from `bg-[#f7fbf0]` (light green) to `bg-[#160b03]` (dark wood), preventing any color mismatch or flash during initial render or bounce scrolling.
+- **End-to-End Automated APK Build Pipeline (`build_apk.bat`)**:
+  - Upgraded [`build_apk.bat`](file:///c:/Single%20Screen/build_apk.bat) to execute the complete build sequence:
+    1. Compiles modern web bundle (`npm run build`).
+    2. Synchronizes assets into the Capacitor Android project (`npx cap copy android`).
+    3. Cleans any accidental nested APK assets in `android/app/src/main/assets/public/` to prevent recursive archive bloat.
+    4. Assembles the debug APK via Gradle (`gradlew.bat assembleDebug`).
+    5. Distributes the fresh APK to `ExtraPadhai.apk` (root), `releases/ExtraPadhai_v5.0.apk`, `dist/ExtraPadhai.apk`, and `public/ExtraPadhai.apk`.
+- **Newly Assembled APK Verified**:
+  - Compiled and verified fresh pre-signed Android APK:
+    - **Path**: `releases/ExtraPadhai_v5.0.apk` & `ExtraPadhai.apk` (**13.49 MB** / 14,144,837 bytes).
+    - Contains the latest compiled student panel bundle (`index-CF0-IcFB.js`), full Wooden Shelf view, and all offline curriculum features.
+
+### Added & Improved
+- **Topic Question Modals Full-Screen Expansion (`FloatingButton.tsx`)**:
+  - Expanded the retrieval / flash question container (`#panel-flashcards`) from a centered floating dialog box (`top-1/2 left-1/2 w-[95vw] sm:w-[800px] max-h-[85vh] rounded-2xl`) to cover the **entire viewport** (`fixed inset-0 w-full h-full`).
+  - Expanded the active classroom questions panel (`#panel-classroom-questions`) from partial height (`top-[72px]`) to full viewport coverage (`fixed inset-0 w-full h-full`).
+  - Increased card dimensions (`max-w-4xl mx-auto`, `maxHeight: 52vh`) and arena score layout so questions and answers take full advantage of smartboard and tablet screen dimensions.
+- **Top Ribbon Height Reduced by 20% (`FloatingButton.tsx`)**:
+  - Reduced top header ribbon padding across question panels from `p-3 sm:p-4` (12px to 16px vertical padding) to `py-2 sm:py-2.5` (8px to 10px vertical padding), delivering a clean ~20% decrease in ribbon height while preserving touch targets, filter buttons, and close controls.
+  - Slimmed down filter buttons padding to `py-0.5 px-1` / `py-0.5 px-2.5` for compact visual alignment.
+- **Production APK Re-Assembled**:
+  - Re-synced and assembled new Android debug APK via `build_apk.bat` containing bundle `index-BwgDN9H5.js`.
+
+
+
 ## [2026-10-12] - Production Android APK Build Updated & Firebase Distribution
 
 ### Added & Deployed

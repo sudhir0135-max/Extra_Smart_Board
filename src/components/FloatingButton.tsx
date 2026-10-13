@@ -908,18 +908,18 @@ export default function FloatingButton({
         </div>
       )}      {/* 2. FLASH QUESTIONS ACTIVE RETRIEVAL CARDS */}
       {activePanel === 'questions' && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[95vw] sm:w-[800px] max-h-[85vh] bg-[#0b0f19] text-slate-100 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-slate-800/80 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans" id="panel-flashcards">
-          <div className="bg-slate-950 p-3 sm:p-4 px-4 sm:px-6 flex flex-wrap items-center justify-between border-b border-slate-900 shrink-0 gap-2">
+        <div className="fixed inset-0 w-full h-full bg-[#0b0f19] text-slate-100 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans shadow-2xl" id="panel-flashcards">
+          <div className="bg-slate-950 py-2 sm:py-2.5 px-4 sm:px-6 flex flex-wrap items-center justify-between border-b border-slate-900 shrink-0 gap-2 shadow-md">
             <div className="flex items-center gap-2 text-amber-500 font-bold shrink-0">
               <HelpCircle className="w-4 h-4" />
               <span className="font-bold uppercase text-[10px] sm:text-xs tracking-widest font-sans">Classroom Retrieval Cards</span>
             </div>
 
             {/* Difficulty Filter Selector */}
-            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-[10px] sm:text-xs font-mono">
+            <div className="flex items-center gap-1 bg-slate-900 py-0.5 px-1 rounded-xl border border-slate-800 text-[10px] sm:text-xs font-mono">
               <button
                 onClick={() => { setDifficultyFilter('all'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
                   difficultyFilter === 'all'
                     ? 'bg-amber-500 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
@@ -930,7 +930,7 @@ export default function FloatingButton({
               </button>
               <button
                 onClick={() => { setDifficultyFilter('Easy'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
                   difficultyFilter === 'Easy'
                     ? 'bg-emerald-500 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50'
@@ -941,7 +941,7 @@ export default function FloatingButton({
               </button>
               <button
                 onClick={() => { setDifficultyFilter('Medium'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
                   difficultyFilter === 'Medium'
                     ? 'bg-amber-500 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/50'
@@ -952,7 +952,7 @@ export default function FloatingButton({
               </button>
               <button
                 onClick={() => { setDifficultyFilter('Hard'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
                   difficultyFilter === 'Hard'
                     ? 'bg-rose-500 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-rose-400 hover:bg-slate-800/50'
@@ -963,8 +963,8 @@ export default function FloatingButton({
               </button>
             </div>
 
-            <button id="close-flash" onClick={() => setActivePanel(null)} className="hover:text-amber-400 text-slate-400 transition-colors cursor-pointer ml-auto sm:ml-0">
-              <X className="w-4 h-4" />
+            <button id="close-flash" onClick={closeActivePanel} className="hover:text-amber-400 text-slate-400 p-1 hover:bg-slate-800/50 rounded-lg transition-colors cursor-pointer ml-auto sm:ml-0" title="Close">
+              <X className="w-5 h-5" />
             </button>
           </div>
 
@@ -975,12 +975,12 @@ export default function FloatingButton({
                 <div
                   id="flash-deck-card"
                   onClick={() => setIsFlipped(!isFlipped)}
-                  className={`w-full max-w-2xl mx-auto rounded-xl relative cursor-pointer select-none transition-all duration-300 border p-3 sm:p-4 flex flex-col justify-between ${
+                  className={`w-full max-w-4xl mx-auto rounded-xl relative cursor-pointer select-none transition-all duration-300 border p-4 sm:p-6 flex flex-col justify-between ${
                     isFlipped
                       ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-xl text-center scale-[1.01]'
                       : 'bg-slate-900 border-slate-800 text-slate-100 hover:border-slate-700'
                   }`}
-                  style={{ minHeight: '120px', maxHeight: '38vh' }}
+                  style={{ minHeight: '180px', maxHeight: '52vh' }}
                 >
                   {/* Status header */}
                   <div className="flex justify-between items-center text-[8px] font-sans font-bold uppercase tracking-widest opacity-70 shrink-0">
@@ -1117,7 +1117,7 @@ export default function FloatingButton({
 
       {/* 3. ACTIVE CLASSROOM QUESTIONS LIST PANEL */}
       {activePanel === 'notes' && (
-        <div className="fixed top-[72px] left-0 right-0 bottom-0 bg-[#0b0f19] text-slate-100 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans border-t border-slate-800/80 shadow-[0_-10px_50px_rgba(0,0,0,0.8)]" id="panel-classroom-questions">
+        <div className="fixed inset-0 w-full h-full bg-[#0b0f19] text-slate-100 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans shadow-2xl" id="panel-classroom-questions">
           
           <ScribbleOverlay 
             lessonId={`questions-${currentLesson?.id || 'default'}`}
@@ -1127,7 +1127,7 @@ export default function FloatingButton({
             isHighlighter={qIsHighlighter}
           />
           
-          <div className="bg-slate-950 py-2 px-6 flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-900 shadow-sm shrink-0 gap-2 relative z-50 pointer-events-auto">
+          <div className="bg-slate-950 py-1.5 px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-900 shadow-sm shrink-0 gap-2 relative z-50 pointer-events-auto">
             <div className="flex items-center gap-2.5 text-emerald-400 font-bold shrink-0">
               <span className="flex items-center justify-center w-6 h-6 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 font-extrabold select-none shadow-inner">Q</span>
               <span className="font-bold uppercase text-sm tracking-widest font-sans">Some Extra Questions from Lesson</span>
