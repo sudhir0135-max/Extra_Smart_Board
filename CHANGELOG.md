@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-21] - Rectification: Topic Video Visibility & Persistence in Student Panel
+
+### Fixed & Rectified
+- **Direct Live Firestore Sync for Topic CRUD Operations (`BookEditorPanel.tsx`)**:
+  - **Root Cause**: When topics were created, modified, or deleted in the Book Editor Panel, `handleSaveTopic` and `handleDeleteTopic` only executed `saveBookLocally()`, which wrote changes exclusively to local IndexedDB (`offline_lessons`) with `sync_status: 'pending'`. The topic and its attached `videoUrl` were never written to live Firestore (`books/{bookId}/lessons/{lessonId}`). When a student navigated to the chapter, `fetchBookLessons` retrieved the chapter from Firestore (lacking the newly attached topic/video) and overwrote `offline_lessons` and `subLessonsCache`, causing the video to vanish completely.
+  - **Fix**: Updated `handleSaveTopic` and `handleDeleteTopic` in [`BookEditorPanel.tsx`](file:///c:/Single%20Screen/src/components/BookEditorPanel.tsx) to invoke `saveLessonDirectToFirestore(modifiedBook, updatedLesson)`. Now any topic creation, topic title edit, or video URL modification immediately commits to both local IndexedDB and live Firestore, refreshing `subLessonsCache` across the application in real time.
+- **Deep Topic & Video URL Preservation in Offline Merge (`App.tsx`)**:
+  - **Root Cause**: `books` memoization in [`App.tsx`](file:///c:/Single%20Screen/src/App.tsx) previously used shallow assignment for topics (`topics: ol.topics !== undefined ? ol.topics : (liveL.topics || [])`), which could drop `videoUrl` if an existing offline topic lacked the URL while the live topic or subcollection had it. Furthermore, `fetchBookLessons` previously overwrote `offline_lessons` unconditionally, blowing away any pending offline topic creations.
+  - **Fix**: Added deep merging for topics in `App.tsx`'s offline merge engine that guarantees `videoUrl` is preserved (`videoUrl: ot.videoUrl ? ot.videoUrl : (lt?.videoUrl || ot.videoUrl || null)`). Added a pending-edit check in `fetchBookLessons` so existing offline records with `sync_status: 'pending'` have their local topics and questions merged rather than wiped out.
+- **Auto-Maximized Topic Video Playback & MP4 File Support (`FloatingButton.tsx`)**:
+  - **Root Cause**: When opening a topic video from the Student Panel (`onOpenTopicModal?.(topic, 'video')`), `externalTopicModal` set `activePanel: 'video'`, but left `maximizedVideoId: null`. Consequently, the player stayed in library grid view, showing an unplayed card in a 100px-bordered container rather than immediately playing the requested topic lecture. Furthermore, only YouTube embeds were supported, failing if an uploaded MP4 or Storage video URL was provided.
+  - **Fix**: Added `setMaximizedVideoId('topic-video-0')` trigger when `externalTopicModal.panel === 'video'` so the topic's video starts playing full-screen instantly. Added support for direct HTML5 `<video controls autoPlay>` streaming for MP4/WebM/Firebase Storage URLs alongside YouTube iframe embeds.
+- **Embedded Topic Video Lecture in Expanded Container & Vibrant Ribbon Indicator (`Workspace.tsx`)**:
+  - **Root Cause**: In the Student Panel's topic container, when a student expanded a topic (`isExpanded`), only reading pages (`topic.pages`) were rendered; the attached video lecture was not displayed anywhere in the container.
+  - **Fix**: Added an embedded **Topic Video Lecture** player directly inside the expanded topic container in [`Workspace.tsx`](file:///c:/Single%20Screen/src/components/Workspace.tsx) with a responsive 16:9 player (`renderTopicVideo`), video title badge, and a **"Theater Mode"** button to open the full-screen modal. Upgraded the video action button on the Topic Ribbon with an active sky-blue glow and ring indicator (`ring-1 ring-sky-400/40 shadow-sky-500/20`).
+- **Direct Video File Upload Option in Book Editor (`BookEditorPanel.tsx`)**:
+  - Added an **"Upload"** button next to the YouTube Video URL field in the Topic form of [`BookEditorPanel.tsx`](file:///c:/Single%20Screen/src/components/BookEditorPanel.tsx) allowing editors to directly upload video files (`video/*`) to Firebase Storage (`videos/topics/`) in addition to pasting YouTube or external URLs.
+
+
+## [2026-10-19] - Rectification: Inquiry Questions Reverting to Pre-saved Position
+
+### Fixed & Rectified
+- **Sanitized Direct Firestore Chapter Save & Removed Silent Error Swallowing (`BookEditorPanel.tsx`)**:
+  - **Root Cause**: When questions were saved in the Advanced Editor, `saveLessonDirectToFirestore` passed the raw `lessonWithOrder` object directly to Firestore `setDoc()`. In Firestore, any object containing `undefined` properties (such as optional `tabs: undefined`, `subtitle: undefined`, `pdfUrl: undefined`, or `topic.videoUrl: undefined`) throws an exception: `Unsupported field value: undefined`. The catch block caught this error and logged it to the console without re-throwing, causing the modal to display 100% saved while Firestore rejected the write.
+  - **Fix**: Wrapped `docToWrite` with `JSON.parse(JSON.stringify(docToWrite))` before calling `setDoc()` to strip all `undefined` values. Added re-throwing of real Firestore write errors so the UI never displays false success if saving fails.
+- **Removed Stale Storage `payloadUrl` Conflict (`BookEditorPanel.tsx`, `App.tsx`)**:
+  - **Root Cause**: If a chapter previously had a Firebase Storage `payloadUrl` (from an earlier large save >750KB), and was subsequently updated with questions under 750KB, `payloadUrl` remained attached to `docToWrite`. When the student panel opened and executed `fetchBookLessons`, `resolveLessonPayload(l)` detected `payloadUrl`, downloaded the obsolete Storage JSON, and overwritten the freshly saved Firestore questions.
+  - **Fix**: When chapters fit directly in Firestore (`jsonLength <= 750000`), `payloadUrl` is deleted from `docToWrite` and cleaned up from Storage using `deleteFileFromStorage()`.
+- **Added Cache-Busting and No-Store to Storage Payload Resolution (`firebaseHelper.ts`)**:
+  - **Root Cause**: Firebase Storage download URLs for large chapters (`>750KB`) are cached aggressively by the browser. When an updated payload was uploaded, subsequent `fetch(lesson.payloadUrl)` requests received the cached pre-saved JSON from the browser HTTP cache.
+  - **Fix**: Added a timestamp query param `_cb=${Date.now()}` and `{ cache: 'no-store' }` to `resolveLessonPayload()` so fresh data is always fetched from the network.
+- **Immediate Cache Synchronization & Subcollection Authority (`BookEditorPanel.tsx`, `App.tsx`)**:
+  - **Root Cause**: `saveLessonDirectToFirestore` never invoked `fetchBookLessons(bookId)` to refresh `subLessonsCache` and `firebaseBooks`. Furthermore, `App.tsx`'s memoized `books` only used `subLessonsCache` if `!bHasIQ && cachedHasIQ`. If the top-level book already contained inquiry questions, `subLessonsCache` was ignored, causing stale lessons to be rendered and written back to IndexedDB.
+  - **Fix**: Called `fetchBookLessons(modifiedBook.id)` directly in `saveLessonDirectToFirestore`, and updated `App.tsx`'s base books mapping to always use `subLessonsCache` when present since subcollections are the authoritative source of truth.
+
 ## [2026-10-14] - APK UI & Functionality Rectification: Fresh Android Build & Download Decoupling
 
 ### Fixed & Rectified

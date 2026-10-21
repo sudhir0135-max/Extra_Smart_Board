@@ -9,7 +9,7 @@ import { Book, Lesson, Topic, ThemeMode, AcademicSubject, BookEditor, Interactiv
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
-import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle } from 'lucide-react';
+import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle, Maximize2 } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import { BlockMath } from 'react-katex';
@@ -32,6 +32,44 @@ import PdfPageViewer from './PdfPageViewer';
  * so the virtual DOM and real DOM are both clean from the start — no CSS
  * specificity fight, no post-render DOM manipulation timing window.
  */
+function renderTopicVideo(url: string, title: string) {
+  if (!url) return null;
+  const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+  const isDirectVideo = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url) || url.includes('/videos%2F') || url.includes('/videos/');
+
+  if (ytMatch && ytMatch[1]) {
+    return (
+      <iframe
+        src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+        title={`Video lecture: ${title}`}
+        className="w-full h-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
+    );
+  }
+
+  if (isDirectVideo) {
+    return (
+      <video
+        src={url}
+        controls
+        className="w-full h-full object-contain bg-black"
+      />
+    );
+  }
+
+  return (
+    <iframe
+      src={url}
+      title={`Video lecture: ${title}`}
+      className="w-full h-full"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen
+    />
+  );
+}
+
 function stripInlineStyles(html: string): string {
   if (!html || typeof html !== 'string') return html ?? '';
 
@@ -696,10 +734,10 @@ export default function Workspace({
                                 disabled={!topic.videoUrl}
                                 className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
                                   topic.videoUrl
-                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95'
+                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 ring-1 ring-sky-400/40 shadow-sky-500/20'
                                     : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
                                 }`}
-                                title={topic.videoUrl ? `Play Video for '${topic.title}'` : 'No video attached to this topic'}
+                                title={topic.videoUrl ? `Play Video Lecture for '${topic.title}'` : 'No video attached to this topic'}
                               >
                                 <Video className="w-4.5 h-4.5" />
                               </button>
@@ -758,6 +796,31 @@ export default function Workspace({
                           {/* Expanded Content Section: Reveals Pages assigned to this Topic */}
                           {isExpanded && (
                             <div className="w-full pt-4 mt-3 border-t border-slate-800/80 space-y-6 animate-fade-in text-slate-100">
+                              {/* Topic Video Lecture Embed if attached */}
+                              {topic.videoUrl && (
+                                <div className="bg-slate-950/90 border border-sky-500/30 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3">
+                                  <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                                    <div className="flex items-center gap-2">
+                                      <Video className="w-4 h-4 text-sky-400" />
+                                      <span className="text-[11px] font-mono uppercase text-sky-400 font-black tracking-wider">
+                                        Topic Video Lecture • {topic.title}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() => onOpenTopicModal?.(topic, 'video')}
+                                      className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 cursor-pointer transition-all hover:scale-105 active:scale-95"
+                                      title="Open in Full Screen theater modal"
+                                    >
+                                      <Maximize2 className="w-3.5 h-3.5" /> Theater Mode
+                                    </button>
+                                  </div>
+
+                                  <div className="relative aspect-video w-full max-w-4xl mx-auto rounded-xl overflow-hidden border border-slate-800 bg-black shadow-lg flex items-center justify-center">
+                                    {renderTopicVideo(topic.videoUrl, topic.title)}
+                                  </div>
+                                </div>
+                              )}
+
                               {(!topic.pages || topic.pages.length === 0) ? (
                                 <div className="p-6 text-center text-slate-400 font-mono text-xs border border-dashed border-slate-800 rounded-xl bg-slate-950/60">
                                   No specific reading pages assigned to this topic yet.

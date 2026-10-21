@@ -319,6 +319,9 @@ export default function FloatingButton({
   useEffect(() => {
     if (externalTopicModal) {
       setActivePanel(externalTopicModal.panel);
+      if (externalTopicModal.panel === 'video') {
+        setMaximizedVideoId('topic-video-0');
+      }
     }
   }, [externalTopicModal]);
 
@@ -817,9 +820,25 @@ export default function FloatingButton({
                           <p className="text-sm font-bold font-mono">No Internet Connection</p>
                           <p className="text-[10px] mt-2">Cannot load YouTube video stream.</p>
                         </div>
+                      ) : activeVid.youtubeId ? (
+                        <iframe
+                          src={`https://www.youtube.com/embed/${activeVid.youtubeId}?autoplay=1`}
+                          title={activeVid.title}
+                          className="absolute inset-0 w-full h-full"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        ></iframe>
+                      ) : (activeVid.rawUrl && (/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(activeVid.rawUrl) || activeVid.rawUrl.includes('/videos%2F') || activeVid.rawUrl.includes('/videos/'))) ? (
+                        <video
+                          src={activeVid.rawUrl}
+                          controls
+                          autoPlay
+                          className="absolute inset-0 w-full h-full object-contain bg-black"
+                        />
                       ) : (
                         <iframe
-                          src={activeVid.youtubeId ? `https://www.youtube.com/embed/${activeVid.youtubeId}?autoplay=1` : activeVid.rawUrl}
+                          src={activeVid.rawUrl}
                           title={activeVid.title}
                           className="absolute inset-0 w-full h-full"
                           frameBorder="0"

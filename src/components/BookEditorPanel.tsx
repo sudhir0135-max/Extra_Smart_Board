@@ -6,7 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { Book, Lesson, Topic, FlashQuestion, BookEditor } from '../types';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage, uploadLargeLessonPayload } from '../lib/firebaseHelper';
+import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage, uploadLargeLessonPayload, deleteFileFromStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
 import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
 import {
@@ -224,19 +224,40 @@ export default function BookEditorPanel({
       const lessonOrder = modifiedBook.lessons.findIndex(l => l.id === updatedLesson.id);
       const lessonWithOrder = { ...updatedLesson, order: lessonOrder >= 0 ? lessonOrder : 0 };
 
-      let docToWrite = lessonWithOrder;
+      let docToWrite: any = lessonWithOrder;
       const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
       if (jsonLength > 750000) {
         const storagePath = `books/${bookIdStr}/lessons/${updatedLesson.id}`;
         const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
         docToWrite = pointerLesson;
+      } else {
+        // If it fits directly in Firestore, clean up any stale payloadUrl so resolveLessonPayload doesn't fetch old Storage JSON
+        if ('payloadUrl' in docToWrite) {
+          const oldUrl = docToWrite.payloadUrl;
+          delete docToWrite.payloadUrl;
+          if (oldUrl) {
+            deleteFileFromStorage(oldUrl).catch(e => console.warn('Could not delete old payload.json:', e));
+          }
+        }
       }
+
+      // Sanitize docToWrite to strip any undefined fields (preventing Firestore unsupported field crashes)
+      docToWrite = JSON.parse(JSON.stringify(docToWrite));
 
       const lessonRef = doc(db, 'books', bookIdStr, 'lessons', updatedLesson.id);
       await setDoc(lessonRef, docToWrite);
+
+      // Refresh in-memory subLessonsCache, firebaseBooks, and offline_lessons so all screens immediately see the update
+      if (fetchBookLessons) {
+        await fetchBookLessons(modifiedBook.id);
+      }
     } catch (err: any) {
       console.error("Direct Firestore lesson save error:", err);
-      // We do not throw or alert here if offline; IndexedDB already saved it locally
+      if (!navigator.onLine || err?.code === 'unavailable') {
+        console.warn('Saved locally (offline mode). Cloud sync will happen when online.');
+      } else {
+        throw err;
+      }
     }
   };
 
@@ -468,7 +489,12 @@ export default function BookEditorPanel({
             };
           })
         };
-        await saveBookLocally(modifiedBook);
+        const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+        if (updatedLesson) {
+          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+        } else {
+          await saveBookLocally(modifiedBook);
+        }
         setIsEditingTopic(false);
         flashMessage(`Topic '${newTitle}' updated!`);
       } else {
@@ -496,7 +522,12 @@ export default function BookEditorPanel({
             };
           })
         };
-        await saveBookLocally(modifiedBook);
+        const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+        if (updatedLesson) {
+          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+        } else {
+          await saveBookLocally(modifiedBook);
+        }
         setSelectedTopicId(newTopic.id);
         setSelectedPageIndex(0);
         setIsAddingTopic(false);
@@ -505,6 +536,7 @@ export default function BookEditorPanel({
         flashMessage(`Topic '${newTopic.title}' created!`);
       }
     } catch (err) {
+      console.error('Failed to save topic:', err);
       alert('Failed to save topic.');
     }
   };
@@ -532,11 +564,17 @@ export default function BookEditorPanel({
             };
           })
         };
-        await saveBookLocally(modifiedBook);
+        const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+        if (updatedLesson) {
+          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+        } else {
+          await saveBookLocally(modifiedBook);
+        }
         setSelectedTopicId(null);
         setSelectedPageIndex(0);
         flashMessage('Topic deleted.');
       } catch (err) {
+        console.error('Failed to delete topic:', err);
         alert('Failed to delete topic.');
       }
     }
@@ -1486,15 +1524,43 @@ export default function BookEditorPanel({
                         </div>
                         <div>
                           <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
-                            YouTube Video URL:
+                            Topic Video (YouTube URL or Upload Video):
                           </label>
-                          <textarea
-                            value={topicVideoUrlDraft}
-                            onChange={(e) => setTopicVideoUrlDraft(e.target.value)}
-                            rows={2}
-                            placeholder="Enter YouTube Video URL (e.g. https://www.youtube.com/watch?v=...)"
-                            className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none font-mono"
-                          />
+                          <div className="flex gap-2">
+                            <textarea
+                              value={topicVideoUrlDraft}
+                              onChange={(e) => setTopicVideoUrlDraft(e.target.value)}
+                              rows={2}
+                              placeholder="Enter YouTube Video URL or Video Link (e.g. https://www.youtube.com/watch?v=...)"
+                              className="flex-1 bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none font-mono"
+                            />
+                            <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 hover:border-sky-500/50 rounded text-xs font-bold cursor-pointer flex flex-col items-center justify-center shrink-0 transition-all active:scale-95">
+                              <Upload className="w-4 h-4 mb-0.5" />
+                              <span className="text-[9px] uppercase font-mono">Upload</span>
+                              <input
+                                type="file"
+                                accept="video/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  if (!e.target.files || e.target.files.length === 0) return;
+                                  const file = e.target.files[0];
+                                  try {
+                                    flashMessage('Uploading video to Firebase Storage...');
+                                    const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+                                    const { storage } = await import('../lib/firebase');
+                                    const fileRef = ref(storage, `videos/topics/${Date.now()}_${file.name}`);
+                                    await uploadBytes(fileRef, file);
+                                    const downloadUrl = await getDownloadURL(fileRef);
+                                    setTopicVideoUrlDraft(downloadUrl);
+                                    flashMessage(`Video '${file.name}' attached successfully!`);
+                                  } catch (err) {
+                                    console.error('Failed to upload video:', err);
+                                    alert('Failed to upload video file to storage.');
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
                         </div>
                       </div>
                       <div className="flex justify-end gap-2 pt-1">

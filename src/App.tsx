@@ -229,12 +229,21 @@ export default function App() {
           const lessonWithOrder = { ...lesson, order: globalOrder };
 
           // If serialized lesson exceeds 750KB, offload full data to Storage and store pointer doc
-          let docToWrite = lessonWithOrder;
+          let docToWrite: any = lessonWithOrder;
           const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
           if (jsonLength > 750000) {
             const storagePath = `books/${firestoreBook.id}/lessons/${lesson.id}`;
             const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
             docToWrite = pointerLesson;
+          } else {
+            if ('payloadUrl' in docToWrite) {
+              const oldUrl = docToWrite.payloadUrl;
+              delete docToWrite.payloadUrl;
+              if (oldUrl) {
+                const { deleteFileFromStorage } = await import('./lib/firebaseHelper');
+                deleteFileFromStorage(oldUrl).catch(() => {});
+              }
+            }
           }
 
           batch.set(doc(db, 'books', firestoreBook.id.toString(), 'lessons', lesson.id), docToWrite);
@@ -354,11 +363,32 @@ export default function App() {
         }));
 
         // 2. Persist subcollection lessons to local disk storage (IndexedDB)
+        const existingOffline = await dbLocal.offline_lessons.get(bookId).catch(() => null);
+        let lessonsToPersist = sanitizedLessons;
+        let finalSyncStatus: 'synced' | 'pending' = 'synced';
+
+        if (existingOffline && existingOffline.sync_status === 'pending' && existingOffline.lessons) {
+          finalSyncStatus = 'pending';
+          // Preserve local pending edits/topics so network refresh doesn't overwrite unsaved work
+          lessonsToPersist = sanitizedLessons.map(liveL => {
+            const pendingL = (existingOffline.lessons || []).find((ol: any) => ol.id === liveL.id);
+            if (!pendingL) return liveL;
+            return {
+              ...liveL,
+              ...pendingL,
+              topics: pendingL.topics || liveL.topics,
+              pages: pendingL.pages || liveL.pages,
+              inquiryQuestions: pendingL.inquiryQuestions || liveL.inquiryQuestions,
+              flashQuestions: pendingL.flashQuestions || liveL.flashQuestions
+            };
+          });
+        }
+
         dbLocal.offline_lessons.put({
           bookId: bookId,
           bookTitle: 'Textbook',
-          lessons: sanitizedLessons,
-          sync_status: 'synced',
+          lessons: lessonsToPersist,
+          sync_status: finalSyncStatus,
           updated_at: new Date().toISOString()
         }).catch(console.error);
 
@@ -466,18 +496,11 @@ export default function App() {
       }));
     }
 
-    // Merge in-memory subcollection lessons cache into baseBooks if b.lessons is empty or missing inquiry questions
+    // Merge in-memory subcollection lessons cache into baseBooks (subcollection is authoritative)
     baseBooks = baseBooks.map(b => {
       const cached = subLessonsCache[b.id];
       if (cached && cached.length > 0) {
-        if (!b.lessons || b.lessons.length === 0) {
-          return { ...b, lessons: cached };
-        }
-        const bHasIQ = b.lessons.some(l => l.inquiryQuestions && l.inquiryQuestions.length > 0);
-        const cachedHasIQ = cached.some(l => l.inquiryQuestions && l.inquiryQuestions.length > 0);
-        if (!bHasIQ && cachedHasIQ) {
-          return { ...b, lessons: cached };
-        }
+        return { ...b, lessons: cached };
       }
       return b;
     });
@@ -501,7 +524,25 @@ export default function App() {
               flashQuestions: ol.flashQuestions !== undefined ? ol.flashQuestions : (liveL.flashQuestions || []),
               inquiryQuestions: ol.inquiryQuestions !== undefined ? ol.inquiryQuestions : (liveL.inquiryQuestions || []),
               pages: ol.pages !== undefined ? ol.pages : (liveL.pages || []),
-              topics: ol.topics !== undefined ? ol.topics : (liveL.topics || [])
+              topics: (() => {
+                if (ol.topics === undefined) return liveL.topics || [];
+                const liveTopics = liveL.topics || [];
+                const offTopics = ol.topics || [];
+                const merged = offTopics.map((ot: any) => {
+                  const lt = liveTopics.find((t: any) => t.id === ot.id || (t.title && ot.title && t.title.toLowerCase() === ot.title.toLowerCase()));
+                  return {
+                    ...(lt || {}),
+                    ...ot,
+                    videoUrl: ot.videoUrl ? ot.videoUrl : (lt?.videoUrl || ot.videoUrl || null)
+                  };
+                });
+                liveTopics.forEach((lt: any) => {
+                  if (!merged.find((t: any) => t.id === lt.id || (t.title && lt.title && t.title.toLowerCase() === lt.title.toLowerCase()))) {
+                    merged.push(lt);
+                  }
+                });
+                return merged;
+              })()
             };
           }
           return ol;

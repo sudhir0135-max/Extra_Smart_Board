@@ -227,7 +227,10 @@ export async function uploadLargeLessonPayload(
 export async function resolveLessonPayload(lesson: any): Promise<any> {
   if (!lesson || !lesson.payloadUrl) return lesson;
   try {
-    const res = await fetch(lesson.payloadUrl);
+    const fetchUrl = lesson.payloadUrl.includes('?')
+      ? `${lesson.payloadUrl}&_cb=${Date.now()}`
+      : `${lesson.payloadUrl}?_cb=${Date.now()}`;
+    const res = await fetch(fetchUrl, { cache: 'no-store' });
     if (res.ok) {
       const fullData = await res.json();
       return {
