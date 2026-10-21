@@ -4,6 +4,7 @@ import { Editor } from '@tinymce/tinymce-react';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
 import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/tinymceAnnotationPlugin';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
+import ImageFrame from './ImageFrame';
 import 'katex/dist/katex.min.css';
 
 export interface RichTextEditorProps {
@@ -13,7 +14,7 @@ export interface RichTextEditorProps {
   leftImage?: string;
   centerImage?: string;
   rightImage?: string;
-  interactiveMaps?: {id: string, title: string}[];
+  interactiveMaps?: {id: string, title: string, rootImage?: string, hotspots?: any[]}[];
 }
 
 export default function RichTextEditor({ initialValue, onSave, isSaving = false, leftImage, centerImage, rightImage, interactiveMaps = [] }: RichTextEditorProps) {
@@ -21,6 +22,18 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
   const editorRef = useRef<any>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [previewContent, setPreviewContent] = useState(initialValue);
+
+  // Modal states for live preview tag clicking
+  const [imageFrameSrc, setImageFrameSrc] = useState<string | null>(null);
+  const [imageFrameDef, setImageFrameDef] = useState<any>(undefined);
+  const [activeAnnotation, setActiveAnnotation] = useState<{
+    text: string;
+    mediaType: string;
+    mediaUrl: string;
+    rect: DOMRect;
+    fontSize: string;
+  } | null>(null);
+  const annotationBubbleRef = useRef<HTMLDivElement>(null);
 
   // Use a ref to always provide the latest interactiveMaps to TinyMCE's dialog without needing to re-init
   const interactiveMapsRef = useRef(interactiveMaps);
@@ -43,8 +56,40 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
     }
   };
 
+  const handlePreviewClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const annotationSpan = target.closest('.lesson-annotation');
+    if (annotationSpan) {
+      const text = decodeURIComponent(annotationSpan.getAttribute('data-annotation-text') || '');
+      const mediaType = annotationSpan.getAttribute('data-annotation-media-type') || 'none';
+      let mediaUrl = annotationSpan.getAttribute('data-annotation-media-url') || '';
+
+      if (mediaType === 'interactive-image' && mediaUrl) {
+        const mapDef = interactiveMaps.find(m => m.id === mediaUrl);
+        if (mapDef) {
+          setImageFrameSrc(mapDef.rootImage || mediaUrl);
+          setImageFrameDef(mapDef);
+          setActiveAnnotation(null);
+          return;
+        }
+      }
+
+      if (mediaUrl || mediaType === 'image-frame' || mediaType === 'image') {
+        setImageFrameSrc(mediaUrl);
+        setImageFrameDef(undefined);
+        setActiveAnnotation(null);
+      } else {
+        const rect = annotationSpan.getBoundingClientRect();
+        const fontSize = window.getComputedStyle(annotationSpan).fontSize || '16px';
+        setActiveAnnotation({ text, mediaType, mediaUrl, rect, fontSize });
+      }
+    } else {
+      setActiveAnnotation(null);
+    }
+  };
+
   return (
-    <div className="border rounded-xl bg-[#080d19] overflow-hidden border-slate-800">
+    <div className="border rounded-xl bg-[#080d19] overflow-hidden border-slate-800 relative">
       {/* Tab Select & Controls Toolbar */}
       <div className="flex flex-wrap items-center justify-between border-b border-slate-800 p-2 bg-[#0a1122]/90 gap-2">
         <div className="flex items-center gap-1">
@@ -103,7 +148,7 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
           />
         </div>
       ) : (
-        <div className="p-4 bg-[#03050a] min-h-[220px] overflow-y-auto max-h-[380px]">
+        <div className="p-4 bg-[#03050a] min-h-[220px] overflow-y-auto max-h-[480px]">
           <div className="flex flex-col lg:flex-row gap-4 items-start w-full px-[5%]">
             {leftImage && (
               <div className="w-full lg:w-[30%] flex-shrink-0">
@@ -132,7 +177,8 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
               {previewContent.trim() ? (
                 <div 
                   ref={previewContainerRef}
-                  className="reader-content prose prose-invert prose-sm font-sans text-slate-200 leading-relaxed space-y-3"
+                  onClick={handlePreviewClick}
+                  className="reader-content prose prose-invert prose-sm font-sans text-slate-200 leading-relaxed space-y-3 cursor-pointer"
                   dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(previewContent) }}
                 />
               ) : (
@@ -154,6 +200,51 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
           </div>
         </div>
       )}
+
+      {/* Popover / Speech Bubble for text annotations in preview */}
+      {activeAnnotation && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs cursor-pointer" onClick={() => setActiveAnnotation(null)} />
+          <div 
+            ref={annotationBubbleRef}
+            className="fixed z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl p-5 transition-opacity duration-200 max-w-[500px]"
+            style={{
+              top: Math.max(10, activeAnnotation.rect.bottom + 10),
+              left: Math.max(10, Math.min(window.innerWidth - 420, activeAnnotation.rect.left))
+            }}
+          >
+            {activeAnnotation.mediaUrl && (
+              <div 
+                className="mb-3 max-h-48 rounded-lg overflow-hidden border border-slate-700 bg-black/60 flex items-center justify-center cursor-pointer group"
+                onClick={() => {
+                  setImageFrameSrc(activeAnnotation.mediaUrl);
+                  setActiveAnnotation(null);
+                }}
+                title="Click to view full size"
+              >
+                <img src={activeAnnotation.mediaUrl} alt="Annotation media" className="max-h-48 w-auto object-contain group-hover:scale-105 transition-transform" />
+              </div>
+            )}
+            <div 
+              className="text-slate-200 font-serif leading-loose"
+              style={{ fontSize: activeAnnotation.fontSize }}
+              dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(activeAnnotation.text) }}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Fullscreen Image Frame Modal for Attached Images */}
+      <ImageFrame 
+        isOpen={!!imageFrameSrc}
+        onClose={() => {
+          setImageFrameSrc(null);
+          setImageFrameDef(undefined);
+        }}
+        src={imageFrameSrc || ''}
+        alt="Annotation Media"
+        interactiveDef={imageFrameDef}
+      />
     </div>
   );
 }

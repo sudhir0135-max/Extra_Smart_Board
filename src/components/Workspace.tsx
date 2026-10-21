@@ -435,15 +435,15 @@ export default function Workspace({
           console.warn(`Interactive map ${mediaUrl} not found in this lesson.`);
           alert(`Debugging: The tagged map (ID: ${mediaUrl}) could not be found in the current lesson's data. Are you sure you saved the map sequence before tagging?`);
         }
-      } else if (mediaType === 'image-frame' && mediaUrl) {
-        // ── Fullscreen Image Frame ──────────
+      } else if ((mediaType === 'image-frame' || mediaType === 'image') && mediaUrl) {
+        // ── Fullscreen Image Frame / Lightbox ──────────
         setActiveAnnotation(null);
         setImageFrameSrc(mediaUrl);
         setImageFrameDef(undefined);
-      } else if ((mediaType === 'image' || mediaType === 'video') && mediaUrl) {
-        // ── Media annotation → open greenboard in media mode ──────────
+      } else if (mediaType === 'video' && mediaUrl) {
+        // ── Video annotation → open greenboard in media mode ──────────
         setActiveAnnotation(null);   // close any open speech bubble
-        openBoardMedia(mediaUrl, mediaType as 'image' | 'video', text);
+        openBoardMedia(mediaUrl, 'video', text);
       } else {
         // ── Text-only annotation → speech bubble as before ────────────
         const rect = annotationSpan.getBoundingClientRect();
@@ -1124,7 +1124,7 @@ export default function Workspace({
       )}
 
       {/* ANNOTATION UI: Speech Bubble (Popover) — always landscape rectangle */}
-      {activeAnnotation && activeAnnotation.mediaType === 'none' && (
+      {activeAnnotation && (
         <>
           <div className="fixed inset-0 z-40 bg-transparent cursor-pointer" onClick={() => setActiveAnnotation(null)} />
           <div 
@@ -1134,7 +1134,7 @@ export default function Workspace({
               /* Always landscape: min-width much wider than max-height allows it to grow tall */
               minWidth: 'min(560px, 90vw)',
               maxWidth: 'min(720px, 92vw)',
-              maxHeight: '38vh',
+              maxHeight: '48vh',
               top: Math.max(10, activeAnnotation.rect.bottom + 10),
               /* Re-centre based on the wider 560px bubble */
               left: Math.max(10, Math.min(window.innerWidth - Math.min(560, window.innerWidth * 0.9) - 10,
@@ -1143,10 +1143,25 @@ export default function Workspace({
           >
             {/* Tail arrow */}
             <div className="absolute -top-2 left-1/2 -ml-2 w-4 h-4 bg-slate-900 border-l border-t border-slate-700 transform rotate-45"></div>
-            {/* Scrollable text area — ensures bubble never grows taller than 38vh */}
+
+            {/* Attached media image if present */}
+            {activeAnnotation.mediaUrl && (
+              <div 
+                className="mb-3 max-h-48 rounded-lg overflow-hidden border border-slate-700 bg-black/60 flex items-center justify-center cursor-pointer group"
+                onClick={() => {
+                  setImageFrameSrc(activeAnnotation.mediaUrl);
+                  setActiveAnnotation(null);
+                }}
+                title="Click to view full size"
+              >
+                <img src={activeAnnotation.mediaUrl} alt="Annotation media" className="max-h-48 w-auto object-contain group-hover:scale-105 transition-transform" />
+              </div>
+            )}
+
+            {/* Scrollable text area */}
             <div 
               className="relative text-slate-200 font-serif leading-loose overflow-y-auto"
-              style={{ fontSize: activeAnnotation.fontSize, maxHeight: 'calc(38vh - 40px)' }}
+              style={{ fontSize: activeAnnotation.fontSize, maxHeight: activeAnnotation.mediaUrl ? 'calc(48vh - 220px)' : 'calc(48vh - 40px)' }}
               dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(activeAnnotation.text) }}
             />
           </div>

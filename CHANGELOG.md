@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-21] - Rectification: Interactive Image Tag Display in Canvas & Live Preview
+
+### Fixed & Rectified
+- **Interactive Tag Image Lightbox & Live Render Preview Support (`RichTextEditor.tsx`)**:
+  - **Root Cause**: In the Book Editor's "Textbook Classroom Page Canvas" (`RichTextEditor.tsx`), when editors switched to the **"Live Render Preview"** tab to test their page canvas, clicking on `.lesson-annotation` tags did nothing because `previewContainerRef` completely lacked click handlers or modal triggers. Furthermore, `ImageFrame` was not imported into `RichTextEditor`, leaving editors with no way to test or inspect attached images without publishing and navigating all the way to the student panel.
+  - **Fix**: Integrated [`ImageFrame.tsx`](file:///c:/Single%20Screen/src/components/ImageFrame.tsx) and an interactive tag click handler into [`RichTextEditor.tsx`](file:///c:/Single%20Screen/src/components/RichTextEditor.tsx). Clicking any media tag in the Live Render Preview immediately opens the image in full screen with zoom, pan, and caption support, or opens interactive map deep-dives and speech bubble notes.
+- **Embedded Image Previews & Direct Image File Upload in TinyMCE Tag Dialog (`tinymceAnnotationPlugin.ts`)**:
+  - **Root Cause**: When editors created or edited tags in TinyMCE, the dialog only had a raw text input for `mediaUrl` with zero image previews, zero file upload options, and defaulted `mediaType` to `'none'` (Speech Bubble). If an editor pasted an image URL but didn't manually change the dropdown from `'none'`, the system saved the tag as text-only and permanently hid the image from view.
+  - **Fix**: Upgraded [`tinymceAnnotationPlugin.ts`](file:///c:/Single%20Screen/src/lib/tinymceAnnotationPlugin.ts):
+    1. Added an **"Attached Media Preview"** card displaying the image thumbnail directly inside the TinyMCE dialog.
+    2. Added a **"📁 Upload Image File"** button to allow editors to directly upload image files from their computer into Firebase Storage (`images/annotations/`) without needing to paste URLs.
+    3. Added a **"🔍 View Media Full Size"** button so editors can verify image links right inside the dialog.
+    4. Added auto-upgrade logic: whenever an image URL is attached, `mediaType` is automatically upgraded to `'image-frame'` so images are never ignored.
+- **Unified Image Tag Display in Classroom Workspace (`Workspace.tsx`)**:
+  - **Root Cause**: In [`Workspace.tsx`](file:///c:/Single%20Screen/src/components/Workspace.tsx), tags configured with `mediaType === 'image'` attempted to open `BlackboardPanel` (a 40% side greenboard drawer) rather than the standard image lightbox (`ImageFrame`), which was inconsistent and confusing. Furthermore, if an annotation had both text and an attached image, the speech bubble popover only rendered the text string and completely omitted the image.
+  - **Fix**: Harmonized image annotations so that both `'image-frame'` and `'image'` tags immediately open [`ImageFrame`](file:///c:/Single%20Screen/src/components/ImageFrame.tsx) for crystal-clear, high-resolution viewing. In addition, updated the speech bubble popover to render the attached image directly above the text notes with click-to-enlarge capabilities.
+
 ## [2026-10-21] - Rectification: Topic Video Visibility & Persistence in Student Panel
 
 ### Fixed & Rectified
