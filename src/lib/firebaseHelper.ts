@@ -67,13 +67,24 @@ export async function uploadImageToStorage(file: File, folder: string = 'images'
 }
 
 export async function fetchAllUploadedImages(folder: string = 'images'): Promise<{url: string, name: string}[]> {
-  const folderRef = ref(storage, folder);
-  const result = await listAll(folderRef);
-  const items = await Promise.all(result.items.map(async (itemRef) => {
-    const url = await getDownloadURL(itemRef);
-    return { name: itemRef.name, url };
-  }));
-  return items;
+  try {
+    const folderRef = ref(storage, folder);
+    const result = await listAll(folderRef);
+    const items = await Promise.all(result.items.map(async (itemRef) => {
+      try {
+        const url = await getDownloadURL(itemRef);
+        return { name: itemRef.name, url };
+      } catch {
+        return null;
+      }
+    }));
+    return items.filter((item): item is { name: string; url: string } => 
+      item !== null && item.name !== '.keep' && !item.name.endsWith('.keep')
+    );
+  } catch (err) {
+    console.warn(`[fetchAllUploadedImages] Failed to list folder "${folder}":`, err);
+    return [];
+  }
 }
 
 export async function uploadPdfToStorage(file: File): Promise<string> {

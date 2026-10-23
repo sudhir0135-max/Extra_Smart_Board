@@ -84,6 +84,7 @@ export default function AdminPanel({
   // Tabs: 'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced'
   const [activeTab, setActiveTab] = useState<'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced'>('stats');
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
+  const [assetLibraryFolder, setAssetLibraryFolder] = useState<string>('images');
 
   // Book Editor Form drafting states
   const [fbUsers, setFbUsers] = useState<any[]>([]);
@@ -920,7 +921,10 @@ export default function AdminPanel({
               <ShieldAlert className="w-4 h-4" /> Forced Entries
             </button>
             <button
-              onClick={() => setIsAssetLibraryOpen(true)}
+              onClick={() => {
+                setAssetLibraryFolder('images');
+                setIsAssetLibraryOpen(true);
+              }}
               className="w-full text-left p-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 text-slate-400 hover:bg-slate-950 hover:text-slate-200"
             >
               <ImageIcon className="w-4 h-4" /> Asset Library
@@ -1211,6 +1215,16 @@ export default function AdminPanel({
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      setAssetLibraryFolder(`images/subjects/${academicSubject.name}`);
+                                      setIsAssetLibraryOpen(true);
+                                    }}
+                                    className="p-1.5 bg-transparent hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-400 border border-transparent hover:border-indigo-500/20 rounded-md transition-all cursor-pointer"
+                                    title={`Manage Asset Library for "${academicSubject.name}"`}
+                                  >
+                                    <ImageIcon className="w-4 h-4" />
+                                  </button>
                                   <button
                                     onClick={() => {
                                       setEditingSubject(academicSubject.id);
@@ -2536,8 +2550,12 @@ export default function AdminPanel({
 
       <AssetLibraryModal 
         isOpen={isAssetLibraryOpen} 
+        folderPath={assetLibraryFolder}
         subjects={academicSubjects}
-        onClose={() => setIsAssetLibraryOpen(false)} 
+        onClose={() => {
+          setIsAssetLibraryOpen(false);
+          setAssetLibraryFolder('images');
+        }} 
       />
     </div>
   );

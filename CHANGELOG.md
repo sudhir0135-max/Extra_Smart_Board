@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-23] - Feature: Asset Library Multiple Image Delete & Direct Subject Management
+
+### Added & Improved
+- **Asset Library Multi-Image Selection & Batch Deletion (`AssetLibraryModal.tsx`)**:
+  - Interactive selection checkboxes on all asset library image cards with indigo glow highlight and ring.
+  - "Select All" / "Deselect All" toolbar action for the selected folder/subject.
+  - Counter badge showing selected image count with "Clear Selection" option.
+  - "Delete Selected ({count})" button with safety confirmation dialog and concurrent batch deletion progress tracker.
+  - Automatic selection clearing on folder or subject switch.
+  - Filtered out `.keep` placeholder files from the gallery display.
+- **Curriculum Subject Direct Asset Access & Panel Reliability (`AdminPanel.tsx`)**:
+  - Added dedicated Asset Library shortcut button to every subject row in the Curriculum Subject Nodes catalog to jump directly to that subject's image directory.
+  - Preserved `activeTab` state during Admin authentication and panel initialization.
+- **Storage List Reliability (`firebaseHelper.ts`)**:
+  - Wrapped `fetchAllUploadedImages` item retrieval in individual try-catches to ensure single corrupted or missing items do not break the whole gallery.
+
 ## [2026-10-21] - Rectification: Interactive Image Tag Display in Canvas & Live Preview
 
 ### Fixed & Rectified

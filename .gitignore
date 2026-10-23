@@ -20,3 +20,5 @@ jdk*/
 node*/
 node22*/
 build/
+*.backup.*
+scratch/
