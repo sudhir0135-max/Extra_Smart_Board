@@ -9,6 +9,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage, uploadLargeLessonPayload, deleteFileFromStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
 import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+import { getChapterContentType, getChapterTopicMode, hasExplicitChapterType, ChapterContentType, ChapterTopicMode } from '../lib/chapterContent';
 import {
   Shield,
   Key,
@@ -44,7 +45,10 @@ import {
   AlignJustify,
   CheckCircle2,
   Cloud,
-  Clock
+  Clock,
+  ExternalLink,
+  Code,
+  Layers
 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
@@ -162,6 +166,10 @@ export default function BookEditorPanel({
   const [lessonTitleDraft, setLessonTitleDraft] = useState('');
   const [lessonSubtitleDraft, setLessonSubtitleDraft] = useState('');
   const [lessonVideoDraft, setLessonVideoDraft] = useState('');
+  // How the new chapter will be authored: PDF upload, HTML upload or Canvas text pages
+  const [newChapterType, setNewChapterType] = useState<ChapterContentType>('canvas');
+  // For HTML / Canvas chapters: pages grouped under topics, or directly under the chapter
+  const [newChapterTopicMode, setNewChapterTopicMode] = useState<ChapterTopicMode>('none');
 
   // Page level editing state
   const [pageContentDraft, setPageContentDraft] = useState('');
@@ -266,6 +274,34 @@ export default function BookEditorPanel({
   const activeLesson = assignedBook ? assignedBook.lessons.find(l => l.id === selectedLessonId) || null : null;
   const selectedTopic = activeLesson?.topics?.find(t => t.id === selectedTopicId) || null;
 
+  // Chapter content type (PDF / HTML / Canvas) and topic mode drive which input screens are shown
+  const chapterType: ChapterContentType = getChapterContentType(activeLesson);
+  const chapterTopicMode: ChapterTopicMode = getChapterTopicMode(activeLesson);
+  const isTopicWise = chapterType !== 'pdf' && chapterTopicMode === 'topics';
+  // HTML / Canvas now only set the DEFAULT for new pages; any page can be either.
+  const isHtmlChapter = chapterType === 'html';
+  // Per-page rule (no extra option for editors): a page with an uploaded HTML file shows the HTML,
+  // otherwise it shows its canvas text. Removing the HTML link turns the page back into canvas text.
+  const pageShowsHtml = Boolean(pageIframeUrlDraft && pageIframeUrlDraft.trim());
+  const isChapterTypeExplicit = hasExplicitChapterType(activeLesson);
+
+  // Keep topic selection consistent with the chapter's topic mode:
+  // topic-wise chapters always edit a topic (first one by default); others always edit chapter-root pages.
+  useEffect(() => {
+    if (!activeLesson) return;
+    const topics = activeLesson.topics || [];
+    if (isTopicWise) {
+      if (!selectedTopic && topics.length > 0) {
+        setSelectedTopicId(topics[0].id);
+        setSelectedPageIndex(0);
+      }
+    } else if (selectedTopicId) {
+      setSelectedTopicId(null);
+      setSelectedPageIndex(activeLesson.pages && activeLesson.pages.length > 0 ? 0 : null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLesson?.id, isTopicWise, activeLesson?.topics?.length, selectedTopicId]);
+
   // Reset topic states when chapter selection changes
   useEffect(() => {
     setSelectedTopicId(null);
@@ -334,17 +370,24 @@ export default function BookEditorPanel({
       alert('A chapter with this exact title already exists in this textbook. Please use a unique title.');
       return;
     }
+    const topicMode: ChapterTopicMode = newChapterType === 'pdf' ? 'none' : newChapterTopicMode;
+    // Chapter-root pages are only needed for HTML / Canvas chapters without topics
+    let initialPages: Lesson['pages'] = [];
+    if (newChapterType === 'canvas' && topicMode === 'none') {
+      initialPages = [{ pageNumber: 1, content: '<p>Freshly created page. Enter your customized lesson curriculum here.</p>' }];
+    } else if (newChapterType === 'html' && topicMode === 'none') {
+      initialPages = [{ pageNumber: 1, content: '', iframeUrl: null }];
+    }
+
     const newLesson: Lesson = {
       id: `lesson-ed-${assignedBook.id}-${Date.now()}`,
       title: lessonTitleDraft.trim(),
       subtitle: lessonSubtitleDraft.trim() || null,
-      videoUrl: lessonVideoDraft.trim() || null,
-      pages: [
-        {
-          pageNumber: 1,
-          content: '<p>Freshly created page. Enter your customized lesson curriculum here.</p>'
-        }
-      ],
+      videoUrl: newChapterType === 'pdf' ? null : (lessonVideoDraft.trim() || null),
+      contentType: newChapterType,
+      topicMode,
+      pages: initialPages,
+      topics: [],
       flashQuestions: [],
       inquiryQuestions: []
     };
@@ -356,8 +399,13 @@ export default function BookEditorPanel({
       setLessonSubtitleDraft('');
       setLessonVideoDraft('');
       setSelectedLessonId(newLesson.id);
-      setSelectedPageIndex(0);
-      flashMessage(`Chapter '${newLesson.title}' created and saved!`);
+      setSelectedPageIndex(initialPages.length > 0 ? 0 : null);
+      const nextStep = newChapterType === 'pdf'
+        ? 'Upload the chapter PDF next.'
+        : topicMode === 'topics'
+        ? 'Add the first topic next.'
+        : newChapterType === 'html' ? 'Upload the HTML file for Page 1 next.' : '';
+      flashMessage(`Chapter '${newLesson.title}' created! ${nextStep}`.trim());
     } catch (err) {
       alert('Failed to add chapter.');
     }
@@ -386,6 +434,54 @@ export default function BookEditorPanel({
       if (!silent) flashMessage('Chapter metadata saved.');
     } catch (err) {
       if (!silent) alert('Failed to update chapter metadata.');
+    }
+  };
+
+  /**
+   * Switches the active chapter's content type and/or topic mode.
+   * Content belonging to the other types is kept (only hidden), so switching back restores it.
+   */
+  const handleChangeChapterType = async (type: ChapterContentType, topicMode: ChapterTopicMode) => {
+    if (!assignedBook || !activeLesson) return;
+    const finalTopicMode: ChapterTopicMode = type === 'pdf' ? 'none' : topicMode;
+    if (isChapterTypeExplicit && type === chapterType && finalTopicMode === chapterTopicMode) return;
+
+    let pages = activeLesson.pages || [];
+    // HTML / Canvas chapters without topics need at least one chapter-root page to edit
+    if (type !== 'pdf' && finalTopicMode === 'none' && pages.length === 0) {
+      pages = [{
+        pageNumber: 1,
+        content: type === 'canvas' ? '<p>Freshly created page. Enter your customized lesson curriculum here.</p>' : '',
+        iframeUrl: null
+      }];
+    }
+
+    const updatedLesson: Lesson = { ...activeLesson, contentType: type, topicMode: finalTopicMode, pages };
+    const modifiedBook = {
+      ...assignedBook,
+      lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? updatedLesson : l))
+    };
+    try {
+      setIsSaving(true);
+      await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      setIsAddingTopic(false);
+      setIsEditingTopic(false);
+      if (type === 'pdf' || finalTopicMode === 'none') {
+        setSelectedTopicId(null);
+        setSelectedPageIndex(pages.length > 0 ? 0 : null);
+      } else {
+        const firstTopic = (updatedLesson.topics || [])[0];
+        setSelectedTopicId(firstTopic ? firstTopic.id : null);
+        setSelectedPageIndex(firstTopic ? 0 : null);
+      }
+      const typeLabel = type === 'pdf' ? 'PDF' : type === 'html' ? 'HTML' : 'Canvas';
+      flashMessage(type === 'pdf'
+        ? 'Chapter set to PDF.'
+        : `Chapter set to ${typeLabel} — ${finalTopicMode === 'topics' ? 'topic-wise' : 'without topics'}.`);
+    } catch (err: any) {
+      alert('Failed to change chapter type: ' + (err?.message || err));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -503,10 +599,9 @@ export default function BookEditorPanel({
           title: topicTitleDraft.trim(),
           videoUrl: topicVideoUrlDraft.trim() || null,
           pages: [
-            {
-              pageNumber: 1,
-              content: '<p>Fresh topic canvas page. Enter customized topic content here.</p>'
-            }
+            isHtmlChapter
+              ? { pageNumber: 1, content: '', iframeUrl: null }
+              : { pageNumber: 1, content: '<p>Fresh topic canvas page. Enter customized topic content here.</p>' }
           ],
           flashQuestions: [],
           inquiryQuestions: []
@@ -583,12 +678,18 @@ export default function BookEditorPanel({
   // 3. PAGE CRUD OPERATIONS
   const handleAddPage = async () => {
     if (!assignedBook || !activeLesson) return;
+    if (isTopicWise && !selectedTopic) {
+      alert('This chapter is topic-wise. Please add or select a topic first.');
+      return;
+    }
     const pagesToUse = selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages;
     const nextPageNum = pagesToUse.length + 1;
-    const newPage = {
-      pageNumber: nextPageNum,
-      content: `<p>New Page ${nextPageNum} curriculum block. You can design custom callout and paragraphs here.</p>`
-    };
+    const newPage = isHtmlChapter
+      ? { pageNumber: nextPageNum, content: '', iframeUrl: null }
+      : {
+          pageNumber: nextPageNum,
+          content: `<p>New Page ${nextPageNum} curriculum block. You can design custom callout and paragraphs here.</p>`
+        };
 
     try {
       const modifiedBook = {
@@ -610,7 +711,12 @@ export default function BookEditorPanel({
           };
         })
       };
-      await saveBookLocally(modifiedBook);
+      const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+      if (updatedLesson) {
+        await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      } else {
+        await saveBookLocally(modifiedBook);
+      }
       setSelectedPageIndex(nextPageNum - 1);
       flashMessage(`Page ${nextPageNum} appended!`);
     } catch (err) {
@@ -675,11 +781,17 @@ export default function BookEditorPanel({
           };
         })
       };
-      await saveBookLocally(modifiedBook);
+      const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+      if (updatedLesson) {
+        await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      } else {
+        await saveBookLocally(modifiedBook);
+      }
       setPageContentDraft(finalContent);
       flashMessage(`Page ${index + 1} saved successfully!`);
-    } catch (err) {
-      alert('Failed to save page content.');
+    } catch (err: any) {
+      console.error('Failed to save page content:', err);
+      alert('Failed to save page content: ' + (err?.message || err));
     } finally {
       setIsSaving(false);
     }
@@ -719,7 +831,12 @@ export default function BookEditorPanel({
             };
           })
         };
-        await saveBookLocally(modifiedBook);
+        const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+        if (updatedLesson) {
+          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+        } else {
+          await saveBookLocally(modifiedBook);
+        }
         setSelectedPageIndex(null);
         flashMessage(`Page ${index + 1} deleted and re-indexed.`);
       } catch (err) {
@@ -762,7 +879,12 @@ export default function BookEditorPanel({
           return { ...l, pages: newPages };
         })
       };
-      await saveBookLocally(modifiedBook);
+      const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+      if (updatedLesson) {
+        await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      } else {
+        await saveBookLocally(modifiedBook);
+      }
       setSelectedPageIndex(swapIndex);
       flashMessage('Page reordered successfully.');
     } catch (err) {
@@ -1044,13 +1166,69 @@ export default function BookEditorPanel({
                   placeholder="Subtitle (Optional details)"
                   className="w-full bg-[#03060c] border border-slate-850 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none text-slate-350"
                 />
-                <input
-                  type="text"
-                  value={lessonVideoDraft}
-                  onChange={e => setLessonVideoDraft(e.target.value)}
-                  placeholder="Lecture Embed Link (Optional)"
-                  className="w-full bg-[#03060c] border border-slate-850 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none text-slate-350 font-mono text-[10px]"
-                />
+                {/* How will this chapter be created? */}
+                <div className="space-y-1">
+                  <span className="text-[8px] uppercase font-mono tracking-widest text-slate-500 block">Create chapter by</span>
+                  <div className="grid grid-cols-3 gap-1">
+                    {([
+                      { id: 'pdf', label: 'PDF', icon: FileText, active: 'bg-amber-600 border-amber-500 text-white' },
+                      { id: 'html', label: 'HTML', icon: Code, active: 'bg-sky-600 border-sky-500 text-white' },
+                      { id: 'canvas', label: 'Canvas', icon: Edit, active: 'bg-emerald-600 border-emerald-500 text-white' }
+                    ] as const).map(opt => {
+                      const Icon = opt.icon;
+                      const isOn = newChapterType === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setNewChapterType(opt.id)}
+                          className={`flex flex-col items-center gap-0.5 py-1.5 rounded border text-[10px] font-bold transition-all cursor-pointer ${
+                            isOn ? opt.active : 'bg-[#03060c] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                          }`}
+                          title={opt.id === 'pdf' ? 'Upload a PDF for this chapter' : opt.id === 'html' ? 'Upload HTML file(s) for this chapter' : 'Write text pages in the canvas editor'}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {newChapterType !== 'pdf' && (
+                  <div className="space-y-1">
+                    <span className="text-[8px] uppercase font-mono tracking-widest text-slate-500 block">Organise pages</span>
+                    <div className="grid grid-cols-2 gap-1">
+                      {([
+                        { id: 'topics', label: 'Topic-wise' },
+                        { id: 'none', label: 'Without topics' }
+                      ] as const).map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setNewChapterTopicMode(opt.id)}
+                          className={`py-1.5 rounded border text-[10px] font-bold transition-all cursor-pointer ${
+                            newChapterTopicMode === opt.id
+                              ? 'bg-indigo-600 border-indigo-500 text-white'
+                              : 'bg-[#03060c] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {newChapterType !== 'pdf' && (
+                  <input
+                    type="text"
+                    value={lessonVideoDraft}
+                    onChange={e => setLessonVideoDraft(e.target.value)}
+                    placeholder="Lecture Embed Link (Optional)"
+                    className="w-full bg-[#03060c] border border-slate-850 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none text-slate-350 font-mono text-[10px]"
+                  />
+                )}
                 <button
                   onClick={handleAddLesson}
                   className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-550 text-white rounded text-xs font-bold uppercase transition-all duration-300 cursor-pointer"
@@ -1157,10 +1335,30 @@ export default function BookEditorPanel({
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center justify-between text-[9px] text-slate-550 mt-2 font-mono">
-                        <span>{les.pages?.length || 0} Pages</span>
-                        <span>{les.flashQuestions?.length || 0} Quizzes</span>
-                      </div>
+                      {(() => {
+                        const lType = getChapterContentType(les);
+                        const lTopicWise = lType !== 'pdf' && getChapterTopicMode(les) === 'topics';
+                        const typeBadge = lType === 'pdf'
+                          ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                          : lType === 'html'
+                          ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+                        return (
+                          <div className="flex items-center justify-between text-[9px] text-slate-550 mt-2 font-mono gap-1">
+                            <span className={`px-1.5 py-0.5 rounded border font-bold uppercase ${typeBadge}`}>
+                              {lType === 'pdf' ? 'PDF' : lType === 'html' ? 'HTML' : 'Canvas'}
+                              {lType !== 'pdf' && (lTopicWise ? ' • Topics' : ' • No topics')}
+                            </span>
+                            <span>
+                              {lType === 'pdf'
+                                ? (les.pdfUrl ? 'PDF attached' : 'No PDF yet')
+                                : lTopicWise
+                                ? `${les.topics?.length || 0} Topics`
+                                : `${les.pages?.length || 0} Pages`}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })
@@ -1267,75 +1465,70 @@ export default function BookEditorPanel({
                   </div>
                 </div>
 
-                {/* Book Classification & Type Settings */}
-                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                {/* Chapter Content Type: PDF / HTML / Canvas, and topic-wise or not */}
+                <div className="bg-[#0b0e1b] border border-indigo-500/30 rounded-xl p-5 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-indigo-400 block font-bold">Textbook Category Classification</span>
-                      <h3 className="text-sm font-bold text-white mt-0.5">Select Book Display Mode</h3>
+                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-indigo-400 block font-bold">Chapter Content Type</span>
+                      <h3 className="text-sm font-bold text-white mt-0.5">How is this chapter created?</h3>
+                      <p className="text-[10.5px] text-slate-400 mt-1 max-w-xl">
+                        PDF shows only the uploaded PDF. For HTML or Canvas, topics and pages can be mixed freely: a page with an
+                        uploaded HTML file shows the HTML, any other page shows its canvas text. HTML / Canvas only sets what new pages start as.
+                        Switching type keeps the other content saved (hidden), so you can switch back anytime.
+                      </p>
+                      {!isChapterTypeExplicit && (
+                        <p className="text-[10px] font-mono text-amber-400 mt-1">
+                          Auto-detected from existing content — click the highlighted option to confirm it.
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
-                      <button
-                        onClick={async () => {
-                          if (!assignedBook || assignedBook.bookType === 'interactive') return;
-                          try {
-                            const { doc, updateDoc } = await import('firebase/firestore');
-                            await updateDoc(doc(db, 'books', assignedBook.id.toString()), { bookType: 'interactive' });
-                            await dbLocal.offline_lessons.put({
-                              bookId: assignedBook.id,
-                              lessons: assignedBook.lessons,
-                              sync_status: 'synced',
-                              updated_at: new Date().toISOString()
-                            }).catch(console.error);
-                            if (saveBookToFirebase) {
-                              await saveBookToFirebase({ ...assignedBook, bookType: 'interactive' });
-                            }
-                            flashMessage('Book classified as Interactive Book.');
-                          } catch (err: any) {
-                            alert('Failed to update book category: ' + (err?.message || err));
-                          }
-                        }}
-                        className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
-                          (!assignedBook.bookType || assignedBook.bookType === 'interactive')
-                            ? 'bg-indigo-600 text-white shadow-md'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        📖 Interactive Book
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!assignedBook || assignedBook.bookType === 'pdf') return;
-                          try {
-                            const { doc, updateDoc } = await import('firebase/firestore');
-                            await updateDoc(doc(db, 'books', assignedBook.id.toString()), { bookType: 'pdf' });
-                            await dbLocal.offline_lessons.put({
-                              bookId: assignedBook.id,
-                              lessons: assignedBook.lessons,
-                              sync_status: 'synced',
-                              updated_at: new Date().toISOString()
-                            }).catch(console.error);
-                            if (saveBookToFirebase) {
-                              await saveBookToFirebase({ ...assignedBook, bookType: 'pdf' });
-                            }
-                            flashMessage('Book classified as PDF Book.');
-                          } catch (err: any) {
-                            alert('Failed to update book category: ' + (err?.message || err));
-                          }
-                        }}
-                        className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
-                          assignedBook.bookType === 'pdf'
-                            ? 'bg-amber-600 text-white shadow-md'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        📄 PDF Book
-                      </button>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-1 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
+                        {([
+                          { id: 'pdf', label: '📄 Upload PDF', active: 'bg-amber-600 text-white shadow-md' },
+                          { id: 'html', label: '🌐 Upload HTML', active: 'bg-sky-600 text-white shadow-md' },
+                          { id: 'canvas', label: '✍️ Canvas Text', active: 'bg-emerald-600 text-white shadow-md' }
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            disabled={isSaving || isPreviewMode}
+                            onClick={() => handleChangeChapterType(opt.id, chapterTopicMode)}
+                            className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
+                              chapterType === opt.id ? opt.active : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      {chapterType !== 'pdf' && (
+                        <div className="flex items-center gap-1 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
+                          <Layers className="w-3.5 h-3.5 text-slate-500 mx-1" />
+                          {([
+                            { id: 'topics', label: 'Topic-wise' },
+                            { id: 'none', label: 'Without topics' }
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={isSaving || isPreviewMode}
+                              onClick={() => handleChangeChapterType(chapterType, opt.id)}
+                              className={`px-3 py-1 rounded text-[11px] font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
+                                chapterTopicMode === opt.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Chapter-wise PDF Upload & Management */}
+                {/* Chapter-wise PDF Upload & Management (PDF chapters only) */}
+                {chapterType === 'pdf' && (
                 <div className="bg-[#0b0e1b] border border-amber-500/30 rounded-xl p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1365,7 +1558,12 @@ export default function BookEditorPanel({
                                   return { ...l, pdfUrl: url };
                                 })
                               };
-                              await saveBookLocally(modifiedBook);
+                              const updatedPdfLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+                              if (updatedPdfLesson) {
+                                await saveLessonDirectToFirestore(modifiedBook, updatedPdfLesson);
+                              } else {
+                                await saveBookLocally(modifiedBook);
+                              }
                               if (oldPdfUrl) {
                                 deletePdfFromStorage(oldPdfUrl).catch(console.warn);
                               }
@@ -1393,7 +1591,12 @@ export default function BookEditorPanel({
                                   return { ...l, pdfUrl: null };
                                 })
                               };
-                              await saveBookLocally(modifiedBook);
+                              const updatedPdfLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+                              if (updatedPdfLesson) {
+                                await saveLessonDirectToFirestore(modifiedBook, updatedPdfLesson);
+                              } else {
+                                await saveBookLocally(modifiedBook);
+                              }
                               if (oldPdfUrl) {
                                 deletePdfFromStorage(oldPdfUrl).catch(console.warn);
                               }
@@ -1434,8 +1637,10 @@ export default function BookEditorPanel({
                     </div>
                   )}
                 </div>
+                )}
 
-                {/* Topic Selector & Management Header Bar */}
+                {/* Topic Selector & Management Header Bar (topic-wise HTML / Canvas chapters only) */}
+                {isTopicWise && (
                 <div className="bg-[#0b0e1b] border border-indigo-500/30 rounded-xl p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1452,7 +1657,9 @@ export default function BookEditorPanel({
                         }}
                         className="bg-[#03060c] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
                       >
-                        <option value="">-- Main Chapter Level (Default) --</option>
+                        {(activeLesson.topics || []).length === 0 && (
+                          <option value="">-- No topics yet: click "+ Add Topic" --</option>
+                        )}
                         {(activeLesson.topics || []).map((t, idx) => (
                           <option key={t.id} value={t.id}>
                             Topic {idx + 1}: {t.title}
@@ -1584,13 +1791,22 @@ export default function BookEditorPanel({
                       </div>
                     </div>
                   )}
-                </div>
 
-                {/* Sub-Layout: Pages Editor */}
+                  {(activeLesson.topics || []).length === 0 && !isAddingTopic && (
+                    <div className="p-4 border border-dashed border-indigo-500/30 rounded-lg text-center text-xs text-slate-400 font-mono">
+                      This chapter is topic-wise. Click "+ Add Topic" to create the first topic, then add its pages (upload HTML or write canvas text).
+                    </div>
+                  )}
+                </div>
+                )}
+
+                {/* Sub-Layout: Pages Editor (HTML upload pages or Canvas text pages) */}
+                {chapterType !== 'pdf' && (!isTopicWise || selectedTopic) && (
                 <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5 font-sans">
-                      <Sliders className="w-4 h-4 text-emerald-400" /> Textbook Classroom Page Canvas
+                      <Sliders className="w-4 h-4 text-emerald-400" /> Pages
+                      <span className="text-[10px] font-mono font-normal text-slate-500">(each page: uploaded HTML or canvas text)</span>
                       {selectedTopic && (
                         <span className="text-indigo-400 font-mono text-xs font-normal">
                           ({selectedTopic.title})
@@ -1601,7 +1817,7 @@ export default function BookEditorPanel({
                       onClick={handleAddPage}
                       className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
                     >
-                      <Plus className="w-3.5 h-3.5" /> Append Canvas Page
+                      <Plus className="w-3.5 h-3.5" /> Add Page
                     </button>
                   </div>
 
@@ -1674,6 +1890,16 @@ export default function BookEditorPanel({
                             &lt;
                           </button>
                           <span>P.{pIdx + 1}</span>
+                          <span
+                            className={`text-[8px] px-1 rounded uppercase ${
+                              (p as any).iframeUrl
+                                ? (isSelected ? 'bg-white/20' : 'bg-sky-500/20 text-sky-300')
+                                : (isSelected ? 'bg-white/20' : 'bg-slate-800 text-slate-400')
+                            }`}
+                            title={(p as any).iframeUrl ? 'Shows uploaded HTML' : 'Shows canvas text'}
+                          >
+                            {(p as any).iframeUrl ? 'HTML' : 'Text'}
+                          </span>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleMovePage(pIdx, 'right'); }}
                             disabled={pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1}
@@ -1715,7 +1941,22 @@ export default function BookEditorPanel({
                         </button>
                       </div>
 
-                      {/* Left and Right Image Column Uploaders */}
+                      {/* Page display mode (decided automatically from the content) */}
+                      <div className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border text-[11px] ${
+                        pageShowsHtml ? 'bg-sky-500/10 border-sky-500/30 text-sky-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                      }`}>
+                        <span className="font-mono font-bold uppercase tracking-wider">
+                          Students see: {pageShowsHtml ? 'Uploaded HTML' : 'Canvas text'}
+                        </span>
+                        <span className="text-slate-400">
+                          {pageShowsHtml
+                            ? '— remove the HTML link below to write canvas text on this page instead.'
+                            : '— upload an HTML file below to show an interactive page instead.'}
+                        </span>
+                      </div>
+
+                      {/* Left and Right Image Column Uploaders (canvas pages only) */}
+                      {!pageShowsHtml && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Left Side Image Uploader */}
                         <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
@@ -1877,12 +2118,16 @@ export default function BookEditorPanel({
                         </div>
                       </div>
 
+                      )}
+
+                      {!pageShowsHtml && (
                       <div className="space-y-1">
                         <span className="text-[8px] font-mono uppercase text-[#707a6c] block">Rich Content Text Block (Supports standard dynamic markup):</span>
                         <RichTextEditor
                           key={`${assignedBookId}-${selectedLessonId}-${selectedPageIndex}`}
                           initialValue={pageContentDraft}
                           onSave={(content) => handleUpdatePage(selectedPageIndex, content)}
+                          onChange={(content) => setPageContentDraft(content)}
                           isSaving={isSaving}
                           leftImage={pageLeftImageDraft}
                           centerImage={pageCenterImageDraft}
@@ -1890,10 +2135,12 @@ export default function BookEditorPanel({
                           interactiveMaps={activeLesson.interactiveImages || []}
                         />
                       </div>
+                      )}
 
                       {/* ATTACHMENTS: FIGURES GRID */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        {/* LATEX EQUATIONS BLOCK */}
+                        {/* LATEX EQUATIONS BLOCK (canvas pages only) */}
+                        {!pageShowsHtml && (
                         <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
@@ -1911,6 +2158,7 @@ export default function BookEditorPanel({
                             className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
                           />
                         </div>
+                        )}
 
                         {/* COLLAPSIBLE SETTINGS */}
                         <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2 md:col-span-2">
@@ -1940,14 +2188,16 @@ export default function BookEditorPanel({
                           )}
                         </div>
 
-                        {/* IFRAME / CUSTOM HTML URL */}
-                        <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2 md:col-span-2">
+                        {/* IFRAME / CUSTOM HTML URL (any page; when set, the page shows the HTML) */}
+                        <div className={`bg-[#0b0e1a] border p-3 rounded-xl space-y-2 md:col-span-2 ${pageShowsHtml ? 'border-sky-500/40' : 'border-slate-850'}`}>
                           <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
-                              Iframe URL (Interactive HTML)
+                            <span className={`text-[9.5px] uppercase font-mono tracking-widest block font-bold ${pageShowsHtml ? 'text-sky-400' : 'text-[#707a6c]'}`}>
+                              {pageShowsHtml
+                                ? `HTML File for Page ${(selectedPageIndex ?? 0) + 1}`
+                                : 'Upload HTML instead of canvas text (optional)'}
                             </span>
                             <span className="text-[8px] font-mono text-slate-500 select-none bg-slate-950 p-0.5 rounded px-1">
-                              Overrides Text Editor
+                              Upload .html or paste its URL
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -1958,6 +2208,30 @@ export default function BookEditorPanel({
                               placeholder="https://firebasestorage.googleapis.com/.../your-custom-mindmap.html"
                               className="flex-1 bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
                             />
+                            {pageIframeUrlDraft && (
+                              <a
+                                href={pageIframeUrlDraft}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 text-[10px] font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                                title="Open HTML in new tab to test"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-amber-400" /> Preview
+                              </a>
+                            )}
+                            {pageIframeUrlDraft && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPageIframeUrlDraft('');
+                                  flashMessage('HTML link removed. Click "Save Page Changes" to show canvas text on this page.');
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-2 bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                                title="Remove HTML so this page shows canvas text"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Remove HTML
+                              </button>
+                            )}
                             <label className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
                               <Upload className="w-3.5 h-3.5" /> Upload HTML
                               <input
@@ -1970,7 +2244,7 @@ export default function BookEditorPanel({
                                       const file = e.target.files[0];
                                       const url = await uploadHtmlToStorage(file);
                                       setPageIframeUrlDraft(url);
-                                      flashMessage && flashMessage('HTML file uploaded to Firebase Storage.');
+                                      flashMessage && flashMessage('HTML file uploaded! Click "Save Page Changes" below to apply.');
                                     } catch(err: any) {
                                       alert("HTML upload failed: " + err.message);
                                       console.error("HTML upload failed", err);
@@ -1980,9 +2254,28 @@ export default function BookEditorPanel({
                               />
                             </label>
                           </div>
+
+                          {/* Direct Save Action & Placement Context Bar */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-slate-800/80">
+                            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+                              <span>Placement:</span>
+                              <span className={`px-2 py-0.5 rounded font-bold ${selectedTopic ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'}`}>
+                                {selectedTopic ? `Topic: ${selectedTopic.title}` : `Chapter Root (Page ${(selectedPageIndex ?? 0) + 1})`}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePage(selectedPageIndex)}
+                              disabled={isSaving}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-mono font-black text-[11px] flex items-center gap-1.5 shadow-md shadow-emerald-950/40 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                            >
+                              <Save className="w-3.5 h-3.5" /> {isSaving ? 'Saving to Firebase...' : 'Save Page Changes'}
+                            </button>
+                          </div>
                         </div>
 
-                        {/* SCIENCE GRAPHIC EMBED */}
+                        {/* SCIENCE GRAPHIC EMBED (canvas pages only) */}
+                        {!pageShowsHtml && (
                         <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2">
                           <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
                             Interactive Smartboard Vector Vector Layouts
@@ -2016,6 +2309,7 @@ export default function BookEditorPanel({
                             </div>
                           </div>
                         </div>
+                        )}
                       </div>
 
                     </div>
@@ -2025,9 +2319,10 @@ export default function BookEditorPanel({
                     </div>
                   )}
                 </div>
+                )}
 
-                {/* Sub-Layout: Flash Review Quizzing */}
-                {(() => {
+                {/* Sub-Layout: Flash Review Quizzing (not shown for PDF chapters) */}
+                {chapterType !== 'pdf' && (() => {
                   const allFQ: FlashQuestion[] = [...(activeLesson.flashQuestions || [])];
                   if (activeLesson.topics) {
                     for (const t of activeLesson.topics) {
@@ -2040,7 +2335,7 @@ export default function BookEditorPanel({
                       }
                     }
                   }
-                  const lessonTopicTitles = (activeLesson.topics || []).map(t => t.title).filter(Boolean);
+                  const lessonTopicTitles = isTopicWise ? (activeLesson.topics || []).map(t => t.title).filter(Boolean) : [];
 
                   return (
                     <FlashQuestionManager
@@ -2075,8 +2370,8 @@ export default function BookEditorPanel({
                   );
                 })()}
 
-                {/* Sub-Layout: Inquiry Question Manager */}
-                {(() => {
+                {/* Sub-Layout: Inquiry Question Manager (not shown for PDF chapters) */}
+                {chapterType !== 'pdf' && (() => {
                   // Aggregate all questions across chapter and nested topics so questions never vanish
                   const allQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
                   if (activeLesson.topics) {
@@ -2104,7 +2399,7 @@ export default function BookEditorPanel({
                   return (
                     <InquiryQuestionManager
                       questions={allQ}
-                      availableTopics={(activeLesson.topics || []).map(t => t.title).filter(Boolean)}
+                      availableTopics={isTopicWise ? (activeLesson.topics || []).map(t => t.title).filter(Boolean) : []}
                       activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
                       onQuestionsUpdate={async (newQuestions) => {
                         if (!assignedBook || !activeLesson) return;
@@ -2137,7 +2432,8 @@ export default function BookEditorPanel({
                   );
                 })()}
 
-                {/* Sub-Layout: Interactive Deep-dive Maps */}
+                {/* Sub-Layout: Interactive Deep-dive Maps (not shown for PDF chapters) */}
+                {chapterType !== 'pdf' && (
                 <InteractiveImageManager
                   sequences={activeLesson.interactiveImages || []}
                   onRequestAssetLibrary={(callback) => {
@@ -2161,6 +2457,7 @@ export default function BookEditorPanel({
                     }
                   }}
                 />
+                )}
               </div>
             ) : (
               <div className="flex-grow flex flex-col items-center justify-center p-12 text-center select-none h-full">

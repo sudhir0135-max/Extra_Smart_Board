@@ -138,7 +138,6 @@ export default function AdminPanel({
   const [bookClassIdDraft, setBookClassIdDraft] = useState<string>('');
   const [bookSubjectIdDraft, setBookSubjectIdDraft] = useState<string>('');
   const [bookCoverDraft, setBookCoverDraft] = useState<string | null>(null);
-  const [bookTypeDraft, setBookTypeDraft] = useState<'interactive' | 'pdf'>('interactive');
 
   // New Lesson properties draft
   const [lessonTitleDraft, setLessonTitleDraft] = useState('');
@@ -349,7 +348,6 @@ export default function AdminPanel({
           title: bookTitleDraft,
           author: bookAuthorDraft || 'ExtraPadhai AI',
           source: bookSourceDraft || null,
-          bookType: bookTypeDraft,
           color: bookColorDraft,
           coverImage: bookCoverDraft || null,
           classId: bookClassIdDraft || null,
@@ -367,7 +365,6 @@ export default function AdminPanel({
         title: bookTitleDraft,
         author: bookAuthorDraft || 'ExtraPadhai AI',
         source: bookSourceDraft || null,
-        bookType: bookTypeDraft,
         color: bookColorDraft,
         coverImage: bookCoverDraft || null,
         classId: bookClassIdDraft || null,
@@ -393,7 +390,6 @@ export default function AdminPanel({
     setBookClassIdDraft('');
     setBookSubjectIdDraft('');
     setBookCoverDraft(null);
-    setBookTypeDraft('interactive');
   };
 
   const handleUpdateBookMeta = async (bookId: number, fields: Partial<Book>) => {

@@ -104,6 +104,10 @@ export interface Lesson {
   interactiveImages?: InteractiveImageDef[];
   topics?: Topic[];
   pdfUrl?: string | null;
+  /** How the chapter is authored/shown: uploaded PDF, uploaded HTML pages, or canvas text pages */
+  contentType?: 'pdf' | 'html' | 'canvas';
+  /** For HTML / Canvas chapters: pages grouped under topics, or directly under the chapter */
+  topicMode?: 'topics' | 'none';
   /** Storage URL containing the full JSON payload when lesson exceeds Firestore 1MB document limit */
   payloadUrl?: string | null;
 }

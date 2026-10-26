@@ -24,6 +24,8 @@ interface FloatingButtonProps {
   globalLogo?: string | null;
   externalTopicModal?: { topic: Topic; panel: 'video' | 'questions' | 'notes' } | null;
   onCloseExternalTopicModal?: () => void;
+  /** Show the round draggable launcher button. The panels (topic video/questions) work either way. */
+  showLauncher?: boolean;
 }
 
 class QuestionListErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
@@ -296,6 +298,7 @@ export default function FloatingButton({
   globalLogo,
   externalTopicModal,
   onCloseExternalTopicModal,
+  showLauncher = true,
 }: FloatingButtonProps) {
   // Movement management for responsive smartboards
   const [position, setPosition] = useState({ x: 4, y: 15 }); // percentages from bottom-right coords
@@ -564,7 +567,8 @@ export default function FloatingButton({
 
   return (
     <>
-      {/* Draggable FAB Container Layer */}
+      {/* Draggable FAB Container Layer (only when the launcher is enabled, e.g. PDF chapters) */}
+      {showLauncher && (
       <div
         className="absolute z-40"
         style={{
@@ -740,6 +744,7 @@ export default function FloatingButton({
           </button>
         </div>
       </div>
+      )}
 
       {/* RENDER DYNAMIC ACTIVE CONTROL PANELS */}
 

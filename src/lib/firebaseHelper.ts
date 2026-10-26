@@ -111,10 +111,11 @@ export async function deletePdfFromStorage(pdfUrl: string): Promise<void> {
   }
 }
 
-export async function uploadHtmlToStorage(file: File, folder: string = 'html'): Promise<string> {
-  const fileName = `${Date.now()}_${file.name}`;
+export async function uploadHtmlToStorage(file: File, folder: string = 'books/html'): Promise<string> {
+  const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const fileName = `${Date.now()}_${sanitizedName}`;
   const fileRef = ref(storage, `${folder}/${fileName}`);
-  await uploadBytes(fileRef, file, { contentType: 'text/html' });
+  await uploadBytes(fileRef, file, { contentType: 'text/html; charset=utf-8' });
   return await getDownloadURL(fileRef);
 }
 

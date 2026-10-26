@@ -164,14 +164,29 @@ export function extractImagesFromLesson(lesson: Lesson): string[] {
     }
   };
 
-  if (lesson.pages) {
-    lesson.pages.forEach(page => {
+  const addPages = (pages?: Lesson['pages']) => {
+    (pages || []).forEach(page => {
+      if (!page) return;
       extractFromHtml(page.content);
       if (page.leftImage) urls.add(page.leftImage);
       if (page.rightImage) urls.add(page.rightImage);
       if (page.centerImage) urls.add(page.centerImage);
     });
-  }
+  };
+
+  addPages(lesson.pages);
+
+  // Topic pages and topic questions (previously missed, so their images were not saved offline)
+  (lesson.topics || []).forEach(topic => {
+    addPages(topic.pages);
+    (topic.inquiryQuestions || []).forEach(q => {
+      if (typeof q === 'string') return;
+      extractFromHtml(q.text);
+      extractFromHtml(q.answerText || undefined);
+      if (q.image) urls.add(q.image);
+      if (q.answerImage) urls.add(q.answerImage);
+    });
+  });
 
   if (lesson.inquiryQuestions) {
     lesson.inquiryQuestions.forEach(q => {

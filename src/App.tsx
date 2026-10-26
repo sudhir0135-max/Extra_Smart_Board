@@ -31,6 +31,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { dbLocal } from './lib/db';
 import { downloadAndCachePdf } from './lib/pdfCache';
 import { hasTextContent } from './lib/contentUtils';
+import { getStudentViewLesson, getChapterContentType } from './lib/chapterContent';
+import { precacheLessonsForOffline } from './lib/offlineCache';
 const PALETTE_COLORS = [
   { name: 'Classroom Amber', hex: '#f59e0b' },
   { name: 'Alert Red', hex: '#f43f5e' },
@@ -153,9 +155,9 @@ export default function App() {
               updated_at: new Date().toISOString()
             }).catch(console.error);
 
-            // Pre-cache chapter PDFs in background
+            // Pre-cache chapter PDFs in background (only for chapters whose content type is PDF)
             sanitizedLessons.forEach(l => {
-              if (l.pdfUrl && l.pdfUrl.trim().length > 0) {
+              if (l.pdfUrl && l.pdfUrl.trim().length > 0 && getChapterContentType(l) === 'pdf') {
                 downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
               }
             });
@@ -392,12 +394,17 @@ export default function App() {
           updated_at: new Date().toISOString()
         }).catch(console.error);
 
-        // 3. Pre-cache chapter PDFs locally in background
+        // 3. Pre-cache chapter PDFs locally in background (only for chapters whose content type is PDF)
         sanitizedLessons.forEach(l => {
-          if (l.pdfUrl && l.pdfUrl.trim().length > 0) {
+          if (l.pdfUrl && l.pdfUrl.trim().length > 0 && getChapterContentType(l) === 'pdf') {
             downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
           }
         });
+
+        // 3b. Save uploaded HTML pages and images of this book for offline reading (background)
+        precacheLessonsForOffline(
+          sanitizedLessons.filter(l => getChapterContentType(l) !== 'pdf').map(l => getStudentViewLesson(l))
+        ).catch(err => console.warn('Offline pre-cache error:', err));
 
         // 4. Update firebaseBooks state if book already exists in array
         setFirebaseBooks(prev => {
@@ -748,7 +755,13 @@ export default function App() {
   }, [books]);
 
   const activeBook = books.find(b => b.id === selectedBookId) || null;
-  const activeLesson = activeBook ? activeBook.lessons.find(l => l.id === activeLessonId) || null : null;
+  // The student panel renders the chapter strictly according to its chosen content type (PDF / HTML / Canvas)
+  // and topic mode; content belonging to other types stays saved but is hidden here.
+  const rawActiveLesson = activeBook ? activeBook.lessons.find(l => l.id === activeLessonId) || null : null;
+  const activeLesson = React.useMemo(
+    () => (rawActiveLesson ? getStudentViewLesson(rawActiveLesson) : null),
+    [rawActiveLesson]
+  );
   const isLessonContentLess = activeLesson?.pages.every(p => !hasTextContent(p.content)) ?? false;
 
   // Connectivity and queue variables
@@ -1102,6 +1115,17 @@ export default function App() {
           sync_status: 'synced',
           updated_at: new Date().toISOString()
         });
+
+        // Save uploaded HTML pages and images (web + Android) for offline reading
+        try {
+          await precacheLessonsForOffline(
+            (sanitizedFirestoreLessons as Lesson[])
+              .filter(l => getChapterContentType(l) !== 'pdf')
+              .map(l => getStudentViewLesson(l))
+          );
+        } catch (e) {
+          console.warn('Offline pre-cache during sync failed:', e);
+        }
 
         // Collect image URLs for native device image caching
         if (Capacitor.isNativePlatform()) {
@@ -2066,9 +2090,11 @@ export default function App() {
 
 
 
-        {/* Movable Semi-transparent Floating interactive helpers — hidden while blackboard is open or when showing a PDF chapter */}
-        {!isBlackboardOpen && !(activeBook?.bookType === 'pdf' || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)) && (
+        {/* Floating helpers — hidden while blackboard is open. The round launcher button shows only on PDF chapters;
+            on other chapters the component stays mounted so topic video / question panels still open from topic ribbons. */}
+        {!isBlackboardOpen && (
         <FloatingButton
+          showLauncher={Boolean((activeBook?.bookType === 'pdf' && !activeLesson?.contentType) || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0))}
           currentLesson={activeLesson}
           onToggleButtonDraw={() => {
             setIsDrawingEnabled(!isDrawingEnabled);

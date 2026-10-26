@@ -20,6 +20,7 @@ import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
 import PdfPageViewer from './PdfPageViewer';
+import HtmlPageFrame from './HtmlPageFrame';
 
 
 
@@ -250,11 +251,12 @@ export default function Workspace({
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
 
-  const [expandedPages, setExpandedPages] = useState<Record<number, boolean>>({});
-  const togglePageExpand = (pageNumber: number) => {
+  const [expandedPages, setExpandedPages] = useState<Record<string, boolean>>({});
+  const togglePageExpand = (pageKey: string | number) => {
+    const k = String(pageKey);
     setExpandedPages(prev => ({
       ...prev,
-      [pageNumber]: !prev[pageNumber]
+      [k]: !prev[k]
     }));
   };
 
@@ -655,50 +657,227 @@ export default function Workspace({
                   <div className="flex flex-col gap-3">
                     {activeLesson.topics.map((topic, idx) => {
                       const isExpanded = Boolean(expandedTopicIds[topic.id]);
-                      const themes = [
-                        {
-                          bg: 'bg-gradient-to-r from-indigo-950/90 via-slate-900/95 to-indigo-900/40',
-                          border: 'border-indigo-500/40 hover:border-indigo-400',
-                          badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
-                          title: 'text-indigo-100',
-                        },
-                        {
-                          bg: 'bg-gradient-to-r from-emerald-950/90 via-slate-900/95 to-emerald-900/40',
-                          border: 'border-emerald-500/40 hover:border-emerald-400',
-                          badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-                          title: 'text-emerald-100',
-                        },
-                        {
-                          bg: 'bg-gradient-to-r from-amber-950/90 via-slate-900/95 to-amber-900/40',
-                          border: 'border-amber-500/40 hover:border-amber-400',
-                          badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-                          title: 'text-amber-100',
-                        },
-                        {
-                          bg: 'bg-gradient-to-r from-purple-950/90 via-slate-900/95 to-purple-900/40',
-                          border: 'border-purple-500/40 hover:border-purple-400',
-                          badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
-                          title: 'text-purple-100',
-                        },
-                        {
-                          bg: 'bg-gradient-to-r from-rose-950/90 via-slate-900/95 to-rose-900/40',
-                          border: 'border-rose-500/40 hover:border-rose-400',
-                          badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
-                          title: 'text-rose-100',
-                        },
-                        {
-                          bg: 'bg-gradient-to-r from-cyan-950/90 via-slate-900/95 to-cyan-900/40',
-                          border: 'border-cyan-500/40 hover:border-cyan-400',
-                          badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-                          title: 'text-cyan-100',
-                        },
-                      ];
-                      const theme = themes[idx % themes.length];
+                      const hasCollapsiblePage = Boolean(topic.pages && topic.pages.some((p: any) => p.isCollapsible));
 
+                      // Distinct vibrant colour per topic: hues spaced by the golden angle (~137.5deg),
+                      // so every topic ribbon differs from the others, however many topics there are.
+                      const hue = Math.round((idx * 137.508 + 230) % 360);
+                      const theme = {
+                        ribbonStyle: {
+                          background: `linear-gradient(90deg, hsla(${hue}, 75%, 17%, 0.94) 0%, rgba(15, 23, 42, 0.95) 55%, hsla(${hue}, 70%, 34%, 0.5) 100%)`,
+                          borderColor: `hsla(${hue}, 85%, 62%, 0.5)`,
+                        } as React.CSSProperties,
+                        titleStyle: { color: `hsl(${hue}, 95%, 86%)` } as React.CSSProperties,
+                      };
+
+                      const renderTopicActionButtons = () => (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-2.5 shrink-0 self-end md:self-auto"
+                        >
+                          {/* Video Player Icon Only */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenTopicModal?.(topic, 'video');
+                            }}
+                            disabled={!topic.videoUrl}
+                            className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                              topic.videoUrl
+                                ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 ring-1 ring-sky-400/40 shadow-sky-500/20'
+                                : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                            }`}
+                            title={topic.videoUrl ? `Play Video Lecture for '${topic.title}'` : 'No video attached to this topic'}
+                          >
+                            <Video className="w-4.5 h-4.5" />
+                          </button>
+
+                          {/* Flashcard Icon Only */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenTopicModal?.(topic, 'questions');
+                            }}
+                            disabled={!topic.flashQuestions || topic.flashQuestions.length === 0}
+                            className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                              topic.flashQuestions && topic.flashQuestions.length > 0
+                                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950 active:scale-95'
+                                : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                            }`}
+                            title={
+                              topic.flashQuestions && topic.flashQuestions.length > 0
+                                ? `Open Flashcards (${topic.flashQuestions.length})`
+                                : 'No flashcards for this topic'
+                            }
+                          >
+                            <HelpCircle className="w-4.5 h-4.5" />
+                          </button>
+
+                          {/* Question Icon Only */}
+                          {(() => {
+                            const effectiveTopicQuestions = getEffectiveTopicInquiryQuestions(topic, activeLesson);
+                            const hasTopicQuestions = effectiveTopicQuestions.length > 0;
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenTopicModal?.(topic, 'notes');
+                                }}
+                                disabled={!hasTopicQuestions}
+                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                  hasTopicQuestions
+                                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 active:scale-95'
+                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                }`}
+                                title={
+                                  hasTopicQuestions
+                                    ? `Open Topic Questions (${effectiveTopicQuestions.length})`
+                                    : 'No questions for this topic'
+                                }
+                              >
+                                <FileText className="w-4.5 h-4.5" />
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      );
+
+                      const renderTopicVideoSection = () => {
+                        if (!topic.videoUrl) return null;
+                        return (
+                          <div className="bg-slate-950/90 border border-sky-500/30 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3">
+                            <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                              <div className="flex items-center gap-2">
+                                <Video className="w-4 h-4 text-sky-400" />
+                                <span className="text-[11px] font-mono uppercase text-sky-400 font-black tracking-wider">
+                                  Topic Video Lecture • {topic.title}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => onOpenTopicModal?.(topic, 'video')}
+                                className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 cursor-pointer transition-all hover:scale-105 active:scale-95"
+                                title="Open in Full Screen theater modal"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" /> Theater Mode
+                              </button>
+                            </div>
+
+                            <div className="relative aspect-video w-full max-w-4xl mx-auto rounded-xl overflow-hidden border border-slate-800 bg-black shadow-lg flex items-center justify-center">
+                              {renderTopicVideo(topic.videoUrl, topic.title)}
+                            </div>
+                          </div>
+                        );
+                      };
+
+                      const renderPageContent = (page: any, pIdx: number) => {
+                        const hasIframe = Boolean(page.iframeUrl);
+                        return (
+                          <>
+                            {hasIframe ? (
+                              <div className="w-full mt-3 flex items-center justify-center">
+                                <HtmlPageFrame
+                                  url={page.iframeUrl}
+                                  title={`Interactive Page ${pIdx + 1} - ${page.summaryContent || topic.title}`}
+                                  className="w-full min-h-[75vh] border-0 rounded-2xl shadow-xl bg-white"
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                {/* Left, Center, and Right Column Graphics */}
+                                {(page.leftImage || page.centerImage || page.rightImage) && (
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {page.leftImage && (
+                                      <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
+                                        <CachedImage src={page.leftImage} alt="Left illustration" className="w-full h-auto object-contain rounded-lg" />
+                                      </div>
+                                    )}
+                                    {page.centerImage && (
+                                      <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
+                                        <CachedImage src={page.centerImage} alt="Center illustration" className="w-full h-auto object-contain rounded-lg" />
+                                      </div>
+                                    )}
+                                    {page.rightImage && (
+                                      <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
+                                        <CachedImage src={page.rightImage} alt="Right illustration" className="w-full h-auto object-contain rounded-lg" />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {/* Page HTML markup content with KaTeX support & interactive tag click handler */}
+                                {page.content && (
+                                  <div
+                                    onClick={handleContentClick}
+                                    className="reader-content prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
+                                    dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(page.content) }}
+                                  />
+                                )}
+                              </>
+                            )}
+                          </>
+                        );
+                      };
+
+                      // When 'Collapsible Page Settings' is ENABLED:
+                      // Display ONLY the HTML dropdown (not the topic dropdown).
+                      if (hasCollapsiblePage) {
+                        return (
+                          <div key={topic.id} className="space-y-3">
+                            {topic.pages?.map((page, pIdx) => {
+                              const topicPageKey = (page as any).id || `topic-${topic.id}-${pIdx}`;
+                              const isTopicPageExpanded = Boolean(expandedPages[topicPageKey]);
+                              const hasIframe = Boolean((page as any).iframeUrl);
+
+                              return (
+                                <div
+                                  key={topicPageKey}
+                                  style={theme.ribbonStyle}
+                                  className="w-full border hover:brightness-110 rounded-2xl p-3.5 px-5 shadow-xl transition-all duration-300 backdrop-blur-md flex flex-col"
+                                >
+                                  {/* HTML Dropdown Header Bar */}
+                                  <div
+                                    onClick={() => togglePageExpand(topicPageKey)}
+                                    className="flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer select-none group"
+                                  >
+                                    {/* Left Side: Chevron + Summary Title + Interactive HTML Badge */}
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                      <div className="w-7 h-7 rounded-lg bg-slate-950/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
+                                        <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isTopicPageExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
+                                      </div>
+                                      <span style={theme.titleStyle} className="font-serif font-medium text-base sm:text-lg truncate tracking-tight">
+                                        {(page as any).summaryContent || topic.title || 'Interactive HTML'}
+                                      </span>
+                                      {hasIframe && (
+                                        <span className="text-[9.5px] font-mono px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold shrink-0">
+                                          Interactive HTML
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Right Side: Topic Action Icons (Video, Flashcard, Question) */}
+                                    {renderTopicActionButtons()}
+                                  </div>
+
+                                  {/* Expanded Section: Reveals Video Lecture (if any) & HTML Iframe */}
+                                  {isTopicPageExpanded && (
+                                    <div className="w-full pt-4 mt-3 border-t border-slate-800/80 space-y-6 animate-fade-in text-slate-100">
+                                      {pIdx === 0 && renderTopicVideoSection()}
+                                      {renderPageContent(page, pIdx)}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+
+                      // When 'Collapsible Page Settings' is DISABLED:
+                      // Display the standard Topic dropdown (topic dropdown should be visible only when 'Collapsible Page Settings' is disabled).
                       return (
                         <div
                           key={topic.id}
-                          className={`w-full ${theme.bg} ${theme.border} border rounded-2xl p-3.5 px-5 shadow-xl transition-all duration-300 backdrop-blur-md flex flex-col`}
+                          style={theme.ribbonStyle}
+                          className={`w-full border hover:brightness-110 rounded-2xl p-3.5 px-5 shadow-xl transition-all duration-300 backdrop-blur-md flex flex-col`}
                         >
                           {/* Header Row — Clickable to Expand / Squeeze Topic Pages */}
                           <div
@@ -710,7 +889,7 @@ export default function Workspace({
                               <div className="w-7 h-7 rounded-lg bg-slate-900/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
                                 <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
                               </div>
-                              <h4 className={`text-sm sm:text-base font-bold truncate tracking-tight ${theme.title}`}>
+                              <h4 style={theme.titleStyle} className="text-sm sm:text-base font-bold truncate tracking-tight">
                                 {topic.title}
                               </h4>
                               {topic.pages && topic.pages.length > 0 && (
@@ -721,148 +900,40 @@ export default function Workspace({
                             </div>
 
                             {/* Right Side: 3 Interactive Action Icons at Same Level */}
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex items-center gap-2.5 shrink-0 self-end md:self-auto"
-                            >
-                              {/* Video Player Icon Only */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenTopicModal?.(topic, 'video');
-                                }}
-                                disabled={!topic.videoUrl}
-                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
-                                  topic.videoUrl
-                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 ring-1 ring-sky-400/40 shadow-sky-500/20'
-                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
-                                }`}
-                                title={topic.videoUrl ? `Play Video Lecture for '${topic.title}'` : 'No video attached to this topic'}
-                              >
-                                <Video className="w-4.5 h-4.5" />
-                              </button>
-
-                              {/* Flashcard Icon Only */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenTopicModal?.(topic, 'questions');
-                                }}
-                                disabled={!topic.flashQuestions || topic.flashQuestions.length === 0}
-                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
-                                  topic.flashQuestions && topic.flashQuestions.length > 0
-                                    ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950 active:scale-95'
-                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
-                                }`}
-                                title={
-                                  topic.flashQuestions && topic.flashQuestions.length > 0
-                                    ? `Open Flashcards (${topic.flashQuestions.length})`
-                                    : 'No flashcards for this topic'
-                                }
-                              >
-                                <HelpCircle className="w-4.5 h-4.5" />
-                              </button>
-
-                              {/* Question Icon Only */}
-                              {(() => {
-                                const effectiveTopicQuestions = getEffectiveTopicInquiryQuestions(topic, activeLesson);
-                                const hasTopicQuestions = effectiveTopicQuestions.length > 0;
-                                return (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onOpenTopicModal?.(topic, 'notes');
-                                    }}
-                                    disabled={!hasTopicQuestions}
-                                    className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
-                                      hasTopicQuestions
-                                        ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 active:scale-95'
-                                        : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
-                                    }`}
-                                    title={
-                                      hasTopicQuestions
-                                        ? `Open Topic Questions (${effectiveTopicQuestions.length})`
-                                        : 'No questions for this topic'
-                                    }
-                                  >
-                                    <FileText className="w-4.5 h-4.5" />
-                                  </button>
-                                );
-                              })()}
-
-                            </div>
+                            {renderTopicActionButtons()}
                           </div>
 
-                          {/* Expanded Content Section: Reveals Pages assigned to this Topic */}
+                          {/* Expanded Content Section: Reveals Pages assigned to this Topic directly without inner collapsible */}
                           {isExpanded && (
                             <div className="w-full pt-4 mt-3 border-t border-slate-800/80 space-y-6 animate-fade-in text-slate-100">
-                              {/* Topic Video Lecture Embed if attached */}
-                              {topic.videoUrl && (
-                                <div className="bg-slate-950/90 border border-sky-500/30 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3">
-                                  <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                                    <div className="flex items-center gap-2">
-                                      <Video className="w-4 h-4 text-sky-400" />
-                                      <span className="text-[11px] font-mono uppercase text-sky-400 font-black tracking-wider">
-                                        Topic Video Lecture • {topic.title}
-                                      </span>
-                                    </div>
-                                    <button
-                                      onClick={() => onOpenTopicModal?.(topic, 'video')}
-                                      className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 cursor-pointer transition-all hover:scale-105 active:scale-95"
-                                      title="Open in Full Screen theater modal"
-                                    >
-                                      <Maximize2 className="w-3.5 h-3.5" /> Theater Mode
-                                    </button>
-                                  </div>
-
-                                  <div className="relative aspect-video w-full max-w-4xl mx-auto rounded-xl overflow-hidden border border-slate-800 bg-black shadow-lg flex items-center justify-center">
-                                    {renderTopicVideo(topic.videoUrl, topic.title)}
-                                  </div>
-                                </div>
-                              )}
+                              {renderTopicVideoSection()}
 
                               {(!topic.pages || topic.pages.length === 0) ? (
                                 <div className="p-6 text-center text-slate-400 font-mono text-xs border border-dashed border-slate-800 rounded-xl bg-slate-950/60">
                                   No specific reading pages assigned to this topic yet.
                                 </div>
                               ) : (
-                                topic.pages.map((page, pIdx) => (
-                                  <div key={(page as any).id || page.pageNumber || pIdx} className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
-                                    <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                                      <span className="text-[10.5px] font-mono uppercase text-amber-400 font-black tracking-wider">
-                                        Page {pIdx + 1} • {topic.title}
-                                      </span>
-                                    </div>
-                                    {/* Left, Center, and Right Column Graphics */}
-                                    {(page.leftImage || page.centerImage || page.rightImage) && (
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        {page.leftImage && (
-                                          <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
-                                            <CachedImage src={page.leftImage} alt="Left illustration" className="w-full h-auto object-contain rounded-lg" />
-                                          </div>
-                                        )}
-                                        {page.centerImage && (
-                                          <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
-                                            <CachedImage src={page.centerImage} alt="Center illustration" className="w-full h-auto object-contain rounded-lg" />
-                                          </div>
-                                        )}
-                                        {page.rightImage && (
-                                          <div className="border border-slate-800 rounded-xl overflow-hidden p-1.5 bg-black/60 shadow-lg">
-                                            <CachedImage src={page.rightImage} alt="Right illustration" className="w-full h-auto object-contain rounded-lg" />
-                                          </div>
-                                        )}
+                                topic.pages.map((page, pIdx) => {
+                                  const hasIframe = Boolean((page as any).iframeUrl);
+                                  return (
+                                    <div key={(page as any).id || `topic-${topic.id}-${pIdx}`} className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
+                                      <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10.5px] font-mono uppercase text-amber-400 font-black tracking-wider">
+                                            Page {pIdx + 1} • {topic.title}
+                                          </span>
+                                          {hasIframe && (
+                                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold">
+                                              Interactive HTML
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
-                                    )}
-                                    {/* Page HTML markup content with KaTeX support & interactive tag click handler */}
-                                    {page.content && (
-                                      <div
-                                        onClick={handleContentClick}
-                                        className="reader-content prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
-                                        dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(page.content) }}
-                                      />
-                                    )}
-                                  </div>
-                                ))
+
+                                      {renderPageContent(page, pIdx)}
+                                    </div>
+                                  );
+                                })
                               )}
                             </div>
                           )}
@@ -875,7 +946,7 @@ export default function Workspace({
 
               <div
                 className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} rounded-xl relative`}
-                style={{ fontSize: `${fontSizeScale}rem`, height: ((activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) || (selectedBook?.bookType === 'pdf' && sanitizedPages.length === 0)) ? 'auto' : `${rowVirtualizer.getTotalSize()}px` }}
+                style={{ fontSize: `${fontSizeScale}rem`, height: ((activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) || (selectedBook?.bookType === 'pdf' && !activeLesson?.contentType && sanitizedPages.length === 0)) ? 'auto' : `${rowVirtualizer.getTotalSize()}px` }}
                 id="seamless-pdf-stack"
               >
                 <ScribbleOverlay
@@ -887,7 +958,7 @@ export default function Workspace({
                   lineWidth={lineWidth}
                   isHighlighter={isHighlighter}
                 />
-                {((activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) || (selectedBook?.bookType === 'pdf' && sanitizedPages.length === 0)) ? (
+                {((activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) || (selectedBook?.bookType === 'pdf' && !activeLesson?.contentType && sanitizedPages.length === 0)) ? (
                   <PdfPageViewer
                     pdfUrl={activeLesson?.pdfUrl || ''}
                     imageViewMode={imageViewMode}
@@ -927,31 +998,19 @@ export default function Workspace({
                         <span className="font-serif font-medium text-lg text-slate-800 dark:text-slate-200">
                           {(page as any).summaryContent || 'Expand Section...'}
                         </span>
-                        <ChevronDown className={`w-6 h-6 text-slate-500 transition-transform ${expandedPages[page.pageNumber] ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-6 h-6 text-slate-500 transition-transform ${Boolean(expandedPages[String(page.pageNumber)] || expandedPages[page.pageNumber]) ? 'rotate-180' : ''}`} />
                       </button>
                     )}
 
-                    {(!(page as any).isCollapsible || expandedPages[page.pageNumber]) && (
+                    {(!(page as any).isCollapsible || Boolean(expandedPages[String(page.pageNumber)] || expandedPages[page.pageNumber])) && (
                       <>
                         {(page as any).iframeUrl ? (
                       <div className="w-full mt-8 flex items-center justify-center">
-                        {isOnline === false ? (
-                          <div className="w-full min-h-[40vh] flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-700/50 bg-slate-900/60 text-slate-400 p-8">
-                            <svg className="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01M8.464 8.464A5 5 0 0115.536 8.464M8.464 15.536A5 5 0 0115.536 15.536" /></svg>
-                            <div className="text-center">
-                              <p className="font-bold text-slate-300 text-base">Page Unavailable Offline</p>
-                              <p className="text-sm text-slate-500 mt-1">This interactive page requires an internet connection.</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <iframe 
-                            src={(page as any).iframeUrl} 
-                            title={`Interactive Page ${page.pageNumber}`} 
-                            className="w-full min-h-[85vh] border-0 rounded-2xl shadow-xl bg-white" 
-                            sandbox="allow-scripts allow-same-origin allow-popups"
-                            allowFullScreen
-                          />
-                        )}
+                        <HtmlPageFrame
+                          url={(page as any).iframeUrl}
+                          title={`Interactive Page ${page.pageNumber}`}
+                          className="w-full min-h-[85vh] border-0 rounded-2xl shadow-xl bg-white"
+                        />
                       </div>
                     ) : (pageImageCount >= 1 && pageHasNoText && imageViewMode === 'two') ? (
                       <div className="grid grid-cols-2 w-full gap-6 mt-4">

@@ -8,8 +8,10 @@ import ImageFrame from './ImageFrame';
 import 'katex/dist/katex.min.css';
 
 export interface RichTextEditorProps {
-  initialValue: string;
+  initialValue?: string;
+  value?: string;
   onSave: (content: string) => void;
+  onChange?: (content: string) => void;
   isSaving?: boolean;
   leftImage?: string;
   centerImage?: string;
@@ -17,11 +19,16 @@ export interface RichTextEditorProps {
   interactiveMaps?: {id: string, title: string, rootImage?: string, hotspots?: any[]}[];
 }
 
-export default function RichTextEditor({ initialValue, onSave, isSaving = false, leftImage, centerImage, rightImage, interactiveMaps = [] }: RichTextEditorProps) {
+export default function RichTextEditor({ initialValue = '', value = '', onSave, onChange, isSaving = false, leftImage, centerImage, rightImage, interactiveMaps = [] }: RichTextEditorProps) {
   const [activeSubTab, setActiveSubTab] = useState<'edit' | 'preview'>('edit');
   const editorRef = useRef<any>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [previewContent, setPreviewContent] = useState(initialValue);
+  // Captured ONCE when the editor mounts. TinyMCE resets its content (and moves the caret to the start)
+  // whenever its `initialValue` prop changes, so this must not follow the parent's live draft that
+  // `onChange` updates on every keystroke, or typed text comes out reversed (right-to-left).
+  // The parent remounts this component (via `key`) when a different page is selected.
+  const [startingContent, setStartingContent] = useState(() => initialValue || value || '');
+  const [previewContent, setPreviewContent] = useState(startingContent);
 
   // Modal states for live preview tag clicking
   const [imageFrameSrc, setImageFrameSrc] = useState<string | null>(null);
@@ -44,6 +51,10 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
   const handleTabSwitch = (tab: 'edit' | 'preview') => {
     if (tab === 'preview' && editorRef.current) {
       setPreviewContent(editorRef.current.getContent());
+    }
+    if (tab === 'edit' && activeSubTab !== 'edit') {
+      // The editor remounts when returning from Preview: start it from the latest text
+      setStartingContent(previewContent);
     }
     setActiveSubTab(tab);
   };
@@ -134,10 +145,15 @@ export default function RichTextEditor({ initialValue, onSave, isSaving = false,
               setupTinyMceAnnotation(editor, () => interactiveMapsRef.current);
             }}
             tinymceScriptSrc="/tinymce/tinymce.min.js"
-            initialValue={initialValue}
+            initialValue={startingContent}
+            onEditorChange={(newContent) => {
+              setPreviewContent(newContent);
+              onChange?.(newContent);
+            }}
             init={{
               height: 450,
               menubar: true,
+              directionality: 'ltr',
               skin: 'oxide-dark',
               content_css: 'dark',
               plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',

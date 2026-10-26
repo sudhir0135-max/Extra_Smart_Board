@@ -2,6 +2,79 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-26] - Feature: Distinct Topic Ribbon Colours, PDF-only Floating Button & Student Panel Offline Support
+
+### Added & Improved
+- **Distinct Vibrant Colour per Topic Ribbon (`Workspace.tsx`)**:
+  - **Root Cause**: Topic ribbons cycled through only 6 Tailwind themes (topic 7 repeated topic 1), and topics using the collapsible HTML dropdown ignored the theme entirely (fixed dark slate).
+  - **Fix**: Each topic gets its own hue spaced by the golden angle (~137.5deg) via inline gradient/border/title styles, applied to both the standard topic ribbon and the collapsible HTML dropdown, so every ribbon differs however many topics there are.
+- **Circular Floating Button Only on PDF Chapters (`FloatingButton.tsx`, `App.tsx`)**:
+  - Added `showLauncher` prop. The round draggable launcher (and its radial menu: video, questions, drawing, notes) shows only on PDF chapters. On other chapters the component stays mounted (launcher hidden) so topic video/question panels opened from topic ribbons keep working.
+- **Student Panel Offline Support**:
+  - **Service worker for the web build** (`service-worker/sw-template.js`, `vite.config.ts`, `main.tsx`): the `offline-service-worker` Vite plugin generates `dist/sw.js` with the full list of built files and a build version. App shell is saved on install so the app opens with no internet; page loads fall back to the saved shell; Firebase Storage images and HTML pages are cached after first use (PDFs/videos skipped; chapter payload JSON with `_cb` always network). Registered only in production builds and not inside the Android app.
+  - **Uploaded HTML pages offline** (`lib/offlineCache.ts`, `lib/db.ts` v2 `html_pages` table, `HtmlPageFrame.tsx`): HTML pages are saved in IndexedDB (web and Android), shown from the saved copy when offline, and refreshed when online. Replaced the old "Page Unavailable Offline" gate; unsaved pages show "Page Not Saved for Offline Use".
+  - **Background pre-download** (`App.tsx`): when a book's chapters are loaded and on Synchronize, HTML pages and images of non-PDF chapters are saved for offline use (Android: native image cache; web: service worker cache).
+  - **Topic images included** (`lib/imageCache.ts`): `extractImagesFromLesson` now includes topic pages and topic questions, which were previously skipped.
+  - Added `preview_offline.bat` to build and run the production preview (http://localhost:4173) for testing offline mode.
+
+## [2026-10-26] - Feature: Chapter Content Type Selector (PDF / HTML / Canvas) with Topic-wise Mode
+
+### Fixed & Rectified
+- **Canvas Text Editor Typing Reversed / Right-to-Left (`RichTextEditor.tsx`)**:
+  - **Root Cause**: The 2026-10-25 live draft sync (`onChange` -> `setPageContentDraft`) sent every keystroke to `BookEditorPanel`, which passed it straight back as TinyMCE's `initialValue`. TinyMCE resets its content and moves the caret to the start whenever `initialValue` changes, so each new character was inserted before the previous ones.
+  - **Fix**: `RichTextEditor` now captures its starting content once on mount (the parent already remounts it per page via `key`) and only refreshes it when returning from the Live Render Preview tab, so preview edits are not lost. Also set TinyMCE `directionality: 'ltr'` explicitly.
+- **Uploaded HTML Pages Shown Full-Width Instead of Centred (`HtmlPageFrame.tsx`, `Workspace.tsx`)**:
+  - **Root Cause**: Uploaded HTML files wrap their content in centred columns (`max-width:1200px; margin:0 auto`). They were loaded with a plain `src` iframe from Firebase Storage (a different origin), so the app could not restyle them and the content always appeared as a centred column in the student panel.
+  - **Fix**: New [`HtmlPageFrame.tsx`](file:///c:/Single%20Screen/src/components/HtmlPageFrame.tsx) fetches the HTML and renders it via `srcDoc` with a `<base>` tag (so relative assets still load) and a small injected script that removes centred max-width columns, so content aligns to the left and fills the reading area. In-page `#anchor` links scroll inside the page. The uploaded page now runs sandboxed without `allow-same-origin`. Falls back to the direct `src` iframe if the fetch fails. Both topic and chapter-root HTML pages in `Workspace.tsx` use it.
+
+### Added & Improved
+- **Mixed HTML & Canvas Pages in Non-PDF Chapters (`BookEditorPanel.tsx`, `lib/chapterContent.ts`)**:
+  - In HTML and Canvas chapters, each page now decides its own type automatically: a page with an uploaded HTML file (`iframeUrl`) shows the HTML; any other page shows its canvas text. Topics can therefore mix HTML and canvas pages freely; no extra editor option.
+  - HTML / Canvas chapter type now only sets what new pages start as (empty HTML slot vs. canvas placeholder text).
+  - Editor shows a "Students see: Uploaded HTML / Canvas text" banner per page, a HTML/Text badge on each page tab, an always-available HTML upload panel, and a "Remove HTML" button to turn a page back into canvas text. Canvas-only fields (images, text editor, LaTeX, vector) hide while a page shows HTML.
+  - Student view hides completely blank pages (no HTML, text, images, equations or figure).
+- **Per-Chapter Content Type (`types.ts`, `lib/chapterContent.ts`)**:
+  - Added `Lesson.contentType` (`'pdf' | 'html' | 'canvas'`) and `Lesson.topicMode` (`'topics' | 'none'`).
+  - New helper module [`chapterContent.ts`](file:///c:/Single%20Screen/src/lib/chapterContent.ts) with `getChapterContentType`, `getChapterTopicMode` and `getStudentViewLesson`. Older chapters without `contentType` are auto-detected (pdfUrl => PDF, any iframe page => HTML, else Canvas) and their student display is left unchanged.
+- **Editor: Choose How a Chapter Is Created (`BookEditorPanel.tsx`)**:
+  - "Create New Lesson Chapter" now has a **PDF / HTML / Canvas** picker and, for HTML/Canvas, a **Topic-wise / Without topics** picker. Topic-wise chapters start with no root pages; HTML chapters start with an empty HTML page slot.
+  - New **Chapter Content Type** card on the active chapter replaces the book-level "Interactive Book / PDF Book" toggle. Switching type or topic mode keeps the other content saved (hidden), so switching back restores it. Changes save directly to Firestore.
+  - Only the matching input screen is shown: PDF uploader (PDF only — no topics, pages, videos, questions or maps); HTML page uploader without the text editor/images/LaTeX/vector blocks; Canvas text editor without the iframe field. Topic bar appears only for topic-wise chapters and no longer offers a "Main Chapter Level" option.
+  - Chapter list cards show a type badge (PDF / HTML / Canvas, Topics / No topics).
+  - Chapter PDF attach/detach now saves directly to Firestore (previously local-only) so students see it immediately.
+- **Student Panel Renders by Chapter Type (`App.tsx`, `Workspace.tsx`)**:
+  - `activeLesson` is passed through `getStudentViewLesson`: PDF chapters show only the PDF; topic-wise chapters show only topics; non-topic chapters show only root pages; HTML chapters show only pages that have an uploaded HTML file; Canvas chapters ignore leftover iframe links.
+  - The legacy `bookType === 'pdf'` fallback now applies only to chapters without an explicit `contentType`. PDF pre-caching only runs for PDF-type chapters.
+
+## [2026-10-25] - Feature & Rectification: Flexible Topic/Chapter Interactive HTML Presentation & Direct Firestore Page Persistence
+
+### Fixed & Rectified
+- **Flexible Topic vs. Chapter Interactive HTML Presentation (`Workspace.tsx`)**:
+  - **Root Cause**: In [`Workspace.tsx`](file:///c:/Single%20Screen/src/components/Workspace.tsx), the topic page renderer (`topic.pages.map`) only rendered static TinyMCE text and standard column images. It completely lacked support for `iframeUrl` and `isCollapsible`. When editors attached interactive HTML pages to a topic, the iframe was never rendered at all.
+  - **Fix**: Upgraded topic page rendering in `Workspace.tsx` to fully support interactive HTML `<iframe>`s and collapsible settings. If an HTML page is uploaded under a specific topic, it renders directly inside that topic's expanded view with online/offline detection and "Interactive HTML" status badge; if uploaded without a topic, it renders in the chapter-level reading canvas stack.
+- **Single Dropdown Experience: Conditional HTML Dropdown vs Topic Dropdown (`Workspace.tsx`)**:
+  - **Root Cause**: When an editor created a topic page with interactive HTML and enabled "Collapsible Page Settings", students in [`Workspace.tsx`](file:///c:/Single%20Screen/src/components/Workspace.tsx) were presented with two nested dropdowns: an outer topic ribbon dropdown (`[ ^ ] Topic Title [ N page(s) ]`) and an inner secondary dropdown button (`Topic Title v`), requiring two separate clicks to access the iframe.
+  - **Fix**: Implemented strict conditional rendering based on `'Collapsible Page Settings'` (`hasCollapsiblePage`):
+    - **When Collapsible Page Settings is Enabled**: The outer topic dropdown ribbon is suppressed; only the sleek HTML dropdown is displayed at the curriculum level with summary title, chevron toggle, `Interactive HTML` badge, and quick-action icons (Video, Flashcard, Question). Expanding it directly reveals the HTML iframe (and topic video if attached) in a single click.
+    - **When Collapsible Page Settings is Disabled**: The standard topic dropdown ribbon is displayed. Expanding it renders the topic's pages and content directly without any redundant inner collapsible dropdown button.
+- **Accordion Toggle State Normalization for String and Number Keys (`Workspace.tsx`)**:
+  - Updated `expandedPages` and `togglePageExpand` to handle both chapter-level page numbers (`1, 2, ...`) and topic page keys (`topic-{topicId}-{index}`) seamlessly so collapsible sections toggle independently without interference.
+- **Firebase Storage Public Read Authorization for HTML Pages (`firebaseHelper.ts`, `storage.rules`)**:
+  - **Root Cause**: Uploading HTML files previously placed them under `html/`, which had no public read rule in [`storage.rules`](file:///c:/Single%20Screen/storage.rules), resulting in `403 Forbidden` errors when iframes loaded them without auth headers.
+  - **Fix**: Updated [`uploadHtmlToStorage`](file:///c:/Single%20Screen/src/lib/firebaseHelper.ts) to upload to `books/html/` with sanitized filenames and explicit `contentType: 'text/html; charset=utf-8'`, utilizing the existing public read permissions under `books/**`. Added an explicit `/html/{allHtml=**}` public read rule in `storage.rules` for backward compatibility.
+
+### Added & Improved
+- **Direct Live Firestore Save for Page Canvas Operations (`BookEditorPanel.tsx`)**:
+  - Decoupled page saving from the "Submit this Chapter" / Admin review workflow (Option B).
+  - All page CRUD operations (`handleUpdatePage`, `handleAddPage`, `handleDeletePage`, `handleMovePage`) now invoke `saveLessonDirectToFirestore(modifiedBook, updatedLesson)`.
+  - Every page creation, HTML upload, or text change commits directly to Firestore `books/{bookId}/lessons/{lessonId}` and IndexedDB, triggering `fetchBookLessons` to refresh `subLessonsCache` across the application in real time.
+- **Co-located "Save Page Changes", Target Context Badge & HTML Preview (`BookEditorPanel.tsx`)**:
+  - Added a dedicated, prominent **"Save Page Changes"** button directly inside the "Collapsible Page Settings / Iframe URL" container so editors don't have to scroll up to the TinyMCE header to commit changes.
+  - Added a dynamic **Placement Badge** (`Placement: Topic: {title}` vs `Placement: Chapter Root (Page N)`) making the upload target unambiguous.
+  - Added a **"Preview"** link next to the HTML URL input allowing editors to test uploaded interactive pages in a new tab immediately.
+- **Live Content Draft Synchronization (`RichTextEditor.tsx`)**:
+  - Added `onChange` prop to [`RichTextEditor.tsx`](file:///c:/Single%20Screen/src/components/RichTextEditor.tsx) hooked into TinyMCE's `onEditorChange` so `pageContentDraft` in `BookEditorPanel` stays updated as text is typed.
+
 ## [2026-10-23] - Feature: Asset Library Multiple Image Delete & Direct Subject Management
 
 ### Added & Improved
