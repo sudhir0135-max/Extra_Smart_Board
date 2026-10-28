@@ -182,6 +182,10 @@ export default function BookEditorPanel({
   const [pageEquationsDraft, setPageEquationsDraft] = useState('');
   const [pageIsCollapsible, setPageIsCollapsible] = useState(false);
   const [pageSummaryContent, setPageSummaryContent] = useState('');
+  // Bumped after a page's content has been loaded into the drafts (on chapter / topic / page switch).
+  // Passed to the rich text editor as `contentKey`, which loads the newly selected page's text into
+  // the existing editor (no remount).
+  const [editorLoadKey, setEditorLoadKey] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
 
   // Active Lesson Metadata drafts
@@ -354,6 +358,7 @@ export default function BookEditorPanel({
       setPageIsCollapsible(false);
       setPageSummaryContent('');
     }
+    setEditorLoadKey(k => k + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPageIndex, selectedLessonId, selectedTopicId]);
 
@@ -518,9 +523,30 @@ export default function BookEditorPanel({
     try {
       const modifiedBook = { ...assignedBook, lessons: newLessons };
       await saveBookLocally(modifiedBook);
+
+      // Publish the new sequence to the live book so the student panel shows it too.
+      // Only the `order` field of chapters that already exist live is updated: no chapter content
+      // is rewritten, and chapters not yet live (unsubmitted) are neither created nor touched.
+      if (!isPreviewMode) {
+        const { collection, getDocs, writeBatch } = await import('firebase/firestore');
+        const bookIdStr = assignedBook.id.toString();
+        const liveSnap = await getDocs(collection(db, 'books', bookIdStr, 'lessons'));
+        const liveIds = new Set(liveSnap.docs.map(d => d.id));
+        const batch = writeBatch(db);
+        let updates = 0;
+        newLessons.forEach((l, idx) => {
+          if (liveIds.has(l.id)) {
+            batch.update(doc(db, 'books', bookIdStr, 'lessons', l.id), { order: idx });
+            updates++;
+          }
+        });
+        if (updates > 0) await batch.commit();
+        if (fetchBookLessons) await fetchBookLessons(assignedBook.id);
+      }
       flashMessage('Chapter order updated.');
-    } catch (err) {
-      alert('Failed to reorder chapters.');
+    } catch (err: any) {
+      console.error('Failed to reorder chapters:', err);
+      alert('Failed to reorder chapters: ' + (err?.message || err));
     }
   };
 
@@ -2124,7 +2150,8 @@ export default function BookEditorPanel({
                       <div className="space-y-1">
                         <span className="text-[8px] font-mono uppercase text-[#707a6c] block">Rich Content Text Block (Supports standard dynamic markup):</span>
                         <RichTextEditor
-                          key={`${assignedBookId}-${selectedLessonId}-${selectedPageIndex}`}
+                          key={`rte-${assignedBookId}`}
+                          contentKey={editorLoadKey}
                           initialValue={pageContentDraft}
                           onSave={(content) => handleUpdatePage(selectedPageIndex, content)}
                           onChange={(content) => setPageContentDraft(content)}

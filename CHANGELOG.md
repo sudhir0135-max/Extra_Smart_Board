@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-28] - Critical Fix: "Approve All" Deleted Unsubmitted Chapters
+
+### Fixed & Rectified
+- **Chapter Re-ordering Not Reflected in Student Panel (`BookEditorPanel.tsx`)**:
+  - **Root Cause**: `handleMoveLesson` only called `saveBookLocally()` (the editor's own IndexedDB). The new sequence never reached Firestore, while the student panel loads chapters from `books/{id}/lessons` sorted by `order`. (Topic/page moves already saved to Firestore; chapter moves did not.)
+  - **Fix**: After a move, the new position is written to Firestore by updating ONLY the `order` field of each chapter that already exists live (batch `update`), then `fetchBookLessons` refreshes all screens. No chapter content is rewritten, and chapters not yet live are neither created nor touched.
+- **Rich Text Editor Did Not Refresh When Switching Topic (`BookEditorPanel.tsx`)**:
+  - **Root Cause**: The editor was keyed only on book/chapter/page index, so switching topic (usually also page 1) did not remount it; and the page text is loaded into the drafts by an effect AFTER the render, so even a remount would have shown the previous text. Before the 2026-10-26 reversed-typing fix, TinyMCE re-read every `initialValue` change, which hid this.
+  - **First fix (deployed 2026-10-28 11:15, caused a regression)**: remounting the editor on every switch via its `key` left TinyMCE blank (no toolbar) when a topic was selected, because the editor was torn down and rebuilt in quick succession while TinyMCE was still initialising.
+  - **Fix**: One editor instance is kept per book; `BookEditorPanel` passes `contentKey={editorLoadKey}` (bumped after the selected page's text is loaded into the drafts) and `RichTextEditor` loads the new text into the existing editor with `setContent()` (clearing undo history). Verified with rapid topic switching (t1 → t2 → t3 → t2 → t1): always one editor with its toolbar and the correct topic text; typing still left-to-right.
+- **Approving an editor submission wiped every chapter that was not in the submission (`App.tsx`)**:
+  - **Root Cause**: "Approve All" called `saveBookToFirebase({ ...book, lessons })` with the chapter list held on the admin's review screen. That list is built from in-memory `firebaseBooks`, whose `lessons` come from the book metadata doc (always `lessons: []` since chapters moved to the `books/{id}/lessons` subcollection) unless `fetchBookLessons` happened to have loaded that book in the same session. When it hadn't (e.g. the admin portal was freshly opened), the review screen contained only the submitted chapter(s). `saveBookToFirebase` then treated every live chapter missing from that list as an orphan and deleted it, and also overwrote the admin's offline copy with the reduced list. "Approve This Chapter" had the same weakness (`b.lessons` + approved chapter).
+  - **Fix**:
+    1. Approval (single and all) no longer rewrites the whole book. It reads the live chapters directly from Firestore, writes ONLY the chapters the editor submitted (keeping their existing order; new ones appended), deletes ONLY chapters the editor explicitly requested to delete, updates `lessonCount`, clears those submission docs, and refreshes via `fetchBookLessons`. Unsubmitted chapters are never touched.
+    1b. Large submitted chapters (stored in Storage with a cut-down placeholder in Firestore) are always re-loaded in full before approval; if the full copy cannot be loaded, that chapter is skipped and stays pending (alert shown) instead of being published without its questions/topic pages.
+    1c. Verified against a simulated database: Approve All with a partial in-memory list updated the submitted chapter, added the new one, removed only the chapter the editor asked to delete, and left all other chapters unchanged; single-chapter approval left other submitted chapters pending.
+    2. `saveBookToFirebase` safety guard: if the in-memory chapter list is empty while Firestore has chapters, it saves metadata only; it deletes a missing chapter only when exactly one is missing (normal single delete) or when called with `{ allowBulkChapterDelete: true }`. Otherwise it keeps them and shows a warning toast.
+    3. Review screen loads the book's live chapters (`fetchBookLessons`) before showing a submission, and the preview merge prefers the subcollection cache over the empty book-doc list.
+- **Chapter Recovery Tool (`src/recovery/ChapterRecoveryTool.tsx`, `main.tsx`)** — open `/recover?book=<id>`:
+  - Runs instead of the main app so nothing re-syncs and overwrites this browser's offline data first. Reads, in order: this device's offline chapter store, the Firestore offline cache (live chapters and editor submissions), Firebase Storage large-chapter backups (`books/{id}/lessons/*/payload.json`) and editor submission backups (`editor_submissions/{id}/lessons/*`, admin sign-in needed), then the live database last.
+  - Lists every chapter found with each surviving version (source, date, topics/pages/questions), lets the admin pick a version, and restores ONLY chapters missing from the live book (re-checked right before writing; live chapters are never overwritten). "Download backup file" saves everything found as JSON.
+  - Book 27 "Companies and Analysis": Storage backups found for "Issue of Debentures" (27 Oct) and "Cash Flow Statement" (23 Oct).
+
 ## [2026-10-26] - Feature: Distinct Topic Ribbon Colours, PDF-only Floating Button & Student Panel Offline Support
 
 ### Added & Improved

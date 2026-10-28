@@ -12,6 +12,8 @@ export interface RichTextEditorProps {
   value?: string;
   onSave: (content: string) => void;
   onChange?: (content: string) => void;
+  /** Change this value to load `initialValue` into the existing editor (e.g. a different page/topic was selected). */
+  contentKey?: string | number;
   isSaving?: boolean;
   leftImage?: string;
   centerImage?: string;
@@ -19,16 +21,35 @@ export interface RichTextEditorProps {
   interactiveMaps?: {id: string, title: string, rootImage?: string, hotspots?: any[]}[];
 }
 
-export default function RichTextEditor({ initialValue = '', value = '', onSave, onChange, isSaving = false, leftImage, centerImage, rightImage, interactiveMaps = [] }: RichTextEditorProps) {
+export default function RichTextEditor({ initialValue = '', value = '', onSave, onChange, contentKey, isSaving = false, leftImage, centerImage, rightImage, interactiveMaps = [] }: RichTextEditorProps) {
   const [activeSubTab, setActiveSubTab] = useState<'edit' | 'preview'>('edit');
   const editorRef = useRef<any>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   // Captured ONCE when the editor mounts. TinyMCE resets its content (and moves the caret to the start)
   // whenever its `initialValue` prop changes, so this must not follow the parent's live draft that
   // `onChange` updates on every keystroke, or typed text comes out reversed (right-to-left).
-  // The parent remounts this component (via `key`) when a different page is selected.
+  // When a different page/topic is selected the parent changes `contentKey`, and the new text is
+  // loaded into the SAME editor instance (remounting TinyMCE in quick succession left it blank).
   const [startingContent, setStartingContent] = useState(() => initialValue || value || '');
   const [previewContent, setPreviewContent] = useState(startingContent);
+  const lastContentKeyRef = useRef(contentKey);
+  useEffect(() => {
+    if (lastContentKeyRef.current === contentKey) return;
+    lastContentKeyRef.current = contentKey;
+    const next = initialValue || value || '';
+    setStartingContent(next);
+    setPreviewContent(next);
+    const ed = editorRef.current;
+    if (ed && !ed.removed && ed.initialized !== false) {
+      try {
+        ed.setContent(next);
+        ed.undoManager?.clear();
+      } catch (e) {
+        console.warn('RichTextEditor: could not load new content', e);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentKey]);
 
   // Modal states for live preview tag clicking
   const [imageFrameSrc, setImageFrameSrc] = useState<string | null>(null);

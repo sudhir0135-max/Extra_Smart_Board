@@ -190,29 +190,50 @@ export default function App() {
     };
   }, []);
 
-  const saveBookToFirebase = async (updatedBook: Book) => {
+  /**
+   * Saves a whole book (metadata + every chapter) to Firestore.
+   *
+   * SAFETY: chapters that exist in Firestore but are missing from `updatedBook.lessons` are
+   * deleted ONLY when exactly one chapter is missing (a normal single-chapter delete) or when
+   * the caller passes `allowBulkChapterDelete`. Callers often hold an in-memory chapter list
+   * that was never fully loaded (e.g. `lessons: []` straight from the book metadata doc), and
+   * treating that as "delete everything else" wiped live chapters (2026-10-28 incident).
+   * If the in-memory list is empty while Firestore has chapters, only metadata is saved.
+   */
+  const saveBookToFirebase = async (updatedBook: Book, opts: { allowBulkChapterDelete?: boolean } = {}) => {
     // Externalize any base64 images → Firebase Storage URLs before writing.
     const cleanBook = await externalizeBookImages(updatedBook);
     const firestoreBook: Book = JSON.parse(JSON.stringify(cleanBook));
-    
-    // Save metadata without lessons to the main document
-    const bookMeta = { ...firestoreBook, lessons: [], lessonCount: firestoreBook.lessons?.length || 0 };
-    await setDoc(doc(db, 'books', firestoreBook.id.toString()), bookMeta);
-    // Clean up orphaned lessons in the subcollection before saving new ones
+
     const { collection, getDocs } = await import('firebase/firestore');
     const existingLessonsSnap = await getDocs(collection(db, 'books', firestoreBook.id.toString(), 'lessons'));
     const currentLessonIds = new Set(firestoreBook.lessons?.map(l => l.id) || []);
-    
-    let deleteBatch = writeBatch(db);
-    let deleteCount = 0;
-    existingLessonsSnap.docs.forEach(d => {
-      if (!currentLessonIds.has(d.id)) {
-        deleteBatch.delete(d.ref);
-        deleteCount++;
-      }
-    });
-    if (deleteCount > 0) {
+    const missingDocs = existingLessonsSnap.docs.filter(d => !currentLessonIds.has(d.id));
+
+    // Unloaded chapter list (empty) while Firestore has chapters: metadata-only save, never wipe.
+    const metadataOnly = currentLessonIds.size === 0 && existingLessonsSnap.size > 0;
+    const finalLessonCount = metadataOnly
+      ? existingLessonsSnap.size
+      : (firestoreBook.lessons?.length || 0) + (missingDocs.length > 1 && !opts.allowBulkChapterDelete ? missingDocs.length : 0);
+
+    // Save metadata without lessons to the main document
+    const bookMeta = { ...firestoreBook, lessons: [], lessonCount: finalLessonCount };
+    await setDoc(doc(db, 'books', firestoreBook.id.toString()), bookMeta);
+
+    if (metadataOnly) {
+      console.warn(`[saveBookToFirebase] Book ${firestoreBook.id}: chapter list not loaded (0 chapters in memory, ${existingLessonsSnap.size} in Firestore). Saved metadata only; no chapters changed.`);
+      setFirebaseBooks(prev => prev.map(b => b.id === firestoreBook.id ? { ...b, ...bookMeta, lessons: b.lessons } : b));
+      return;
+    }
+
+    // Clean up chapters removed from the book (guarded against accidental mass deletion)
+    if (missingDocs.length === 1 || (missingDocs.length > 1 && opts.allowBulkChapterDelete)) {
+      const deleteBatch = writeBatch(db);
+      missingDocs.forEach(d => deleteBatch.delete(d.ref));
       await deleteBatch.commit();
+    } else if (missingDocs.length > 1) {
+      console.warn(`[saveBookToFirebase] Book ${firestoreBook.id}: ${missingDocs.length} chapters are missing from the in-memory list; NOT deleting them (possible partially loaded data). Missing: ${missingDocs.map(d => d.id).join(', ')}`);
+      addToast(`Safety check: ${missingDocs.length} chapters were not loaded on this screen, so they were kept (not deleted).`, 'warn');
     }
 
     // Save lessons chapter-wise to avoid 1MB limit in parallel chunks
@@ -470,7 +491,9 @@ export default function App() {
     if (previewSubmissionBookId !== null) {
       return firebaseBooks.map(b => {
         if (b.id === previewSubmissionBookId && previewLessons) {
-          const liveLessons = b.lessons || [];
+          // Live chapters: prefer the subcollection cache (authoritative) over the book doc, which has lessons: []
+          const cachedLive = subLessonsCache[b.id];
+          const liveLessons = (cachedLive && cachedLive.length > 0 ? cachedLive : b.lessons) || [];
           const previewLessonMap = new Map(previewLessons.map(l => [l.id, l]));
           const deletedSet = new Set(previewDeletedLessonIds);
           // Start with live lessons, replacing any that have preview updates and excluding deleted
@@ -1403,6 +1426,8 @@ export default function App() {
         onReviewSubmission={async (bookId) => {
           setSelectedBookId(bookId);
           try {
+            // Load the book's live chapters first so the review screen shows the complete book
+            await fetchBookLessons(bookId);
             const { collection, getDocs, doc, getDoc } = await import('firebase/firestore');
             const bookIdStr = bookId.toString();
             
@@ -1503,81 +1528,137 @@ export default function App() {
         previewDeletedLessonIds={previewDeletedLessonIds}
         onApproveSubmission={async (bookId, lessons, lessonIdToApprove) => {
           try {
-            const b = firebaseBooks.find(fb => fb.id === bookId);
-            if (!b) return;
-
-            const { doc, deleteDoc, setDoc, collection, getDocs, writeBatch } = await import('firebase/firestore');
+            const { doc, deleteDoc, setDoc, updateDoc, collection, getDocs, getDocsFromServer, writeBatch } = await import('firebase/firestore');
+            const { resolveLessonPayload, uploadLargeLessonPayload, deleteFileFromStorage } = await import('./lib/firebaseHelper');
             const bookIdStr = bookId.toString();
+            const liveCol = collection(db, 'books', bookIdStr, 'lessons');
 
-            if (lessonIdToApprove) {
-              // ── Per-Chapter Approval ───────────────────────────────────────
-              const isMarkedDeleted = previewDeletedLessonIds.includes(lessonIdToApprove);
-              let updatedLessons: Lesson[];
+            // ── 1. Read the LIVE chapters straight from Firestore ─────────────────────────
+            // Never rely on the in-memory book here: it may not have its chapters loaded yet,
+            // and writing that partial list back is what previously deleted unsubmitted chapters.
+            let liveSnap;
+            try {
+              liveSnap = await getDocsFromServer(liveCol);
+            } catch {
+              liveSnap = await getDocs(liveCol);
+            }
+            const liveById = new Map<string, any>(liveSnap.docs.map(d => [d.id, { ...d.data(), id: d.id }]));
+            const maxOrder = liveSnap.docs.reduce((m, d) => Math.max(m, Number((d.data() as any).order ?? -1)), -1);
 
-              if (isMarkedDeleted) {
-                // Delete chapter from live book
-                updatedLessons = (b.lessons || []).filter(l => l.id !== lessonIdToApprove);
-              } else {
-                // Find approved chapter content from the submitted lessons or live preview
-                const approvedLesson = lessons.find(l => l.id === lessonIdToApprove);
-                if (!approvedLesson) {
-                  alert("Chapter to approve not found.");
-                  return;
+            // ── 2. Work out exactly which submitted chapters to apply ─────────────────────
+            const submittedById = new Map<string, Lesson>((previewLessons || []).map(l => [l.id, l]));
+            const deletedIds = new Set(previewDeletedLessonIds);
+            const idsToApply: string[] = lessonIdToApprove
+              ? [lessonIdToApprove]
+              : Array.from(new Set([...previewPendingLessonIds, ...previewDeletedLessonIds, ...submittedById.keys()]));
+
+            if (idsToApply.length === 0) {
+              alert('There are no submitted chapters to approve.');
+              return;
+            }
+
+            // ── 3. Apply ONLY those chapters; all other live chapters are left untouched ──
+            let nextOrder = maxOrder + 1;
+            let added = 0;
+            let removed = 0;
+            const appliedIds: string[] = [];
+            const failed: string[] = [];
+            for (const id of idsToApply) {
+              const lessonRef = doc(db, 'books', bookIdStr, 'lessons', id);
+
+              if (deletedIds.has(id)) {
+                // Editor explicitly requested deletion of this chapter
+                const live = liveById.get(id);
+                if (live) {
+                  await deleteDoc(lessonRef);
+                  if (live.payloadUrl) deleteFileFromStorage(live.payloadUrl).catch(() => {});
+                  removed++;
                 }
-                const existingIndex = (b.lessons || []).findIndex(l => l.id === lessonIdToApprove);
-                if (existingIndex >= 0) {
-                  updatedLessons = (b.lessons || []).map(l => l.id === lessonIdToApprove ? approvedLesson : l);
-                } else {
-                  updatedLessons = [...(b.lessons || []), approvedLesson];
+                appliedIds.push(id);
+                continue;
+              }
+
+              let submitted: any = submittedById.get(id) || lessons.find(l => l.id === id);
+              if (!submitted) {
+                console.warn(`[approve] Submitted chapter ${id} not found; skipped.`);
+                failed.push(id);
+                continue;
+              }
+
+              // Large submissions are stored in Storage with a cut-down placeholder in Firestore.
+              // Always load the FULL copy; if it can't be loaded, skip (keep it pending) rather than
+              // publishing a chapter without its questions and topic pages.
+              if (submitted.payloadUrl) {
+                try {
+                  const url = submitted.payloadUrl + (submitted.payloadUrl.includes('?') ? '&' : '?') + `_cb=${Date.now()}`;
+                  const r = await fetch(url, { cache: 'no-store' });
+                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                  submitted = { ...(await r.json()), id };
+                } catch (e: any) {
+                  console.error(`[approve] Could not load full submitted chapter ${id}:`, e);
+                  failed.push(submitted.title || id);
+                  continue;
                 }
               }
 
-              // Save updated book to Firebase (syncs subcollection & metadata)
-              await saveBookToFirebase({ ...b, lessons: updatedLessons });
+              const live = liveById.get(id);
+              const order = live && live.order !== undefined ? Number(live.order) : nextOrder++;
+              if (!live) added++;
 
-              // Delete this chapter doc from editor_submissions subcollection
-              await deleteDoc(doc(db, 'editor_submissions', bookIdStr, 'lessons', lessonIdToApprove)).catch(() => {});
-
-              // Update metadata doc: remove from pendingLessonIds and deletedLessonIds
-              const remainingPending = previewPendingLessonIds.filter(id => id !== lessonIdToApprove);
-              const remainingDeleted = previewDeletedLessonIds.filter(id => id !== lessonIdToApprove);
-
-              setPreviewPendingLessonIds(remainingPending);
-              setPreviewDeletedLessonIds(remainingDeleted);
-              setPreviewLessons(prev => (prev || []).filter(l => l.id !== lessonIdToApprove));
-
-              if (remainingPending.length === 0 && remainingDeleted.length === 0) {
-                // All submitted chapters approved: delete parent submission doc
-                await deleteDoc(doc(db, 'editor_submissions', bookIdStr)).catch(() => {});
-                setToasts(prev => [...prev, { id: Date.now().toString(), text: 'All submitted chapters approved and synced live!', type: 'success' }]);
-                setPreviewLessons(null);
-                setPreviewSubmissionBookId(null);
-                setActiveScreen('admin');
-              } else {
-                // Update parent submission doc with remaining pending list
-                await setDoc(doc(db, 'editor_submissions', bookIdStr), {
-                  lessonCount: remainingPending.length,
-                  pendingLessonIds: remainingPending,
-                  deletedLessonIds: remainingDeleted,
-                }, { merge: true });
-                setToasts(prev => [...prev, { id: Date.now().toString(), text: 'Chapter approved and synced live!', type: 'success' }]);
+              // Externalize base64 images, strip undefined fields, offload very large chapters to Storage
+              const cleaned = (await externalizeBookImages({ id: bookId, lessons: [submitted] } as any)).lessons[0];
+              let docToWrite: any = JSON.parse(JSON.stringify({ ...cleaned, order }));
+              delete docToWrite.payloadUrl;
+              const size = new Blob([JSON.stringify(docToWrite)]).size;
+              if (size > 750000) {
+                const { pointerLesson } = await uploadLargeLessonPayload(docToWrite, `books/${bookIdStr}/lessons/${id}`);
+                docToWrite = JSON.parse(JSON.stringify(pointerLesson));
+              } else if (live?.payloadUrl) {
+                deleteFileFromStorage(live.payloadUrl).catch(() => {});
               }
-            } else {
-              // ── Approve All Chapters at Once ──────────────────────────────
-              const updatedBook = { ...b, lessons };
-              await saveBookToFirebase(updatedBook);
-              const lessonsSnap = await getDocs(collection(db, 'editor_submissions', bookIdStr, 'lessons'));
-              const batch = writeBatch(db);
-              lessonsSnap.docs.forEach(d => batch.delete(d.ref));
-              await batch.commit();
+              await setDoc(lessonRef, docToWrite);
+              appliedIds.push(id);
+            }
+
+            if (failed.length > 0) {
+              alert(`These submitted chapters could not be loaded and were NOT approved (they stay pending):\n- ${failed.join('\n- ')}`);
+            }
+            if (appliedIds.length === 0) return;
+
+            // Keep the book's chapter count in step (metadata only — no chapter list rewrite)
+            await updateDoc(doc(db, 'books', bookIdStr), {
+              lessonCount: Math.max(0, liveSnap.size + added - removed)
+            }).catch(e => console.warn('lessonCount update failed:', e));
+
+            // ── 4. Clear the approved items from the editor submission ────────────────────
+            const subBatch = writeBatch(db);
+            appliedIds.forEach(id => subBatch.delete(doc(db, 'editor_submissions', bookIdStr, 'lessons', id)));
+            await subBatch.commit().catch(() => {});
+
+            const remainingPending = previewPendingLessonIds.filter(id => !appliedIds.includes(id));
+            const remainingDeleted = previewDeletedLessonIds.filter(id => !appliedIds.includes(id));
+
+            // ── 5. Refresh every screen from Firestore (also rewrites the offline copy) ──────
+            await fetchBookLessons(bookId);
+
+            if (remainingPending.length === 0 && remainingDeleted.length === 0) {
               await deleteDoc(doc(db, 'editor_submissions', bookIdStr)).catch(() => {});
-
-              setToasts(prev => [...prev, { id: Date.now().toString(), text: 'All chapters approved and synced live!', type: 'success' }]);
+              setToasts(prev => [...prev, { id: Date.now().toString(), text: lessonIdToApprove ? 'All submitted chapters approved and synced live!' : `${appliedIds.length} submitted chapter(s) approved and synced live. Other chapters were not touched.`, type: 'success' }]);
               setPreviewLessons(null);
               setPreviewSubmissionBookId(null);
               setPreviewPendingLessonIds([]);
               setPreviewDeletedLessonIds([]);
               setActiveScreen('admin');
+            } else {
+              await setDoc(doc(db, 'editor_submissions', bookIdStr), {
+                lessonCount: remainingPending.length,
+                pendingLessonIds: remainingPending,
+                deletedLessonIds: remainingDeleted,
+              }, { merge: true });
+              setPreviewPendingLessonIds(remainingPending);
+              setPreviewDeletedLessonIds(remainingDeleted);
+              setPreviewLessons(prev => (prev || []).filter(l => !appliedIds.includes(l.id)));
+              setToasts(prev => [...prev, { id: Date.now().toString(), text: 'Chapter approved and synced live!', type: 'success' }]);
             }
           } catch(err: any) {
             alert('Failed to approve chapter: ' + err.message);
