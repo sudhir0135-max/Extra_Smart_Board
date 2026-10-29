@@ -196,6 +196,8 @@ export default function BookEditorPanel({
   // Topic Management State
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [isAddingTopic, setIsAddingTopic] = useState(false);
+  // Active tab of the Questions & Extras card
+  const [extrasTab, setExtrasTab] = useState<'flash' | 'inquiry' | 'maps'>('flash');
   const [isEditingTopic, setIsEditingTopic] = useState(false);
   const [topicTitleDraft, setTopicTitleDraft] = useState('');
   const [topicVideoUrlDraft, setTopicVideoUrlDraft] = useState('');
@@ -289,7 +291,18 @@ export default function BookEditorPanel({
   const pageShowsHtml = Boolean(pageIframeUrlDraft && pageIframeUrlDraft.trim());
   const isChapterTypeExplicit = hasExplicitChapterType(activeLesson);
 
-  // Keep topic selection consistent with the chapter's topic mode:
+
+  // Reset topic states when chapter selection changes
+  useEffect(() => {
+    setSelectedTopicId(null);
+    setIsAddingTopic(false);
+    setIsEditingTopic(false);
+    setTopicTitleDraft('');
+    setTopicVideoUrlDraft('');
+  }, [selectedLessonId]);
+
+  // Keep topic selection consistent with the chapter's topic mode (declared AFTER the reset effect
+  // above so that, on a chapter switch, the first topic is selected after the reset clears it):
   // topic-wise chapters always edit a topic (first one by default); others always edit chapter-root pages.
   useEffect(() => {
     if (!activeLesson) return;
@@ -305,15 +318,6 @@ export default function BookEditorPanel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLesson?.id, isTopicWise, activeLesson?.topics?.length, selectedTopicId]);
-
-  // Reset topic states when chapter selection changes
-  useEffect(() => {
-    setSelectedTopicId(null);
-    setIsAddingTopic(false);
-    setIsEditingTopic(false);
-    setTopicTitleDraft('');
-    setTopicVideoUrlDraft('');
-  }, [selectedLessonId]);
 
   // Sync page content draft inputs
   useEffect(() => {
@@ -950,8 +954,8 @@ export default function BookEditorPanel({
   return (
     <div className="h-screen w-full bg-[#070a13] text-slate-200 font-sans flex flex-col overflow-hidden" id="editor-workspace">
       {/* HEADER BAR */}
-      <header className="h-14 bg-[#0a0f1d] border-b border-slate-900 flex items-center justify-between px-4 lg:px-6 z-40 shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="h-14 bg-[#0a0f1d] border-b border-slate-900 flex items-center justify-between gap-3 px-4 lg:px-6 z-40 shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
           {globalLogo ? (
             <img src={globalLogo} alt="Global Logo" className="w-8 h-8 rounded object-contain bg-white/10 shrink-0" />
           ) : (
@@ -970,31 +974,35 @@ export default function BookEditorPanel({
           </div>
         </div>
 
-        {/* Assignment Display */}
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] font-mono text-slate-400 uppercase">Assigned Book:</span>
-          <span className="bg-slate-900 border border-slate-700 rounded px-3 py-1 text-xs text-emerald-400 font-bold truncate max-w-[200px]">
+        {/* Assignment Display: takes the free space in the middle; full name on hover */}
+        <div className="flex items-center justify-center gap-2 flex-1 min-w-0">
+          <span className="text-[9px] font-mono text-slate-400 uppercase shrink-0 hidden md:inline">Assigned Book:</span>
+          <span
+            className="bg-slate-900 border border-slate-700 rounded px-3 py-1 text-xs leading-tight text-emerald-400 font-bold min-w-0 line-clamp-2 break-words text-center"
+            title={assignedBook.title}
+          >
             {assignedBook.title}
           </span>
         </div>
 
         {successMsg && (
-          <div className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/40 rounded-lg p-2 px-3.5 text-xs font-sans font-bold flex items-center gap-1.5 tracking-wide animate-pulse">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{successMsg}</span>
+          <div className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/40 rounded-lg p-2 px-3.5 text-xs font-sans font-bold flex items-center gap-1.5 tracking-wide animate-pulse min-w-0 max-w-[30%]" title={successMsg}>
+            <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="truncate">{successMsg}</span>
           </div>
         )}
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => {
               setAssetLibraryCallback(null);
               setIsAssetLibraryOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-2 px-3 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all mr-2"
+            className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded-lg select-none cursor-pointer transition-all"
+            title="Asset Library"
+            aria-label="Asset Library"
           >
             <ImageIcon className="w-4 h-4" />
-            Asset Library
           </button>
           {isPreviewMode ? (
               <>
@@ -1127,11 +1135,11 @@ export default function BookEditorPanel({
                       : !selectedLessonId
                       ? 'bg-indigo-600/50 cursor-not-allowed opacity-60'
                       : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'
-                  } text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all shadow-lg shadow-indigo-900/50 mr-2`}
-                  title={selectedLessonId ? `Submit "${activeLesson?.title || 'Chapter'}" to Admin` : "Select a chapter to submit"}
+                  } text-white p-2 rounded-lg select-none transition-all shadow-lg shadow-indigo-900/50 justify-center`}
+                  title={isSaving ? 'Submitting…' : selectedLessonId ? `Submit "${activeLesson?.title || 'Chapter'}" to Admin` : "Select a chapter to submit"}
+                  aria-label={isSaving ? 'Submitting chapter' : 'Submit this chapter to Admin'}
                 >
-                  <Cloud className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} /> 
-                  {isSaving ? 'Submitting...' : 'Submit this Chapter'}
+                  <Cloud className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
                 </button>
                 <button
                   onClick={async () => {
@@ -1140,9 +1148,11 @@ export default function BookEditorPanel({
                       window.location.reload();
                     }
                   }}
-                  className="flex items-center gap-1.5 bg-red-600/90 hover:bg-red-500 cursor-pointer text-white p-2 px-3 rounded-lg text-xs font-bold select-none transition-all mr-2"
+                  className="flex items-center justify-center bg-red-600/90 hover:bg-red-500 cursor-pointer text-white p-2 rounded-lg select-none transition-all"
+                  title="Discard local draft (reload chapters from the server)"
+                  aria-label="Discard local draft"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> Discard Local Draft
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </>
             )}
@@ -1154,9 +1164,11 @@ export default function BookEditorPanel({
           </button>
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 p-2 px-3 rounded-lg text-slate-300 hover:text-white text-xs font-semibold select-none cursor-pointer transition-all"
+            className="flex items-center justify-center bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 p-2 rounded-lg text-slate-300 hover:text-white select-none cursor-pointer transition-all"
+            title="Back to Dashboard"
+            aria-label="Back to Dashboard"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+            <ArrowLeft className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -1396,14 +1408,28 @@ export default function BookEditorPanel({
           <div className="flex-1 bg-[#05070e] overflow-y-auto p-6">
             {activeLesson ? (
               <div className="w-full max-w-7xl mx-auto space-y-6">
-                {/* Chapter Meta Title modification */}
-                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-slate-500 block">Active Chapter Settings</span>
-                      <h3 className="text-base font-bold text-white mt-1">Configure Names &amp; Parameters</h3>
+                {/* Compact chapter header: title, subtitle, save and purge in one row */}
+                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-3">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex-1 min-w-[200px]">
+                      <span className="text-[8.5px] uppercase font-mono text-slate-500 block mb-1">Chapter Title</span>
+                      <input
+                        type="text"
+                        value={activeLessonTitleDraft}
+                        onChange={e => setActiveLessonTitleDraft(e.target.value)}
+                        className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white focus:outline-none"
+                      />
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex-1 min-w-[200px]">
+                      <span className="text-[8.5px] uppercase font-mono text-slate-500 block mb-1">Subtitle</span>
+                      <input
+                        type="text"
+                        value={activeLessonSubtitleDraft}
+                        onChange={e => setActiveLessonSubtitleDraft(e.target.value)}
+                        className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-2 shrink-0 pb-0.5">
                       <button
                         onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts })}
                         className="p-1 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
@@ -1468,1022 +1494,1007 @@ export default function BookEditorPanel({
                       )}
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <span className="text-[8.5px] uppercase font-mono text-slate-400 block mb-1">Headline Text:</span>
-                      <input
-                        type="text"
-                        value={activeLessonTitleDraft}
-                        onChange={e => setActiveLessonTitleDraft(e.target.value)}
-                        className="w-full bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white"
-                      />
-                    </div>
-                    <div>
-                      <span className="text-[8.5px] uppercase font-mono text-slate-400 block mb-1">Detailed Explanation Line:</span>
-                      <input
-                        type="text"
-                        value={activeLessonSubtitleDraft}
-                        onChange={e => setActiveLessonSubtitleDraft(e.target.value)}
-                        className="w-full bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white"
-                      />
-                    </div>
-                  </div>
                 </div>
 
-                {/* Chapter Content Type: PDF / HTML / Canvas, and topic-wise or not */}
-                <div className="bg-[#0b0e1b] border border-indigo-500/30 rounded-xl p-5 space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-indigo-400 block font-bold">Chapter Content Type</span>
-                      <h3 className="text-sm font-bold text-white mt-0.5">How is this chapter created?</h3>
-                      <p className="text-[10.5px] text-slate-400 mt-1 max-w-xl">
-                        PDF shows only the uploaded PDF. For HTML or Canvas, topics and pages can be mixed freely: a page with an
-                        uploaded HTML file shows the HTML, any other page shows its canvas text. HTML / Canvas only sets what new pages start as.
-                        Switching type keeps the other content saved (hidden), so you can switch back anytime.
-                      </p>
-                      {!isChapterTypeExplicit && (
-                        <p className="text-[10px] font-mono text-amber-400 mt-1">
-                          Auto-detected from existing content — click the highlighted option to confirm it.
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <div className="flex items-center gap-1 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
-                        {([
-                          { id: 'pdf', label: '📄 Upload PDF', active: 'bg-amber-600 text-white shadow-md' },
-                          { id: 'html', label: '🌐 Upload HTML', active: 'bg-sky-600 text-white shadow-md' },
-                          { id: 'canvas', label: '✍️ Canvas Text', active: 'bg-emerald-600 text-white shadow-md' }
-                        ] as const).map(opt => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            disabled={isSaving || isPreviewMode}
-                            onClick={() => handleChangeChapterType(opt.id, chapterTopicMode)}
-                            className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
-                              chapterType === opt.id ? opt.active : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                      {chapterType !== 'pdf' && (
-                        <div className="flex items-center gap-1 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
-                          <Layers className="w-3.5 h-3.5 text-slate-500 mx-1" />
-                          {([
-                            { id: 'topics', label: 'Topic-wise' },
-                            { id: 'none', label: 'Without topics' }
-                          ] as const).map(opt => (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              disabled={isSaving || isPreviewMode}
-                              onClick={() => handleChangeChapterType(chapterType, opt.id)}
-                              className={`px-3 py-1 rounded text-[11px] font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
-                                chapterTopicMode === opt.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                              }`}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Chapter-wise PDF Upload & Management (PDF chapters only) */}
-                {chapterType === 'pdf' && (
-                <div className="bg-[#0b0e1b] border border-amber-500/30 rounded-xl p-5 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <span className="text-[9.5px] uppercase font-mono tracking-widest text-amber-400 block font-bold">Chapter PDF Attachment</span>
-                      <h3 className="text-sm font-bold text-white mt-0.5">Upload Chapter-wise PDF Document</h3>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-2 rounded-lg cursor-pointer transition-all shadow-md">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{pdfUploading ? 'Uploading PDF...' : activeLesson.pdfUrl ? 'Replace Chapter PDF' : 'Upload Chapter PDF'}</span>
-                        <input
-                          type="file"
-                          accept=".pdf,application/pdf"
-                          disabled={pdfUploading}
-                          onChange={async (e) => {
-                            if (!e.target.files || e.target.files.length === 0) return;
-                            const file = e.target.files[0];
-                            const oldPdfUrl = activeLesson.pdfUrl;
-                            setPdfUploading(true);
-                            try {
-                              const url = await uploadPdfToStorage(file);
-                              const modifiedBook = {
-                                ...assignedBook,
-                                lessons: assignedBook.lessons.map(l => {
-                                  if (l.id !== activeLesson.id) return l;
-                                  return { ...l, pdfUrl: url };
-                                })
-                              };
-                              const updatedPdfLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
-                              if (updatedPdfLesson) {
-                                await saveLessonDirectToFirestore(modifiedBook, updatedPdfLesson);
-                              } else {
-                                await saveBookLocally(modifiedBook);
-                              }
-                              if (oldPdfUrl) {
-                                deletePdfFromStorage(oldPdfUrl).catch(console.warn);
-                              }
-                              flashMessage(`Chapter PDF '${file.name}' attached successfully!`);
-                            } catch (err: any) {
-                              alert('Failed to upload PDF: ' + (err?.message || err));
-                            } finally {
-                              setPdfUploading(false);
-                              e.target.value = '';
-                            }
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-
-                      {activeLesson.pdfUrl && (
-                        <button
-                          onClick={async () => {
-                            if (window.confirm('Detach PDF from this chapter?')) {
-                              const oldPdfUrl = activeLesson.pdfUrl;
-                              const modifiedBook = {
-                                ...assignedBook,
-                                lessons: assignedBook.lessons.map(l => {
-                                  if (l.id !== activeLesson.id) return l;
-                                  return { ...l, pdfUrl: null };
-                                })
-                              };
-                              const updatedPdfLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
-                              if (updatedPdfLesson) {
-                                await saveLessonDirectToFirestore(modifiedBook, updatedPdfLesson);
-                              } else {
-                                await saveBookLocally(modifiedBook);
-                              }
-                              if (oldPdfUrl) {
-                                deletePdfFromStorage(oldPdfUrl).catch(console.warn);
-                              }
-                              flashMessage('Chapter PDF detached.');
-                            }
-                          }}
-                          className="flex items-center gap-1 bg-rose-600/30 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold px-3 py-2 rounded-lg transition-all cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Detach PDF
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {activeLesson.pdfUrl ? (
-                    <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        <FileText className="w-5 h-5 text-amber-400 shrink-0" />
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-slate-200 block truncate">
-                            {activeLesson.pdfUrl.split('/').pop()?.split('?')[0] || 'Chapter_Document.pdf'}
-                          </span>
-                          <span className="text-[10px] font-mono text-emerald-400">PDF Attached &amp; Linked for Chapter Display</span>
-                        </div>
-                      </div>
-                      <a
-                        href={activeLesson.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 shrink-0 ml-2"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> Preview PDF
-                      </a>
-                    </div>
-                  ) : (
-                    <div className="p-4 border border-dashed border-slate-800 rounded-lg text-center text-xs text-slate-400 font-mono">
-                      No PDF file attached to this chapter yet. Click "Upload Chapter PDF" above to select a PDF.
-                    </div>
-                  )}
-                </div>
-                )}
-
-                {/* Topic Selector & Management Header Bar (topic-wise HTML / Canvas chapters only) */}
-                {isTopicWise && (
-                <div className="bg-[#0b0e1b] border border-indigo-500/30 rounded-xl p-4 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
-                        Chapter Topic:
-                      </span>
-                      <select
-                        value={selectedTopicId || ''}
-                        onChange={(e) => {
-                          setSelectedTopicId(e.target.value || null);
-                          setSelectedPageIndex(0);
-                          setIsAddingTopic(false);
-                          setIsEditingTopic(false);
-                        }}
-                        className="bg-[#03060c] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
-                      >
-                        {(activeLesson.topics || []).length === 0 && (
-                          <option value="">-- No topics yet: click "+ Add Topic" --</option>
-                        )}
-                        {(activeLesson.topics || []).map((t, idx) => (
-                          <option key={t.id} value={t.id}>
-                            Topic {idx + 1}: {t.title}
-                          </option>
-                        ))}
-                      </select>
-
-                      {selectedTopic && !isEditingTopic && (
-                        <div className="flex items-center gap-1.5 ml-2">
-                          <button
-                            onClick={handleStartEditTopic}
-                            className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                            title="Edit Topic Details"
-                          >
-                            <Edit className="w-3.5 h-3.5" /> Edit Topic
-                          </button>
-                          <button
-                            onClick={handleDeleteTopic}
-                            className="p-1.5 bg-rose-600/30 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                            title="Delete Topic"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Delete Topic
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {!isAddingTopic && !isEditingTopic && (
-                      <button
-                        onClick={() => {
-                          setIsAddingTopic(true);
-                          setIsEditingTopic(false);
-                          setTopicTitleDraft('');
-                          setTopicVideoUrlDraft('');
-                        }}
-                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shadow-md shadow-indigo-950"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> + Add Topic
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Selected Topic Video URL indicator */}
-                  {selectedTopic && !isEditingTopic && selectedTopic.videoUrl && (
-                    <div className="text-[11px] font-mono text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800 flex items-center gap-2">
-                      <Play className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                      <span className="truncate">Topic Video: {selectedTopic.videoUrl}</span>
-                    </div>
-                  )}
-
-                  {/* Add / Edit Topic Form */}
-                  {(isAddingTopic || isEditingTopic) && (
-                    <div className="p-3 bg-slate-950 border border-indigo-500/40 rounded-lg space-y-3 animate-fade-in">
-                      <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
-                        {isEditingTopic ? 'Edit Topic Details' : 'Create New Topic'}
-                      </div>
-                      <div className="space-y-2">
-                        <div>
-                          <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
-                            Topic Name:
-                          </label>
-                          <textarea
-                            value={topicTitleDraft}
-                            onChange={(e) => setTopicTitleDraft(e.target.value)}
-                            rows={2}
-                            placeholder="Enter Topic Name (e.g. Topic 1: Newton's First Law)"
-                            className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
-                            Topic Video (YouTube URL or Upload Video):
-                          </label>
-                          <div className="flex gap-2">
-                            <textarea
-                              value={topicVideoUrlDraft}
-                              onChange={(e) => setTopicVideoUrlDraft(e.target.value)}
-                              rows={2}
-                              placeholder="Enter YouTube Video URL or Video Link (e.g. https://www.youtube.com/watch?v=...)"
-                              className="flex-1 bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none font-mono"
-                            />
-                            <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 hover:border-sky-500/50 rounded text-xs font-bold cursor-pointer flex flex-col items-center justify-center shrink-0 transition-all active:scale-95">
-                              <Upload className="w-4 h-4 mb-0.5" />
-                              <span className="text-[9px] uppercase font-mono">Upload</span>
-                              <input
-                                type="file"
-                                accept="video/*"
-                                className="hidden"
-                                onChange={async (e) => {
-                                  if (!e.target.files || e.target.files.length === 0) return;
-                                  const file = e.target.files[0];
-                                  try {
-                                    flashMessage('Uploading video to Firebase Storage...');
-                                    const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-                                    const { storage } = await import('../lib/firebase');
-                                    const fileRef = ref(storage, `videos/topics/${Date.now()}_${file.name}`);
-                                    await uploadBytes(fileRef, file);
-                                    const downloadUrl = await getDownloadURL(fileRef);
-                                    setTopicVideoUrlDraft(downloadUrl);
-                                    flashMessage(`Video '${file.name}' attached successfully!`);
-                                  } catch (err) {
-                                    console.error('Failed to upload video:', err);
-                                    alert('Failed to upload video file to storage.');
-                                  }
-                                }}
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button
-                          onClick={() => {
-                            setIsAddingTopic(false);
-                            setIsEditingTopic(false);
-                            setTopicTitleDraft('');
-                            setTopicVideoUrlDraft('');
-                          }}
-                          className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold cursor-pointer transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleSaveTopic}
-                          className="px-4 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase cursor-pointer transition-colors shadow-md shadow-emerald-950"
-                        >
-                          Save Topic
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {(activeLesson.topics || []).length === 0 && !isAddingTopic && (
-                    <div className="p-4 border border-dashed border-indigo-500/30 rounded-lg text-center text-xs text-slate-400 font-mono">
-                      This chapter is topic-wise. Click "+ Add Topic" to create the first topic, then add its pages (upload HTML or write canvas text).
-                    </div>
-                  )}
-                </div>
-                )}
-
-                {/* Sub-Layout: Pages Editor (HTML upload pages or Canvas text pages) */}
-                {chapterType !== 'pdf' && (!isTopicWise || selectedTopic) && (
-                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5 font-sans">
-                      <Sliders className="w-4 h-4 text-emerald-400" /> Pages
-                      <span className="text-[10px] font-mono font-normal text-slate-500">(each page: uploaded HTML or canvas text)</span>
-                      {selectedTopic && (
-                        <span className="text-indigo-400 font-mono text-xs font-normal">
-                          ({selectedTopic.title})
-                        </span>
-                      )}
-                    </h3>
-                    <button
-                      onClick={handleAddPage}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add Page
-                    </button>
-                  </div>
-
-                  {/* Chapter Video URLs */}
-                  <div className="pb-2 border-b border-slate-800/50">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[8.5px] uppercase font-mono text-slate-400">Chapter Lecture Video URLs:</span>
-                      <button
-                        onClick={() => setActiveLessonVideoDrafts([...activeLessonVideoDrafts, ''])}
-                        className="text-[8px] bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600/50 px-1.5 py-0.5 rounded font-bold uppercase cursor-pointer"
-                      >
-                        + Add Video
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      {activeLessonVideoDrafts.map((vidUrl, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <input
-                            type="text"
-                            value={vidUrl}
-                            onChange={e => {
-                              const next = [...activeLessonVideoDrafts];
-                              next[idx] = e.target.value;
-                              setActiveLessonVideoDrafts(next);
-                            }}
-                            onBlur={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts }, true)}
-                            placeholder="e.g. https://www.youtube.com/embed/..."
-                            className="flex-1 bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
-                          />
-                          <button
-                            onClick={() => {
-                              const next = activeLessonVideoDrafts.filter((_, i) => i !== idx);
-                              setActiveLessonVideoDrafts(next);
-                              handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: next }, true);
-                            }}
-                            className="bg-rose-600/20 text-rose-500 hover:bg-rose-600/40 p-2 rounded cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      {activeLessonVideoDrafts.length === 0 && (
-                        <div className="text-xs text-slate-500 italic p-2 border border-dashed border-slate-800 rounded text-center">
-                          No videos attached to this chapter.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Horizontal index dots of current pages */}
-                  <div className="flex flex-wrap gap-2">
-                    {(selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).map((p, pIdx) => {
-                      const isSelected = selectedPageIndex === pIdx;
+                {/* Chapter Content: PDF / HTML / Canvas tabs (the tab IS the chapter type), topics and pages */}
+                <div className="bg-[#0b0e1b] border border-indigo-500/30 rounded-xl overflow-hidden">
+                  <div className="flex items-stretch border-b border-slate-800 bg-[#080b16]">
+                    {([
+                      { id: 'pdf', label: '📄 PDF', hint: 'Upload one PDF for the chapter', on: 'text-amber-300 border-amber-400 bg-amber-500/10' },
+                      { id: 'html', label: '🌐 HTML', hint: 'Upload interactive HTML pages', on: 'text-sky-300 border-sky-400 bg-sky-500/10' },
+                      { id: 'canvas', label: '✍️ Canvas', hint: 'Write text pages in the editor', on: 'text-emerald-300 border-emerald-400 bg-emerald-500/10' }
+                    ] as const).map(tab => {
+                      const isOn = chapterType === tab.id;
                       return (
-                        <div
-                          key={pIdx}
-                          onClick={() => setSelectedPageIndex(pIdx)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold cursor-pointer transition-all border flex items-center gap-1.5 group ${
-                            isSelected
-                              ? 'bg-emerald-600 border-emerald-500 text-white'
-                              : 'bg-[#03060c] border-slate-850 text-slate-400 hover:bg-slate-900'
+                        <button
+                          key={tab.id}
+                          type="button"
+                          disabled={isSaving || isPreviewMode}
+                          title={tab.hint}
+                          onClick={() => {
+                            if (isOn && isChapterTypeExplicit) return;
+                            const pdfSwitch = (tab.id === 'pdf') !== (chapterType === 'pdf');
+                            if (pdfSwitch && isChapterTypeExplicit && !window.confirm(
+                              tab.id === 'pdf'
+                                ? 'Switch this chapter to PDF?\n\nStudents will see only the PDF. Topics, pages and questions stay saved (hidden) and come back if you switch again.'
+                                : 'Switch this chapter from PDF to ' + (tab.id === 'html' ? 'HTML' : 'Canvas') + '?\n\nStudents will see topics/pages instead of the PDF. The PDF stays saved (hidden).'
+                            )) return;
+                            handleChangeChapterType(tab.id, chapterTopicMode);
+                          }}
+                          className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer disabled:cursor-not-allowed ${
+                            isOn ? tab.on : 'text-slate-500 border-transparent hover:text-slate-200 hover:bg-slate-900/40'
                           }`}
                         >
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleMovePage(pIdx, 'left'); }}
-                            disabled={pIdx === 0}
-                            className={`px-1 opacity-0 group-hover:opacity-100 transition-opacity ${pIdx === 0 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:scale-110'}`}
-                            title="Move Page Left"
-                          >
-                            &lt;
-                          </button>
-                          <span>P.{pIdx + 1}</span>
-                          <span
-                            className={`text-[8px] px-1 rounded uppercase ${
-                              (p as any).iframeUrl
-                                ? (isSelected ? 'bg-white/20' : 'bg-sky-500/20 text-sky-300')
-                                : (isSelected ? 'bg-white/20' : 'bg-slate-800 text-slate-400')
-                            }`}
-                            title={(p as any).iframeUrl ? 'Shows uploaded HTML' : 'Shows canvas text'}
-                          >
-                            {(p as any).iframeUrl ? 'HTML' : 'Text'}
-                          </span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleMovePage(pIdx, 'right'); }}
-                            disabled={pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1}
-                            className={`px-1 opacity-0 group-hover:opacity-100 transition-opacity ${pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:scale-110'}`}
-                            title="Move Page Right"
-                          >
-                            &gt;
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeletePage(pIdx);
-                            }}
-                            className="text-rose-450 hover:text-white hover:scale-110 ml-0.5"
-                            title={`Delete page ${pIdx + 1}`}
-                          >
-                            ×
-                          </button>
-                        </div>
+                          {tab.label}
+                        </button>
                       );
                     })}
                   </div>
 
-                  {/* Active Page Draft editor content */}
-                  {selectedPageIndex !== null && (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages)[selectedPageIndex] ? (
-                    <div className="space-y-4 border-t border-slate-900 pt-4" id="page-metadata-editor">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 font-extrabold">
-                          Now Customizing Page {selectedPageIndex + 1} Content Canvas
-                        </span>
-                        <button
-                          onClick={() => handleUpdatePage(selectedPageIndex)}
-                          disabled={isSaving}
-                          className={`px-3 py-1 text-black rounded font-mono font-black text-[10.5px] flex items-center gap-1 transition-colors ${
-                            isSaving ? 'bg-amber-700 text-amber-900 cursor-not-allowed' : 'bg-amber-550 hover:bg-amber-500 cursor-pointer'
-                          }`}
-                        >
-                          <Save className="w-3.5 h-3.5" /> Synchronize Page Metadata
-                        </button>
-                      </div>
+                  <div className="p-4 space-y-4">
+                    {!isChapterTypeExplicit && (
+                      <p className="text-[10.5px] font-mono text-amber-400">
+                        Type auto-detected from existing content — click the highlighted tab to confirm it.
+                      </p>
+                    )}
+                    {chapterType !== 'pdf' && (
+                      <p className="text-[10.5px] text-slate-500">
+                        HTML and Canvas pages can be mixed: a page with an uploaded HTML file shows the HTML, any other page shows its canvas text. The tab sets what new pages start as.
+                      </p>
+                    )}
 
-                      {/* Page display mode (decided automatically from the content) */}
-                      <div className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border text-[11px] ${
-                        pageShowsHtml ? 'bg-sky-500/10 border-sky-500/30 text-sky-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
-                      }`}>
-                        <span className="font-mono font-bold uppercase tracking-wider">
-                          Students see: {pageShowsHtml ? 'Uploaded HTML' : 'Canvas text'}
-                        </span>
-                        <span className="text-slate-400">
-                          {pageShowsHtml
-                            ? '— remove the HTML link below to write canvas text on this page instead.'
-                            : '— upload an HTML file below to show an interactive page instead.'}
-                        </span>
-                      </div>
-
-                      {/* Left and Right Image Column Uploaders (canvas pages only) */}
-                      {!pageShowsHtml && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Left Side Image Uploader */}
-                        <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
-                          <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Left Column Graphic illustration</span>
-                          {pageLeftImageDraft ? (
-                            <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
-                              <img src={pageLeftImageDraft} alt="Left Draft representation" className="h-28 object-contain rounded" />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPageLeftImageDraft('');
-                                }}
-                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" /> Remove Left Image
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-2">
-                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
-                                <Upload className="w-3 h-3" /> Upload New Asset
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  accept="image/*"
-                                  onChange={async (e) => {
-                                    if (e.target.files && e.target.files[0]) {
-                                      try {
-                                        const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
-                                        const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
-                                        const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
-                                        setPageLeftImageDraft(url);
-                                      } catch(err: any) {
-                                        alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
-                                        console.error("Upload failed", err);
-                                      }
-                                    }
-                                  }}
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAssetLibraryCallback(() => (url: string) => setPageLeftImageDraft(url));
-                                  setIsAssetLibraryOpen(true);
-                                }}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                              >
-                                <ImageIcon className="w-3 h-3" /> Choose from Library
-                              </button>
-                            </div>
-                          )}
+                    {/* Chapter-wise PDF Upload & Management (PDF chapters only) */}
+                    {chapterType === 'pdf' && (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <span className="text-[9.5px] uppercase font-mono tracking-widest text-amber-400 block font-bold">Chapter PDF Attachment</span>
+                          <h3 className="text-sm font-bold text-white mt-0.5">Upload Chapter-wise PDF Document</h3>
                         </div>
 
-                        {/* Center Image Uploader */}
-                        <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
-                          <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Center Top Graphic illustration</span>
-                          {pageCenterImageDraft ? (
-                            <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
-                              <img src={pageCenterImageDraft} alt="Center Draft representation" className="h-28 object-contain rounded" />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPageCenterImageDraft('');
-                                }}
-                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" /> Remove Center Image
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-2">
-                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
-                                <Upload className="w-3 h-3" /> Upload New Asset
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  accept="image/*"
-                                  onChange={async (e) => {
-                                    if (e.target.files && e.target.files[0]) {
-                                      try {
-                                        const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
-                                        const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
-                                        const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
-                                        setPageCenterImageDraft(url);
-                                      } catch(err: any) {
-                                        alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
-                                        console.error("Upload failed", err);
-                                      }
-                                    }
-                                  }}
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAssetLibraryCallback(() => (url: string) => setPageCenterImageDraft(url));
-                                  setIsAssetLibraryOpen(true);
-                                }}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                              >
-                                <ImageIcon className="w-3 h-3" /> Choose from Library
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Right Side Image Uploader */}
-                        <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
-                          <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Right Column Graphic illustration</span>
-                          {pageRightImageDraft ? (
-                            <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
-                              <img src={pageRightImageDraft} alt="Right Draft representation" className="h-28 object-contain rounded" />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPageRightImageDraft('');
-                                }}
-                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" /> Remove Right Image
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-2">
-                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
-                                <Upload className="w-3 h-3" /> Upload New Asset
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  accept="image/*"
-                                  onChange={async (e) => {
-                                    if (e.target.files && e.target.files[0]) {
-                                      try {
-                                        const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
-                                        const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
-                                        const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
-                                        setPageRightImageDraft(url);
-                                      } catch(err: any) {
-                                        alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
-                                        console.error("Upload failed", err);
-                                      }
-                                    }
-                                  }}
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAssetLibraryCallback(() => (url: string) => setPageRightImageDraft(url));
-                                  setIsAssetLibraryOpen(true);
-                                }}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                              >
-                                <ImageIcon className="w-3 h-3" /> Choose from Library
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      )}
-
-                      {!pageShowsHtml && (
-                      <div className="space-y-1">
-                        <span className="text-[8px] font-mono uppercase text-[#707a6c] block">Rich Content Text Block (Supports standard dynamic markup):</span>
-                        <RichTextEditor
-                          key={`rte-${assignedBookId}`}
-                          contentKey={editorLoadKey}
-                          initialValue={pageContentDraft}
-                          onSave={(content) => handleUpdatePage(selectedPageIndex, content)}
-                          onChange={(content) => setPageContentDraft(content)}
-                          isSaving={isSaving}
-                          leftImage={pageLeftImageDraft}
-                          centerImage={pageCenterImageDraft}
-                          rightImage={pageRightImageDraft}
-                          interactiveMaps={activeLesson.interactiveImages || []}
-                        />
-                      </div>
-                      )}
-
-                      {/* ATTACHMENTS: FIGURES GRID */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        {/* LATEX EQUATIONS BLOCK (canvas pages only) */}
-                        {!pageShowsHtml && (
-                        <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
-                              LaTeX Mathematical Symbols Block
-                            </span>
-                            <span className="text-[8px] font-mono text-slate-500 select-none bg-slate-950 p-0.5 rounded px-1">
-                              1 Eq per line
-                            </span>
-                          </div>
-                          <textarea
-                            value={pageEquationsDraft}
-                            onChange={e => setPageEquationsDraft(e.target.value)}
-                            rows={3}
-                            placeholder="A \rightarrow B (Do not include double slashes. Write raw LaTeX parameters)"
-                            className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
-                          />
-                        </div>
-                        )}
-
-                        {/* COLLAPSIBLE SETTINGS */}
-                        <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2 md:col-span-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
-                              Collapsible Page Settings
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[8px] font-mono text-slate-500 select-none uppercase">Enable Collapse</span>
-                              <button
-                                type="button"
-                                onClick={() => setPageIsCollapsible(!pageIsCollapsible)}
-                                className={`w-8 h-4 rounded-full relative transition-colors ${pageIsCollapsible ? 'bg-amber-500' : 'bg-slate-700'}`}
-                              >
-                                <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${pageIsCollapsible ? 'translate-x-4' : 'translate-x-0'}`} />
-                              </button>
-                            </div>
-                          </div>
-                          {pageIsCollapsible && (
+                        <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-2 rounded-lg cursor-pointer transition-all shadow-md">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>{pdfUploading ? 'Uploading PDF...' : activeLesson.pdfUrl ? 'Replace Chapter PDF' : 'Upload Chapter PDF'}</span>
                             <input
-                              type="text"
-                              value={pageSummaryContent}
-                              onChange={e => setPageSummaryContent(e.target.value)}
-                              placeholder="Summary Title (e.g., Click here to read full text...)"
-                              className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300 mt-2"
-                            />
-                          )}
-                        </div>
-
-                        {/* IFRAME / CUSTOM HTML URL (any page; when set, the page shows the HTML) */}
-                        <div className={`bg-[#0b0e1a] border p-3 rounded-xl space-y-2 md:col-span-2 ${pageShowsHtml ? 'border-sky-500/40' : 'border-slate-850'}`}>
-                          <div className="flex items-center justify-between">
-                            <span className={`text-[9.5px] uppercase font-mono tracking-widest block font-bold ${pageShowsHtml ? 'text-sky-400' : 'text-[#707a6c]'}`}>
-                              {pageShowsHtml
-                                ? `HTML File for Page ${(selectedPageIndex ?? 0) + 1}`
-                                : 'Upload HTML instead of canvas text (optional)'}
-                            </span>
-                            <span className="text-[8px] font-mono text-slate-500 select-none bg-slate-950 p-0.5 rounded px-1">
-                              Upload .html or paste its URL
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={pageIframeUrlDraft}
-                              onChange={e => setPageIframeUrlDraft(e.target.value)}
-                              placeholder="https://firebasestorage.googleapis.com/.../your-custom-mindmap.html"
-                              className="flex-1 bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
-                            />
-                            {pageIframeUrlDraft && (
-                              <a
-                                href={pageIframeUrlDraft}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 text-[10px] font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                                title="Open HTML in new tab to test"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5 text-amber-400" /> Preview
-                              </a>
-                            )}
-                            {pageIframeUrlDraft && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPageIframeUrlDraft('');
-                                  flashMessage('HTML link removed. Click "Save Page Changes" to show canvas text on this page.');
-                                }}
-                                className="flex items-center gap-1 px-2.5 py-2 bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                                title="Remove HTML so this page shows canvas text"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" /> Remove HTML
-                              </button>
-                            )}
-                            <label className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
-                              <Upload className="w-3.5 h-3.5" /> Upload HTML
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept=".html,.htm,text/html"
-                                onChange={async (e) => {
-                                  if (e.target.files && e.target.files[0]) {
-                                    try {
-                                      const file = e.target.files[0];
-                                      const url = await uploadHtmlToStorage(file);
-                                      setPageIframeUrlDraft(url);
-                                      flashMessage && flashMessage('HTML file uploaded! Click "Save Page Changes" below to apply.');
-                                    } catch(err: any) {
-                                      alert("HTML upload failed: " + err.message);
-                                      console.error("HTML upload failed", err);
-                                    }
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              disabled={pdfUploading}
+                              onChange={async (e) => {
+                                if (!e.target.files || e.target.files.length === 0) return;
+                                const file = e.target.files[0];
+                                const oldPdfUrl = activeLesson.pdfUrl;
+                                setPdfUploading(true);
+                                try {
+                                  const url = await uploadPdfToStorage(file);
+                                  const modifiedBook = {
+                                    ...assignedBook,
+                                    lessons: assignedBook.lessons.map(l => {
+                                      if (l.id !== activeLesson.id) return l;
+                                      return { ...l, pdfUrl: url };
+                                    })
+                                  };
+                                  const updatedPdfLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+                                  if (updatedPdfLesson) {
+                                    await saveLessonDirectToFirestore(modifiedBook, updatedPdfLesson);
+                                  } else {
+                                    await saveBookLocally(modifiedBook);
                                   }
-                                }}
-                              />
-                            </label>
-                          </div>
+                                  if (oldPdfUrl) {
+                                    deletePdfFromStorage(oldPdfUrl).catch(console.warn);
+                                  }
+                                  flashMessage(`Chapter PDF '${file.name}' attached successfully!`);
+                                } catch (err: any) {
+                                  alert('Failed to upload PDF: ' + (err?.message || err));
+                                } finally {
+                                  setPdfUploading(false);
+                                  e.target.value = '';
+                                }
+                              }}
+                              className="hidden"
+                            />
+                          </label>
 
-                          {/* Direct Save Action & Placement Context Bar */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-slate-800/80">
-                            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
-                              <span>Placement:</span>
-                              <span className={`px-2 py-0.5 rounded font-bold ${selectedTopic ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'}`}>
-                                {selectedTopic ? `Topic: ${selectedTopic.title}` : `Chapter Root (Page ${(selectedPageIndex ?? 0) + 1})`}
-                              </span>
-                            </div>
+                          {activeLesson.pdfUrl && (
                             <button
-                              type="button"
-                              onClick={() => handleUpdatePage(selectedPageIndex)}
-                              disabled={isSaving}
-                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-mono font-black text-[11px] flex items-center gap-1.5 shadow-md shadow-emerald-950/40 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                              onClick={async () => {
+                                if (window.confirm('Detach PDF from this chapter?')) {
+                                  const oldPdfUrl = activeLesson.pdfUrl;
+                                  const modifiedBook = {
+                                    ...assignedBook,
+                                    lessons: assignedBook.lessons.map(l => {
+                                      if (l.id !== activeLesson.id) return l;
+                                      return { ...l, pdfUrl: null };
+                                    })
+                                  };
+                                  const updatedPdfLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+                                  if (updatedPdfLesson) {
+                                    await saveLessonDirectToFirestore(modifiedBook, updatedPdfLesson);
+                                  } else {
+                                    await saveBookLocally(modifiedBook);
+                                  }
+                                  if (oldPdfUrl) {
+                                    deletePdfFromStorage(oldPdfUrl).catch(console.warn);
+                                  }
+                                  flashMessage('Chapter PDF detached.');
+                                }
+                              }}
+                              className="flex items-center gap-1 bg-rose-600/30 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold px-3 py-2 rounded-lg transition-all cursor-pointer"
                             >
-                              <Save className="w-3.5 h-3.5" /> {isSaving ? 'Saving to Firebase...' : 'Save Page Changes'}
+                              <Trash2 className="w-3.5 h-3.5" /> Detach PDF
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {activeLesson.pdfUrl ? (
+                        <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <FileText className="w-5 h-5 text-amber-400 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-slate-200 block truncate">
+                                {activeLesson.pdfUrl.split('/').pop()?.split('?')[0] || 'Chapter_Document.pdf'}
+                              </span>
+                              <span className="text-[10px] font-mono text-emerald-400">PDF Attached &amp; Linked for Chapter Display</span>
+                            </div>
+                          </div>
+                          <a
+                            href={activeLesson.pdfUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 shrink-0 ml-2"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Preview PDF
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="p-4 border border-dashed border-slate-800 rounded-lg text-center text-xs text-slate-400 font-mono">
+                          No PDF file attached to this chapter yet. Click "Upload Chapter PDF" above to select a PDF.
+                        </div>
+                      )}
+                    </div>
+                    )}
+
+                    {/* Topic row (HTML / Canvas): topic-wise toggle, topic selector, edit/delete/add, topic video */}
+                    {chapterType !== 'pdf' && (
+                    <div className="bg-[#070a14] border border-slate-800 rounded-xl p-3 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-1 bg-[#03060c] p-1 border border-slate-800 rounded-lg">
+                            <Layers className="w-3.5 h-3.5 text-slate-500 mx-1" />
+                            {([
+                              { id: 'topics', label: 'Topic-wise' },
+                              { id: 'none', label: 'Without topics' }
+                            ] as const).map(opt => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                disabled={isSaving || isPreviewMode}
+                                onClick={() => handleChangeChapterType(chapterType, opt.id)}
+                                className={`px-3 py-1 rounded text-[11px] font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
+                                  chapterTopicMode === opt.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                          {isTopicWise && (<>
+                          <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono ml-1">
+                            Topic:
+                          </span>
+                          <select
+                            value={selectedTopicId || ''}
+                            onChange={(e) => {
+                              setSelectedTopicId(e.target.value || null);
+                              setSelectedPageIndex(0);
+                              setIsAddingTopic(false);
+                              setIsEditingTopic(false);
+                            }}
+                            className="bg-[#03060c] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                          >
+                            {(activeLesson.topics || []).length === 0 && (
+                              <option value="">-- No topics yet: click "Add Topic" --</option>
+                            )}
+                            {(activeLesson.topics || []).map((t, idx) => (
+                              <option key={t.id} value={t.id}>
+                                Topic {idx + 1}: {t.title}
+                              </option>
+                            ))}
+                          </select>
+
+                          {/* Add Topic sits right next to the topic dropdown */}
+                          {!isAddingTopic && !isEditingTopic && (
+                            <button
+                              onClick={() => {
+                                setIsAddingTopic(true);
+                                setIsEditingTopic(false);
+                                setTopicTitleDraft('');
+                                setTopicVideoUrlDraft('');
+                              }}
+                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shadow-md shadow-indigo-950"
+                            >
+                              <Plus className="w-3.5 h-3.5" /> Add Topic
+                            </button>
+                          )}
+
+                          {selectedTopic && !isEditingTopic && (
+                            <div className="flex items-center gap-1.5 ml-2">
+                              <button
+                                onClick={handleStartEditTopic}
+                                className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                title="Edit Topic Details"
+                              >
+                                <Edit className="w-3.5 h-3.5" /> Edit Topic
+                              </button>
+                              <button
+                                onClick={handleDeleteTopic}
+                                className="p-1.5 bg-rose-600/30 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                title="Delete Topic"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Delete Topic
+                              </button>
+                            </div>
+                          )}
+                          </>)}
+                        </div>
+
+                      </div>
+
+                      {/* Selected Topic Video URL indicator */}
+                      {selectedTopic && !isEditingTopic && selectedTopic.videoUrl && (
+                        <div className="text-[11px] font-mono text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800 flex items-center gap-2">
+                          <Play className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span className="truncate">Topic Video: {selectedTopic.videoUrl}</span>
+                        </div>
+                      )}
+
+                      {/* Add / Edit Topic Form */}
+                      {(isAddingTopic || isEditingTopic) && (
+                        <div className="p-3 bg-slate-950 border border-indigo-500/40 rounded-lg space-y-3 animate-fade-in">
+                          <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
+                            {isEditingTopic ? 'Edit Topic Details' : 'Create New Topic'}
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
+                                Topic Name:
+                              </label>
+                              <textarea
+                                value={topicTitleDraft}
+                                onChange={(e) => setTopicTitleDraft(e.target.value)}
+                                rows={2}
+                                placeholder="Enter Topic Name (e.g. Topic 1: Newton's First Law)"
+                                className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
+                                Topic Video (YouTube URL or Upload Video):
+                              </label>
+                              <div className="flex gap-2">
+                                <textarea
+                                  value={topicVideoUrlDraft}
+                                  onChange={(e) => setTopicVideoUrlDraft(e.target.value)}
+                                  rows={2}
+                                  placeholder="Enter YouTube Video URL or Video Link (e.g. https://www.youtube.com/watch?v=...)"
+                                  className="flex-1 bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none font-mono"
+                                />
+                                <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 hover:border-sky-500/50 rounded text-xs font-bold cursor-pointer flex flex-col items-center justify-center shrink-0 transition-all active:scale-95">
+                                  <Upload className="w-4 h-4 mb-0.5" />
+                                  <span className="text-[9px] uppercase font-mono">Upload</span>
+                                  <input
+                                    type="file"
+                                    accept="video/*"
+                                    className="hidden"
+                                    onChange={async (e) => {
+                                      if (!e.target.files || e.target.files.length === 0) return;
+                                      const file = e.target.files[0];
+                                      try {
+                                        flashMessage('Uploading video to Firebase Storage...');
+                                        const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+                                        const { storage } = await import('../lib/firebase');
+                                        const fileRef = ref(storage, `videos/topics/${Date.now()}_${file.name}`);
+                                        await uploadBytes(fileRef, file);
+                                        const downloadUrl = await getDownloadURL(fileRef);
+                                        setTopicVideoUrlDraft(downloadUrl);
+                                        flashMessage(`Video '${file.name}' attached successfully!`);
+                                      } catch (err) {
+                                        console.error('Failed to upload video:', err);
+                                        alert('Failed to upload video file to storage.');
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              onClick={() => {
+                                setIsAddingTopic(false);
+                                setIsEditingTopic(false);
+                                setTopicTitleDraft('');
+                                setTopicVideoUrlDraft('');
+                              }}
+                              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold cursor-pointer transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={handleSaveTopic}
+                              className="px-4 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase cursor-pointer transition-colors shadow-md shadow-emerald-950"
+                            >
+                              Save Topic
                             </button>
                           </div>
                         </div>
+                      )}
 
-                        {/* SCIENCE GRAPHIC EMBED (canvas pages only) */}
-                        {!pageShowsHtml && (
-                        <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2">
-                          <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
-                            Interactive Smartboard Vector Vector Layouts
-                          </span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <span className="text-[8px] font-mono uppercase text-slate-500">Vector Type:</span>
-                              <select
-                                value={pageFigureType}
-                                onChange={e => setPageFigureType(e.target.value as any)}
-                                className="w-full bg-[#03060c] border border-slate-850 rounded p-1 text-xs text-slate-300 focus:outline-[#f59e0b] focus:ring-0"
-                              >
-                                <option value="brain">Neural Brain Architecture</option>
-                                <option value="river">Historical River Alluvial Basins</option>
-                                <option value="ecosystem">Biological Trophic Cascade Flow</option>
-                                <option value="math">Geometric Ratio Harmony Plot</option>
-                                <option value="music">Acoustic Soundwave Sine Beats</option>
-                                <option value="language">Syntactic Tree Brain Dialect Grid</option>
-                                <option value="fairness">Data Fairness Integrity Chart</option>
-                              </select>
-                            </div>
-                            <div>
-                              <span className="text-[8px] font-mono uppercase text-slate-500">Vector Caption:</span>
-                              <input
-                                type="text"
-                                value={pageFigureCaption}
-                                onChange={e => setPageFigureCaption(e.target.value)}
-                                placeholder="Caption text: (e.g. Fig 1.1 Neural fires)"
-                                className="w-full bg-[#03060c] border border-slate-850 rounded p-1 text-xs text-slate-300 focus:outline-[#f59e0b] focus:ring-0"
-                              />
-                            </div>
-                          </div>
+                      {isTopicWise && (activeLesson.topics || []).length === 0 && !isAddingTopic && (
+                        <div className="p-4 border border-dashed border-indigo-500/30 rounded-lg text-center text-xs text-slate-400 font-mono">
+                          This chapter is topic-wise. Click "Add Topic" to create the first topic, then add its pages (upload HTML or write canvas text).
                         </div>
+                      )}
+                    </div>
+                    )}
+
+                    {/* Sub-Layout: Pages Editor (HTML upload pages or Canvas text pages) */}
+                    {chapterType !== 'pdf' && (!isTopicWise || selectedTopic) && (
+                    <div className="bg-[#070a14] border border-slate-800 rounded-xl p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5 font-sans">
+                          <Sliders className="w-4 h-4 text-emerald-400" /> Pages
+                          <span className="text-[10px] font-mono font-normal text-slate-500">{isHtmlChapter ? '(HTML file)' : '(canvas text pages)'}</span>
+                          {selectedTopic && (
+                            <span className="text-indigo-400 font-mono text-xs font-normal">
+                              ({selectedTopic.title})
+                            </span>
+                          )}
+                        </h3>
+                        {!isHtmlChapter && (
+                        <button
+                          onClick={handleAddPage}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Add Page
+                        </button>
                         )}
                       </div>
 
+                      {/* Chapter Video URLs */}
+                      <div className="pb-2 border-b border-slate-800/50">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[8.5px] uppercase font-mono text-slate-400">Chapter Lecture Video URLs:</span>
+                          <button
+                            onClick={() => setActiveLessonVideoDrafts([...activeLessonVideoDrafts, ''])}
+                            className="text-[8px] bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600/50 px-1.5 py-0.5 rounded font-bold uppercase cursor-pointer"
+                          >
+                            + Add Video
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {activeLessonVideoDrafts.map((vidUrl, idx) => (
+                            <div key={idx} className="flex gap-2">
+                              <input
+                                type="text"
+                                value={vidUrl}
+                                onChange={e => {
+                                  const next = [...activeLessonVideoDrafts];
+                                  next[idx] = e.target.value;
+                                  setActiveLessonVideoDrafts(next);
+                                }}
+                                onBlur={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts }, true)}
+                                placeholder="e.g. https://www.youtube.com/embed/..."
+                                className="flex-1 bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
+                              />
+                              <button
+                                onClick={() => {
+                                  const next = activeLessonVideoDrafts.filter((_, i) => i !== idx);
+                                  setActiveLessonVideoDrafts(next);
+                                  handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: next }, true);
+                                }}
+                                className="bg-rose-600/20 text-rose-500 hover:bg-rose-600/40 p-2 rounded cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                          {activeLessonVideoDrafts.length === 0 && (
+                            <div className="text-xs text-slate-500 italic p-2 border border-dashed border-slate-800 rounded text-center">
+                              No videos attached to this chapter.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Horizontal index dots of current pages (HTML tab: only when several pages already exist) */}
+                      {(!isHtmlChapter || (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length > 1) && (
+                      <div className="flex flex-wrap gap-2">
+                        {(selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).map((p, pIdx) => {
+                          const isSelected = selectedPageIndex === pIdx;
+                          return (
+                            <div
+                              key={pIdx}
+                              onClick={() => setSelectedPageIndex(pIdx)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold cursor-pointer transition-all border flex items-center gap-1.5 group ${
+                                isSelected
+                                  ? 'bg-emerald-600 border-emerald-500 text-white'
+                                  : 'bg-[#03060c] border-slate-850 text-slate-400 hover:bg-slate-900'
+                              }`}
+                            >
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleMovePage(pIdx, 'left'); }}
+                                disabled={pIdx === 0}
+                                className={`px-1 opacity-0 group-hover:opacity-100 transition-opacity ${pIdx === 0 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:scale-110'}`}
+                                title="Move Page Left"
+                              >
+                                &lt;
+                              </button>
+                              <span>P.{pIdx + 1}</span>
+                              <span
+                                className={`text-[8px] px-1 rounded uppercase ${
+                                  (p as any).iframeUrl
+                                    ? (isSelected ? 'bg-white/20' : 'bg-sky-500/20 text-sky-300')
+                                    : (isSelected ? 'bg-white/20' : 'bg-slate-800 text-slate-400')
+                                }`}
+                                title={(p as any).iframeUrl ? 'Shows uploaded HTML' : 'Shows canvas text'}
+                              >
+                                {(p as any).iframeUrl ? 'HTML' : 'Text'}
+                              </span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleMovePage(pIdx, 'right'); }}
+                                disabled={pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1}
+                                className={`px-1 opacity-0 group-hover:opacity-100 transition-opacity ${pIdx === (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length - 1 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:scale-110'}`}
+                                title="Move Page Right"
+                              >
+                                &gt;
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePage(pIdx);
+                                }}
+                                className="text-rose-450 hover:text-white hover:scale-110 ml-0.5"
+                                title={`Delete page ${pIdx + 1}`}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      )}
+
+                      {/* Active Page Draft editor content */}
+                      {selectedPageIndex !== null && (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages)[selectedPageIndex] ? (
+                        <div className="space-y-4 border-t border-slate-900 pt-4" id="page-metadata-editor">
+                          {!isHtmlChapter && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 font-extrabold">
+                              Now Customizing Page {selectedPageIndex + 1} Content Canvas
+                            </span>
+                            <button
+                              onClick={() => handleUpdatePage(selectedPageIndex)}
+                              disabled={isSaving}
+                              className={`px-3 py-1 text-black rounded font-mono font-black text-[10.5px] flex items-center gap-1 transition-colors ${
+                                isSaving ? 'bg-amber-700 text-amber-900 cursor-not-allowed' : 'bg-amber-550 hover:bg-amber-500 cursor-pointer'
+                              }`}
+                            >
+                              <Save className="w-3.5 h-3.5" /> Synchronize Page Metadata
+                            </button>
+                          </div>
+                          )}
+
+                          {/* Tab-specific notice about what students see for this page */}
+                          {!isHtmlChapter && pageShowsHtml && (
+                            <div className="px-3 py-2 rounded-lg border bg-sky-500/10 border-sky-500/30 text-sky-200 text-[11px]">
+                              Students currently see an <b>uploaded HTML file</b> for this page, not this canvas text. Open the <b>HTML</b> tab and click <b>Remove HTML</b> to show the canvas text instead.
+                            </div>
+                          )}
+                          {isHtmlChapter && !pageShowsHtml && hasTextContent(pageContentDraft) && (
+                            <div className="px-3 py-2 rounded-lg border bg-emerald-500/10 border-emerald-500/30 text-emerald-200 text-[11px]">
+                              No HTML uploaded for this page yet, so students currently see its <b>canvas text</b>. Upload an HTML file below to replace it.
+                            </div>
+                          )}
+
+                          {/* Left and Right Image Column Uploaders (Canvas tab only) */}
+                          {!isHtmlChapter && (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Left Side Image Uploader */}
+                            <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
+                              <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Left Column Graphic illustration</span>
+                              {pageLeftImageDraft ? (
+                                <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
+                                  <img src={pageLeftImageDraft} alt="Left Draft representation" className="h-28 object-contain rounded" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPageLeftImageDraft('');
+                                    }}
+                                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> Remove Left Image
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
+                                    <Upload className="w-3 h-3" /> Upload New Asset
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept="image/*"
+                                      onChange={async (e) => {
+                                        if (e.target.files && e.target.files[0]) {
+                                          try {
+                                            const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
+                                            const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
+                                            const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
+                                            setPageLeftImageDraft(url);
+                                          } catch(err: any) {
+                                            alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
+                                            console.error("Upload failed", err);
+                                          }
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAssetLibraryCallback(() => (url: string) => setPageLeftImageDraft(url));
+                                      setIsAssetLibraryOpen(true);
+                                    }}
+                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <ImageIcon className="w-3 h-3" /> Choose from Library
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Center Image Uploader */}
+                            <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
+                              <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Center Top Graphic illustration</span>
+                              {pageCenterImageDraft ? (
+                                <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
+                                  <img src={pageCenterImageDraft} alt="Center Draft representation" className="h-28 object-contain rounded" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPageCenterImageDraft('');
+                                    }}
+                                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> Remove Center Image
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
+                                    <Upload className="w-3 h-3" /> Upload New Asset
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept="image/*"
+                                      onChange={async (e) => {
+                                        if (e.target.files && e.target.files[0]) {
+                                          try {
+                                            const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
+                                            const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
+                                            const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
+                                            setPageCenterImageDraft(url);
+                                          } catch(err: any) {
+                                            alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
+                                            console.error("Upload failed", err);
+                                          }
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAssetLibraryCallback(() => (url: string) => setPageCenterImageDraft(url));
+                                      setIsAssetLibraryOpen(true);
+                                    }}
+                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <ImageIcon className="w-3 h-3" /> Choose from Library
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Right Side Image Uploader */}
+                            <div className="border border-slate-800 bg-[#060b14] p-3 rounded-xl flex flex-col gap-2">
+                              <span className="text-[9px] font-mono uppercase text-slate-400 font-bold block">Right Column Graphic illustration</span>
+                              {pageRightImageDraft ? (
+                                <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-2 flex flex-col items-center gap-2">
+                                  <img src={pageRightImageDraft} alt="Right Draft representation" className="h-28 object-contain rounded" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPageRightImageDraft('');
+                                    }}
+                                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> Remove Right Image
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer">
+                                    <Upload className="w-3 h-3" /> Upload New Asset
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept="image/*"
+                                      onChange={async (e) => {
+                                        if (e.target.files && e.target.files[0]) {
+                                          try {
+                                            const subject = academicSubjects.find(s => String(s.id) === String(assignedBook?.subjectId));
+                                            const subjectFolder = subject ? `images/subjects/${subject.name}` : 'images';
+                                            const url = await uploadImageToStorage(e.target.files[0], subjectFolder);
+                                            setPageRightImageDraft(url);
+                                          } catch(err: any) {
+                                            alert("Image upload failed: " + err.message + "\n\nPlease ensure Firebase Storage is initialized and the rules allow uploads.");
+                                            console.error("Upload failed", err);
+                                          }
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAssetLibraryCallback(() => (url: string) => setPageRightImageDraft(url));
+                                      setIsAssetLibraryOpen(true);
+                                    }}
+                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <ImageIcon className="w-3 h-3" /> Choose from Library
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          )}
+
+                          {!isHtmlChapter && (
+                          <div className="space-y-1">
+                            <span className="text-[8px] font-mono uppercase text-[#707a6c] block">Rich Content Text Block (Supports standard dynamic markup):</span>
+                            <RichTextEditor
+                              key={`rte-${assignedBookId}`}
+                              contentKey={editorLoadKey}
+                              initialValue={pageContentDraft}
+                              onSave={(content) => handleUpdatePage(selectedPageIndex, content)}
+                              onChange={(content) => setPageContentDraft(content)}
+                              isSaving={isSaving}
+                              leftImage={pageLeftImageDraft}
+                              centerImage={pageCenterImageDraft}
+                              rightImage={pageRightImageDraft}
+                              interactiveMaps={activeLesson.interactiveImages || []}
+                            />
+                          </div>
+                          )}
+
+                          {/* ATTACHMENTS: FIGURES GRID */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            {/* LATEX EQUATIONS BLOCK (Canvas tab only) */}
+                            {!isHtmlChapter && (
+                            <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
+                                  LaTeX Mathematical Symbols Block
+                                </span>
+                                <span className="text-[8px] font-mono text-slate-500 select-none bg-slate-950 p-0.5 rounded px-1">
+                                  1 Eq per line
+                                </span>
+                              </div>
+                              <textarea
+                                value={pageEquationsDraft}
+                                onChange={e => setPageEquationsDraft(e.target.value)}
+                                rows={3}
+                                placeholder="A \rightarrow B (Do not include double slashes. Write raw LaTeX parameters)"
+                                className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
+                              />
+                            </div>
+                            )}
+
+                            {/* COLLAPSIBLE SETTINGS (HTML tab only: shown to students as the HTML dropdown) */}
+                            {isHtmlChapter && (
+                            <div className="bg-[#0b0e1a] border border-slate-850 p-3 rounded-xl space-y-2 md:col-span-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9.5px] uppercase font-mono tracking-widest text-[#707a6c] block">
+                                  Collapsible Page Settings
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[8px] font-mono text-slate-500 select-none uppercase">Enable Collapse</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPageIsCollapsible(!pageIsCollapsible)}
+                                    className={`w-8 h-4 rounded-full relative transition-colors ${pageIsCollapsible ? 'bg-amber-500' : 'bg-slate-700'}`}
+                                  >
+                                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${pageIsCollapsible ? 'translate-x-4' : 'translate-x-0'}`} />
+                                  </button>
+                                </div>
+                              </div>
+                              {pageIsCollapsible && (
+                                <input
+                                  type="text"
+                                  value={pageSummaryContent}
+                                  onChange={e => setPageSummaryContent(e.target.value)}
+                                  placeholder="Summary Title (e.g., Click here to read full text...)"
+                                  className="w-full bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300 mt-2"
+                                />
+                              )}
+                            </div>
+                            )}
+
+                            {/* IFRAME / CUSTOM HTML URL (HTML tab only; when set, the page shows the HTML) */}
+                            {isHtmlChapter && (
+                            <div className={`bg-[#0b0e1a] border p-3 rounded-xl space-y-2 md:col-span-2 ${pageShowsHtml ? 'border-sky-500/40' : 'border-slate-850'}`}>
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[9.5px] uppercase font-mono tracking-widest block font-bold ${pageShowsHtml ? 'text-sky-400' : 'text-[#707a6c]'}`}>
+                                  {selectedTopic ? `HTML File for "${selectedTopic.title}"` : `HTML File for Page ${(selectedPageIndex ?? 0) + 1}`}
+                                </span>
+                                <span className="text-[8px] font-mono text-slate-500 select-none bg-slate-950 p-0.5 rounded px-1">
+                                  Upload .html or paste its URL
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={pageIframeUrlDraft}
+                                  onChange={e => setPageIframeUrlDraft(e.target.value)}
+                                  placeholder="https://firebasestorage.googleapis.com/.../your-custom-mindmap.html"
+                                  className="flex-1 bg-[#03060c] border border-slate-850 focus:border-[#f59e0b] rounded-lg p-2 text-xs focus:outline-none font-mono text-slate-300"
+                                />
+                                {pageIframeUrlDraft && (
+                                  <a
+                                    href={pageIframeUrlDraft}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 text-[10px] font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                                    title="Open HTML in new tab to test"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5 text-amber-400" /> Preview
+                                  </a>
+                                )}
+                                {pageIframeUrlDraft && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPageIframeUrlDraft('');
+                                      flashMessage('HTML link removed. Click "Save Page Changes" to show canvas text on this page.');
+                                    }}
+                                    className="flex items-center gap-1 px-2.5 py-2 bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white text-[10px] font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                                    title="Remove HTML so this page shows canvas text"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" /> Remove HTML
+                                  </button>
+                                )}
+                                <label className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
+                                  <Upload className="w-3.5 h-3.5" /> Upload HTML
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept=".html,.htm,text/html"
+                                    onChange={async (e) => {
+                                      if (e.target.files && e.target.files[0]) {
+                                        try {
+                                          const file = e.target.files[0];
+                                          const url = await uploadHtmlToStorage(file);
+                                          setPageIframeUrlDraft(url);
+                                          flashMessage && flashMessage('HTML file uploaded! Click "Save Page Changes" below to apply.');
+                                        } catch(err: any) {
+                                          alert("HTML upload failed: " + err.message);
+                                          console.error("HTML upload failed", err);
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+
+                              {/* Direct Save Action & Placement Context Bar */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-slate-800/80">
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+                                  <span>Placement:</span>
+                                  <span className={`px-2 py-0.5 rounded font-bold ${selectedTopic ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'}`}>
+                                    {selectedTopic ? `Topic: ${selectedTopic.title}` : `Chapter Root (Page ${(selectedPageIndex ?? 0) + 1})`}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdatePage(selectedPageIndex)}
+                                  disabled={isSaving}
+                                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-mono font-black text-[11px] flex items-center gap-1.5 shadow-md shadow-emerald-950/40 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                                >
+                                  <Save className="w-3.5 h-3.5" /> {isSaving ? 'Saving to Firebase...' : 'Save Page Changes'}
+                                </button>
+                              </div>
+                            </div>
+                            )}
+
+                          </div>
+
+                        </div>
+                      ) : (
+                        <div className="p-6 text-center text-slate-500 text-xs font-serif italic bg-[#030509]/30 rounded border border-slate-850/50">
+                          Create or click on any of the Page nodes above to populate learning markup canvases.
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="p-6 text-center text-slate-500 text-xs font-serif italic bg-[#030509]/30 rounded border border-slate-850/50">
-                      Create or click on any of the Page nodes above to populate learning markup canvases.
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-                )}
 
-                {/* Sub-Layout: Flash Review Quizzing (not shown for PDF chapters) */}
-                {chapterType !== 'pdf' && (() => {
-                  const allFQ: FlashQuestion[] = [...(activeLesson.flashQuestions || [])];
-                  if (activeLesson.topics) {
-                    for (const t of activeLesson.topics) {
-                      if (t.flashQuestions) {
-                        for (const tfq of t.flashQuestions) {
-                          if (!allFQ.some(q => q.id === tfq.id)) {
-                            allFQ.push(tfq.topicTitle ? tfq : { ...tfq, topicTitle: t.title });
-                          }
-                        }
-                      }
-                    }
-                  }
-                  const lessonTopicTitles = isTopicWise ? (activeLesson.topics || []).map(t => t.title).filter(Boolean) : [];
-
-                  return (
-                    <FlashQuestionManager
-                      questions={allFQ}
-                      availableTopics={lessonTopicTitles}
-                      activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
-                      onQuestionsUpdate={async (newQuestions) => {
-                        if (!assignedBook || !activeLesson) return;
-                        try {
-                          const updatedLesson: Lesson = {
-                            ...activeLesson,
-                            flashQuestions: newQuestions,
-                            topics: (activeLesson.topics || []).map(t => {
-                              const tTitleLower = (t.title || '').trim().toLowerCase();
-                              return {
-                                ...t,
-                                flashQuestions: newQuestions.filter(q => (q.topicTitle || '').trim().toLowerCase() === tTitleLower)
-                              };
-                            })
-                          };
-                          const modifiedBook = {
-                            ...assignedBook,
-                            lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
-                          };
-                          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
-                          flashMessage('Interactive quizzes saved to Firebase & local storage.');
-                        } catch (err) {
-                          alert('Failed to save quizzes.');
-                        }
-                      }}
-                    />
-                  );
-                })()}
-
-                {/* Sub-Layout: Inquiry Question Manager (not shown for PDF chapters) */}
-                {chapterType !== 'pdf' && (() => {
-                  // Aggregate all questions across chapter and nested topics so questions never vanish
-                  const allQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
-                  if (activeLesson.topics) {
-                    for (const t of activeLesson.topics) {
-                      if (t.inquiryQuestions) {
-                        for (const tq of t.inquiryQuestions) {
-                          const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
-                          if (!allQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
-                            // Ensure question object has topicTitle assigned from its enclosing topic if not present
-                            if (typeof tq === 'string') {
-                              allQ.push({
-                                id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-                                text: tq,
-                                topicTitle: t.title || null
-                              });
-                            } else {
-                              allQ.push(tq.topicTitle ? tq : { ...tq, topicTitle: t.title || null });
+                {/* Questions & Extras: Flashcards / Inquiry Questions / Interactive Maps (not shown for PDF chapters) */}
+                {chapterType !== 'pdf' && (
+                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="flex items-stretch border-b border-slate-800 bg-[#080b16]">
+                    {([
+                      { id: 'flash', label: 'Flashcards', n: (activeLesson.flashQuestions || []).length },
+                      { id: 'inquiry', label: 'Inquiry Questions', n: (activeLesson.inquiryQuestions || []).length },
+                      { id: 'maps', label: 'Interactive Maps', n: (activeLesson.interactiveImages || []).length }
+                    ] as const).map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setExtrasTab(tab.id)}
+                        className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                          extrasTab === tab.id ? 'text-amber-300 border-amber-400 bg-amber-500/10' : 'text-slate-500 border-transparent hover:text-slate-200 hover:bg-slate-900/40'
+                        }`}
+                      >
+                        {tab.label}
+                        <span className="ml-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">{tab.n}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="p-4">
+                    {/* Sub-Layout: Flash Review Quizzing (not shown for PDF chapters) */}
+                    {extrasTab === 'flash' && (() => {
+                      const allFQ: FlashQuestion[] = [...(activeLesson.flashQuestions || [])];
+                      if (activeLesson.topics) {
+                        for (const t of activeLesson.topics) {
+                          if (t.flashQuestions) {
+                            for (const tfq of t.flashQuestions) {
+                              if (!allFQ.some(q => q.id === tfq.id)) {
+                                allFQ.push(tfq.topicTitle ? tfq : { ...tfq, topicTitle: t.title });
+                              }
                             }
                           }
                         }
                       }
-                    }
-                  }
+                      const lessonTopicTitles = isTopicWise ? (activeLesson.topics || []).map(t => t.title).filter(Boolean) : [];
 
-                  return (
-                    <InquiryQuestionManager
-                      questions={allQ}
-                      availableTopics={isTopicWise ? (activeLesson.topics || []).map(t => t.title).filter(Boolean) : []}
-                      activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
-                      onQuestionsUpdate={async (newQuestions) => {
-                        if (!assignedBook || !activeLesson) return;
-                        try {
-                          const updatedLesson: Lesson = {
-                            ...activeLesson,
-                            inquiryQuestions: newQuestions,
-                            topics: (activeLesson.topics || []).map(t => {
-                              const tTitleLower = (t.title || '').trim().toLowerCase();
-                              return {
-                                ...t,
-                                inquiryQuestions: newQuestions.filter(q => {
-                                  if (typeof q === 'string') return false;
-                                  return (q.topicTitle || '').trim().toLowerCase() === tTitleLower;
+                      return (
+                        <FlashQuestionManager
+                          questions={allFQ}
+                          availableTopics={lessonTopicTitles}
+                          activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
+                          onQuestionsUpdate={async (newQuestions) => {
+                            if (!assignedBook || !activeLesson) return;
+                            try {
+                              const updatedLesson: Lesson = {
+                                ...activeLesson,
+                                flashQuestions: newQuestions,
+                                topics: (activeLesson.topics || []).map(t => {
+                                  const tTitleLower = (t.title || '').trim().toLowerCase();
+                                  return {
+                                    ...t,
+                                    flashQuestions: newQuestions.filter(q => (q.topicTitle || '').trim().toLowerCase() === tTitleLower)
+                                  };
                                 })
                               };
-                            })
-                          };
+                              const modifiedBook = {
+                                ...assignedBook,
+                                lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
+                              };
+                              await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+                              flashMessage('Interactive quizzes saved to Firebase & local storage.');
+                            } catch (err) {
+                              alert('Failed to save quizzes.');
+                            }
+                          }}
+                        />
+                      );
+                    })()}
+
+                    {/* Sub-Layout: Inquiry Question Manager (not shown for PDF chapters) */}
+                    {extrasTab === 'inquiry' && (() => {
+                      // Aggregate all questions across chapter and nested topics so questions never vanish
+                      const allQ: (string | any)[] = [...(activeLesson.inquiryQuestions || [])];
+                      if (activeLesson.topics) {
+                        for (const t of activeLesson.topics) {
+                          if (t.inquiryQuestions) {
+                            for (const tq of t.inquiryQuestions) {
+                              const key = typeof tq === 'string' ? tq : (tq.id || tq.text);
+                              if (!allQ.some(q => (typeof q === 'string' ? q : (q.id || q.text)) === key)) {
+                                // Ensure question object has topicTitle assigned from its enclosing topic if not present
+                                if (typeof tq === 'string') {
+                                  allQ.push({
+                                    id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                                    text: tq,
+                                    topicTitle: t.title || null
+                                  });
+                                } else {
+                                  allQ.push(tq.topicTitle ? tq : { ...tq, topicTitle: t.title || null });
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+
+                      return (
+                        <InquiryQuestionManager
+                          questions={allQ}
+                          availableTopics={isTopicWise ? (activeLesson.topics || []).map(t => t.title).filter(Boolean) : []}
+                          activeTopicTitle={selectedTopic ? selectedTopic.title : undefined}
+                          onQuestionsUpdate={async (newQuestions) => {
+                            if (!assignedBook || !activeLesson) return;
+                            try {
+                              const updatedLesson: Lesson = {
+                                ...activeLesson,
+                                inquiryQuestions: newQuestions,
+                                topics: (activeLesson.topics || []).map(t => {
+                                  const tTitleLower = (t.title || '').trim().toLowerCase();
+                                  return {
+                                    ...t,
+                                    inquiryQuestions: newQuestions.filter(q => {
+                                      if (typeof q === 'string') return false;
+                                      return (q.topicTitle || '').trim().toLowerCase() === tTitleLower;
+                                    })
+                                  };
+                                })
+                              };
+                              const modifiedBook = {
+                                ...assignedBook,
+                                lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
+                              };
+                              await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+                              flashMessage('Inquiry questions saved to Firebase & local storage.');
+                            } catch (err: any) {
+                              alert('Failed to save inquiry questions: ' + (err?.message || 'Error'));
+                            }
+                          }}
+                        />
+                      );
+                    })()}
+
+                    {/* Sub-Layout: Interactive Deep-dive Maps (not shown for PDF chapters) */}
+                    {extrasTab === 'maps' && (
+                    <InteractiveImageManager
+                      sequences={activeLesson.interactiveImages || []}
+                      onRequestAssetLibrary={(callback) => {
+                        setAssetLibraryCallback(() => callback);
+                        setIsAssetLibraryOpen(true);
+                      }}
+                      onSequencesUpdate={async (newSequences) => {
+                        if (!assignedBook || !activeLesson) return;
+                        try {
                           const modifiedBook = {
                             ...assignedBook,
-                            lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
+                            lessons: assignedBook.lessons.map(l => {
+                              if (l.id !== activeLesson.id) return l;
+                              return { ...l, interactiveImages: newSequences };
+                            })
                           };
-                          await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
-                          flashMessage('Inquiry questions saved to Firebase & local storage.');
-                        } catch (err: any) {
-                          alert('Failed to save inquiry questions: ' + (err?.message || 'Error'));
+                          await saveBookLocally(modifiedBook);
+                          flashMessage('Interactive maps saved.');
+                        } catch (err) {
+                          alert('Failed to save interactive maps.');
                         }
                       }}
                     />
-                  );
-                })()}
-
-                {/* Sub-Layout: Interactive Deep-dive Maps (not shown for PDF chapters) */}
-                {chapterType !== 'pdf' && (
-                <InteractiveImageManager
-                  sequences={activeLesson.interactiveImages || []}
-                  onRequestAssetLibrary={(callback) => {
-                    setAssetLibraryCallback(() => callback);
-                    setIsAssetLibraryOpen(true);
-                  }}
-                  onSequencesUpdate={async (newSequences) => {
-                    if (!assignedBook || !activeLesson) return;
-                    try {
-                      const modifiedBook = {
-                        ...assignedBook,
-                        lessons: assignedBook.lessons.map(l => {
-                          if (l.id !== activeLesson.id) return l;
-                          return { ...l, interactiveImages: newSequences };
-                        })
-                      };
-                      await saveBookLocally(modifiedBook);
-                      flashMessage('Interactive maps saved.');
-                    } catch (err) {
-                      alert('Failed to save interactive maps.');
-                    }
-                  }}
-                />
+                    )}
+                  </div>
+                </div>
                 )}
               </div>
             ) : (

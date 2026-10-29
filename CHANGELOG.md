@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-29] - Editor Panel: Tabbed Chapter Content Layout
+
+### Added & Improved
+- **Admin: Copy Book with chapter names only, as the opposite type (`AdminPanel.tsx`)**: new Copy button next to Edit/Delete in the Textbooks list opens a dialog showing the source type and the type of the copy (PDF ↔ Interactive), an editable name, and the source chapter names (read directly from Firestore, including old books that keep chapters in the book document). Creates a new book (new unique id, same class, subject, author, source, colour and cover; `bookType` flipped) with one chapter per source chapter name in the same order and no content: PDF → Interactive creates empty Canvas chapters; Interactive → PDF creates empty PDF chapters. Blocks a duplicate name within the same class and subject.
+- **Compact chapter header (`BookEditorPanel.tsx`)**: title, subtitle, Save Meta and Purge Chapter in one row (replaces the "Active Chapter Settings" card).
+- **Chapter Content card with PDF / HTML / Canvas tabs**: the selected tab IS the chapter content type (replaces the separate "Chapter Content Type" card). Switching to or from PDF asks for confirmation (other content stays saved, hidden). Tab bodies:
+  - **PDF**: chapter PDF upload / replace / preview only.
+  - **HTML / Canvas**: one topic row (Topic-wise / Without topics toggle, topic selector, Edit / Delete / + Add Topic, topic form with Topic Video URL or upload) replacing the separate "Chapter Topic:" card, followed by the Pages editor (chapter lecture videos, page strip, per-page HTML or canvas fields).
+- **Tab-specific page fields**: the HTML tab shows only Collapsible Page Settings, the HTML file (URL / Preview / Remove / Upload) and Save Page Changes (no text editor, images, LaTeX, vector or Add Page; the page strip appears only if several pages already exist). The Canvas tab shows only the images, text editor, LaTeX and vector blocks with Add Page (no HTML upload or collapsible settings). Topics can still mix: upload HTML in the HTML tab, write text in the Canvas tab; between HTML and Canvas the tab only sets the default for new pages. A notice appears when a Canvas-tab page is actually showing an uploaded HTML file to students, or an HTML-tab page has no HTML yet and students see its canvas text.
+- **Removed "Interactive Smartboard Vector Vector Layouts" from the Canvas tab**: it only attached one of 7 built-in demo SVG drawings (brain, river, ecosystem, etc.) with a caption, shown only on chapter-root pages (never on topic pages), and none fit the curriculum. Existing pages keep any drawing they already have (saving a page preserves it); real diagrams use the page image uploads or images in the text editor.
+- **Topic row**: "Add Topic" now sits right next to the topic dropdown (before Edit / Delete), and the duplicate "+" in its label was removed.
+- **Icon-only top bar buttons (`BookEditorPanel.tsx`)**: Asset Library, Submit this Chapter, Discard Local Draft and Back to Dashboard show only their icons, each with a hover tooltip and an accessible label.
+- **Assigned book name in the top bar**: was capped at 200px and squeezed between the logo and buttons, so even short names were cut off. It now takes the free space in the middle, wraps to two lines for long names, shows the full name on hover, and the buttons / saved-message can no longer squash it.
+- **Questions & Extras card**: Flashcards, Inquiry Questions and Interactive Maps under three tabs (with counts) instead of three stacked cards; hidden for PDF chapters.
+
+### Fixed & Rectified
+- **"FIRESTORE INTERNAL ASSERTION FAILED … Failed to obtain exclusive access to the persistence layer" when saving (`lib/firebase.ts`)**:
+  - **Root Cause**: Firestore offline persistence was enabled with `enableIndexedDbPersistence` (single-tab mode). With the app open in more than one tab, the tabs competed for the cache and the tab that lost it crashed on its next write (seen when changing the chapter type).
+  - **Fix**: Firestore is initialised with `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`, so all tabs share the offline cache safely (also removes the deprecation warning). Verified with two tabs reading from Firestore and the shared cache with no errors.
+- **Topic-wise chapter opened with no topic actually selected**: the dropdown showed "Topic 1" but the pages editor stayed hidden until a topic was picked manually. The auto-select effect ran before the "reset topic on chapter change" effect, which then cleared it; the auto-select effect is now declared after the reset effect.
+
 ## [2026-10-28] - Critical Fix: "Approve All" Deleted Unsubmitted Chapters
 
 ### Fixed & Rectified

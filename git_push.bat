@@ -4,7 +4,7 @@ cd /d "%~dp0"
 set "LOG=%~dp0git_push.log"
 echo Started %DATE% %TIME% > "%LOG%"
 git add -A >> "%LOG%" 2>&1
-git commit -F ".git\COMMIT_MSG_1028" >> "%LOG%" 2>&1
+git commit -F ".git\COMMIT_MSG_NEXT" >> "%LOG%" 2>&1
 echo COMMIT_EXIT=%ERRORLEVEL% >> "%LOG%"
 git push origin main >> "%LOG%" 2>&1
 echo PUSH_EXIT=%ERRORLEVEL% >> "%LOG%"

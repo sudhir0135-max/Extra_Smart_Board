@@ -7,7 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { Book, Lesson, FlashQuestion, BookEditor, AcademicClass, AcademicSubject, EditorSubmission } from '../types';
 import { uploadImageToStorage, createSubjectFolder } from '../lib/firebaseHelper';
 import { auth, db } from '../lib/firebase';
-import { collection, onSnapshot, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc, getDocsFromServer, getDocs, getDocFromServer, writeBatch } from 'firebase/firestore';
+import { getChapterContentType } from '../lib/chapterContent';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import {
   Shield,
@@ -34,7 +35,8 @@ import {
   HelpCircle,
   ShieldAlert,
   Cloud,
-  Upload
+  Upload,
+  Copy
 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import FlashQuestionManager from './FlashQuestionManager';
@@ -131,6 +133,14 @@ export default function AdminPanel({
 
   // Book properties draft
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
+
+  // ── Copy Book (chapter names only, opposite book type) ──────────────────────
+  const [copySource, setCopySource] = useState<Book | null>(null);
+  const [copyTitle, setCopyTitle] = useState('');
+  const [copyChapters, setCopyChapters] = useState<{ title: string }[] | null>(null);
+  const [copySourceIsPdf, setCopySourceIsPdf] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyError, setCopyError] = useState('');
   const [bookTitleDraft, setBookTitleDraft] = useState('');
   const [bookAuthorDraft, setBookAuthorDraft] = useState('');
   const [bookSourceDraft, setBookSourceDraft] = useState('');
@@ -423,6 +433,124 @@ export default function AdminPanel({
       flashMessage('Book metadata saved to Firebase successfully.');
     } catch (err) {
       alert('Failed to update book metadata in Firebase.');
+    }
+  };
+
+  /** Opens the Copy Book dialog and loads the source chapter names straight from Firestore. */
+  const openCopyBook = async (b: Book) => {
+    setCopySource(b);
+    setCopyChapters(null);
+    setCopyError('');
+    setCopyBusy(true);
+    try {
+      // Chapters live in books/{id}/lessons; very old books keep them inside the book document.
+      let lessons: any[] = [];
+      try {
+        const snap = await getDocsFromServer(collection(db, 'books', b.id.toString(), 'lessons'));
+        lessons = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      } catch {
+        const snap = await getDocs(collection(db, 'books', b.id.toString(), 'lessons'));
+        lessons = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      }
+      if (lessons.length === 0) {
+        const bookSnap = await getDocFromServer(doc(db, 'books', b.id.toString())).catch(() => null);
+        const raw = bookSnap?.exists() ? (bookSnap.data() as any).lessons : null;
+        lessons = Array.isArray(raw) ? raw : (raw ? Object.values(raw) : []);
+      }
+      lessons = lessons.filter(Boolean).sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
+
+      // Source type: the book's type if set, otherwise PDF only when every chapter is a PDF chapter
+      const isPdf = b.bookType === 'pdf'
+        || (b.bookType !== 'interactive' && lessons.length > 0 && lessons.every(l => getChapterContentType(l) === 'pdf'));
+      setCopySourceIsPdf(isPdf);
+      setCopyChapters(lessons.map(l => ({ title: String(l.title || 'Untitled chapter') })));
+      setCopyTitle(`${b.title} (${isPdf ? 'Interactive' : 'PDF'})`);
+    } catch (err: any) {
+      setCopyError('Could not load the chapters of this book: ' + (err?.message || err));
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
+  /** Creates the new book with the source's chapter NAMES only and the opposite book type. */
+  const handleCreateBookCopy = async () => {
+    if (!copySource || !copyChapters) return;
+    const title = copyTitle.trim();
+    if (!title) { setCopyError('Please enter a name for the new book.'); return; }
+    const dup = books.some(b =>
+      b.title.trim().toLowerCase() === title.toLowerCase() &&
+      (b.classId || '') === (copySource.classId || '') &&
+      (b.subjectId || '') === (copySource.subjectId || '')
+    );
+    if (dup) { setCopyError('A book with this name already exists for the same class and subject. Please choose another name.'); return; }
+
+    setCopyBusy(true);
+    setCopyError('');
+    try {
+      // New unique book id (check Firestore too, in case the local list is incomplete)
+      let newId = books.length > 0 ? Math.max(...books.map(b => Number(b.id) || 0)) + 1 : 1;
+      while ((await getDocFromServer(doc(db, 'books', String(newId)))).exists()) newId++;
+
+      const targetType: 'pdf' | 'interactive' = copySourceIsPdf ? 'interactive' : 'pdf';
+      const stamp = Date.now();
+      const newLessons: Lesson[] = copyChapters.map((c, i) => (
+        targetType === 'pdf'
+          ? {
+              id: `lesson-${newId}-${stamp}-${i}`,
+              title: c.title,
+              contentType: 'pdf',
+              topicMode: 'none',
+              pdfUrl: null,
+              pages: [],
+              topics: [],
+              flashQuestions: [],
+              inquiryQuestions: [],
+            }
+          : {
+              id: `lesson-${newId}-${stamp}-${i}`,
+              title: c.title,
+              contentType: 'canvas',
+              topicMode: 'none',
+              pages: [{ pageNumber: 1, content: '' }],
+              topics: [],
+              flashQuestions: [],
+              inquiryQuestions: [],
+            }
+      ));
+
+      // 1. Book document (metadata only, like every other book)
+      const meta = JSON.parse(JSON.stringify({
+        id: newId,
+        title,
+        author: copySource.author || 'ExtraPadhai AI',
+        source: copySource.source || null,
+        color: copySource.color || '#4a3060',
+        coverImage: copySource.coverImage || null,
+        classId: copySource.classId || null,
+        subjectId: copySource.subjectId || null,
+        bookType: targetType,
+        lessons: [],
+        lessonCount: newLessons.length,
+      }));
+      await setDoc(doc(db, 'books', String(newId)), meta);
+
+      // 2. Chapter documents (names only, in the same order)
+      for (let i = 0; i < newLessons.length; i += 400) {
+        const batch = writeBatch(db);
+        newLessons.slice(i, i + 400).forEach((l, j) => {
+          batch.set(doc(db, 'books', String(newId), 'lessons', l.id), JSON.parse(JSON.stringify({ ...l, order: i + j })));
+        });
+        await batch.commit();
+      }
+
+      if (fetchBookLessons) await fetchBookLessons(newId);
+      flashMessage(`Created "${title}" (${targetType === 'pdf' ? 'PDF' : 'Interactive'}) with ${newLessons.length} chapter name(s).`);
+      setCopySource(null);
+      setCopyChapters(null);
+    } catch (err: any) {
+      setCopyError('Failed to create the copy: ' + (err?.message || err));
+    } finally {
+      setCopyBusy(false);
     }
   };
 
@@ -1543,6 +1671,16 @@ export default function AdminPanel({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
+                                openCopyBook(b);
+                              }}
+                              className="p-1.5 hover:bg-sky-500/20 rounded text-slate-500 hover:text-sky-400 transition-colors"
+                              title="Copy book (chapter names only, as the opposite type: PDF ↔ Interactive)"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 handleDeleteBook(b.id);
                               }}
                               className="p-1.5 hover:bg-rose-500/20 rounded text-slate-500 hover:text-rose-400 transition-colors"
@@ -2543,6 +2681,75 @@ export default function AdminPanel({
           )}
         </main>
       </div>
+
+      {/* COPY BOOK DIALOG */}
+      {copySource && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !copyBusy && setCopySource(null)}>
+          <div className="w-full max-w-lg bg-[#0b0e1b] border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <span className="text-[9.5px] uppercase font-mono tracking-widest text-sky-400 block font-bold">Copy Book</span>
+                <h3 className="text-sm font-bold text-white mt-0.5">From: {copySource.title}</h3>
+              </div>
+              <button onClick={() => !copyBusy && setCopySource(null)} className="p-1 text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+
+            {copyChapters === null && !copyError ? (
+              <div className="text-xs text-slate-400 font-mono py-6 text-center animate-pulse">Loading chapters…</div>
+            ) : (
+              <>
+                {copyChapters && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className={`px-2 py-1 rounded font-bold ${copySourceIsPdf ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>{copySourceIsPdf ? '📄 PDF book' : '📖 Interactive book'}</span>
+                    <span className="text-slate-500">→ copy will be</span>
+                    <span className={`px-2 py-1 rounded font-bold ${copySourceIsPdf ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>{copySourceIsPdf ? '📖 Interactive book' : '📄 PDF book'}</span>
+                  </div>
+                )}
+                <div>
+                  <label className="text-[9px] uppercase font-mono text-slate-400 block mb-1">Name of the new book</label>
+                  <input
+                    type="text"
+                    value={copyTitle}
+                    onChange={e => setCopyTitle(e.target.value)}
+                    className="w-full bg-[#03060c] border border-slate-700 focus:border-sky-500 rounded-lg p-2 text-sm text-white focus:outline-none"
+                  />
+                </div>
+                {copyChapters && (
+                  <div>
+                    <span className="text-[9px] uppercase font-mono text-slate-400 block mb-1">
+                      Chapter names to copy ({copyChapters.length}) — content is not copied
+                    </span>
+                    <ol className="max-h-48 overflow-y-auto bg-[#03060c] border border-slate-800 rounded-lg p-2 text-xs text-slate-300 list-decimal list-inside space-y-0.5">
+                      {copyChapters.length === 0
+                        ? <li className="list-none text-slate-500 italic">This book has no chapters; an empty book will be created.</li>
+                        : copyChapters.map((c, i) => <li key={i} className="truncate">{c.title}</li>)}
+                    </ol>
+                    <p className="text-[10px] text-slate-500 mt-1.5">
+                      {copySourceIsPdf
+                        ? 'Each chapter is created as an empty Canvas chapter (change it to HTML in the editor if needed).'
+                        : 'Each chapter is created as an empty PDF chapter, ready for its PDF upload.'}
+                      {' '}Class, subject, author, source, colour and cover are copied from the source book.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {copyError && <div className="text-xs text-rose-300 bg-rose-950/40 border border-rose-800/50 rounded-lg p-2">{copyError}</div>}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setCopySource(null)} disabled={copyBusy} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50">Cancel</button>
+              <button
+                onClick={handleCreateBookCopy}
+                disabled={copyBusy || copyChapters === null}
+                className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold uppercase cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Copy className="w-3.5 h-3.5" /> {copyBusy && copyChapters ? 'Creating…' : 'Create Copy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <AssetLibraryModal 
         isOpen={isAssetLibraryOpen} 
