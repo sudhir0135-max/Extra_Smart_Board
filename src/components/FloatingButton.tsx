@@ -12,6 +12,22 @@ import ScribbleOverlay from './ScribbleOverlay';
 import AccountancyQuestionModal from './AccountancyQuestionModal';
 import CachedImage from './CachedImage';
 import { getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+import { getLocalImageSrc } from '../lib/imageCache';
+
+/** Question image that uses the copy saved on the device when there is no internet. Hidden if it cannot load. */
+const SavedImage: React.FC<{ src: string; className: string }> = ({ src, className }) => {
+  const [resolved, setResolved] = React.useState(src);
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    setResolved(src);
+    getLocalImageSrc(src).then(local => { if (alive) setResolved(local); }).catch(() => {});
+    return () => { alive = false; };
+  }, [src]);
+  if (failed) return null;
+  return <img src={resolved} className={className} alt="Question" onError={() => setFailed(true)} />;
+};
 
 
 interface FloatingButtonProps {
@@ -78,12 +94,6 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
     qText = adv.text || adv.question || adv.questionText || adv.title || adv.content || (typeof adv === 'object' ? String(adv.id || '') : '');
   }
 
-  const offlineImgPlaceholder = (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/50 bg-slate-900/60 text-slate-500 p-4" style={{ minWidth: '30%', minHeight: '80px' }}>
-      <WifiOff className="w-6 h-6 text-slate-600" />
-      <span className="text-xs text-slate-500 text-center">Image unavailable offline</span>
-    </div>
-  );
 
   if (!image) {
     return (
@@ -96,7 +106,7 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
   if (pos === 'center') {
     return (
       <div className="w-full flex flex-col items-center gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        {isOnline ? <img src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" alt="Question" /> : offlineImgPlaceholder}
+        <SavedImage src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" />
         <div className="w-full" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
@@ -105,7 +115,7 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
   if (pos === 'left') {
     return (
       <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        {isOnline ? <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" /> : offlineImgPlaceholder}
+        <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" />
         <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
@@ -114,7 +124,7 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
   return (
     <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
       <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
-      {isOnline ? <img src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" alt="Question" /> : offlineImgPlaceholder}
+      <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" />
     </div>
   );
 });
@@ -810,33 +820,11 @@ export default function FloatingButton({
           >
             {/* ── OFFLINE GATE: replaces entire panel when no internet ── */}
             {!isOnline ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 select-none">
-                {/* Pulsing wifi-off icon */}
-                <div className="relative">
-                  <div className="absolute inset-0 rounded-full bg-rose-500/20 animate-ping" />
-                  <div className="relative w-24 h-24 rounded-full bg-rose-500/10 border-2 border-rose-500/40 flex items-center justify-center">
-                    <WifiOff className="w-10 h-10 text-rose-400" />
-                  </div>
-                </div>
-
-                {/* Message */}
-                <div className="text-center space-y-2">
-                  <h2 className="text-white font-black text-2xl tracking-tight">
-                    Internet Connection Required
-                  </h2>
-                  <p className="text-slate-400 text-sm font-mono max-w-xs leading-relaxed">
-                    Video lectures need an active internet connection to stream from YouTube.
-                    Please reconnect and try again.
-                  </p>
-                </div>
-
-                {/* Status pill */}
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-rose-500/10 border border-rose-500/30">
-                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
-                  <span className="text-rose-400 text-xs font-bold font-mono uppercase tracking-widest">
-                    Offline
-                  </span>
-                </div>
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 select-none text-center">
+                <Video className="w-12 h-12 text-slate-600" />
+                <p className="text-slate-400 text-sm max-w-xs leading-relaxed">
+                  Videos will play when the device is connected to the internet.
+                </p>
               </div>
             ) : maximizedVideoId ? (
               (() => {
@@ -867,10 +855,9 @@ export default function FloatingButton({
                     {/* Full screen video display */}
                     <div className="flex-1 min-h-0 relative bg-black rounded-lg overflow-hidden border border-slate-900 shadow-2xl flex items-center justify-center">
                       {!isOnline ? (
-                        <div className="flex flex-col items-center justify-center text-slate-500 animate-pulse">
-                          <WifiOff className="w-12 h-12 mb-4 text-rose-500" />
-                          <p className="text-sm font-bold font-mono">No Internet Connection</p>
-                          <p className="text-[10px] mt-2">Cannot load YouTube video stream.</p>
+                        <div className="flex flex-col items-center justify-center text-slate-500">
+                          <Video className="w-12 h-12 mb-4 text-slate-600" />
+                          <p className="text-sm">Videos will play when the device is connected to the internet.</p>
                         </div>
                       ) : activeVid.youtubeId ? (
                         <iframe
@@ -929,9 +916,8 @@ export default function FloatingButton({
                           <div className="relative aspect-video bg-black rounded md:rounded-lg overflow-hidden border border-slate-950 flex items-center justify-center">
                             {/* Static thumbnail cover / embedded loader so we can intercept mouse clicks perfectly */}
                             {!isOnline ? (
-                              <div className="flex flex-col items-center justify-center text-slate-700">
-                                <WifiOff className="w-6 h-6 mb-1 text-rose-500/50" />
-                                <span className="text-[8px] uppercase tracking-widest font-bold">Offline</span>
+                              <div className="flex flex-col items-center justify-center text-slate-600">
+                                <Play className="w-6 h-6 mb-1" />
                               </div>
                             ) : (
                               <>

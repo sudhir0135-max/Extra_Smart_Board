@@ -33,6 +33,8 @@ import { downloadAndCachePdf } from './lib/pdfCache';
 import { hasTextContent } from './lib/contentUtils';
 import { getStudentViewLesson, getChapterContentType } from './lib/chapterContent';
 import { precacheLessonsForOffline } from './lib/offlineCache';
+import { syncNoticeImages } from './lib/notices';
+import NoticeOverlay from './components/NoticeOverlay';
 const PALETTE_COLORS = [
   { name: 'Classroom Amber', hex: '#f59e0b' },
   { name: 'Alert Red', hex: '#f43f5e' },
@@ -347,7 +349,7 @@ export default function App() {
   const [selectedBookId, setSelectedBookId] = useState<number>(1);
   const [activeLessonId, setActiveLessonId] = useState<string>('think-1');
 
-  const fetchBookLessons = useCallback(async (bookId: number) => {
+  const fetchBookLessons = useCallback(async (bookId: number, opts?: { background?: boolean }) => {
     try {
       const { collection, getDocs } = await import('firebase/firestore');
       const lessonsSnap = await getDocs(collection(db, 'books', bookId.toString(), 'lessons'));
@@ -439,7 +441,8 @@ export default function App() {
         });
 
         // 5. Update active lesson ID safely without closure staleness
-        if (subLessons.length > 0) {
+        //    (skipped for silent background refreshes of other books)
+        if (subLessons.length > 0 && !opts?.background) {
           setActiveLessonId(prev => sanitizedLessons.some(l => l.id === prev) ? prev : subLessons[0]?.id);
         }
       }
@@ -592,6 +595,62 @@ export default function App() {
       return b;
     });
   }, [firebaseBooks, offlineBookLessons, previewSubmissionBookId, previewLessons, previewPendingLessonIds, previewDeletedLessonIds, subLessonsCache]);
+
+  // ── Background content refresh ──────────────────────────────────────────────
+  // Whenever the device has internet (app start, connection restored, app brought back to the
+  // front, and every 15 minutes) the chapters of this device's books are re-downloaded silently,
+  // together with their PDFs, HTML pages and images, so the app keeps working offline with
+  // up-to-date content. No messages are shown.
+  const backgroundRefreshRef = React.useRef<{ running: boolean; last: number }>({ running: false, last: 0 });
+  const backgroundTargetsRef = React.useRef<{ selected: number | null; deviceBooks: number[] }>({ selected: null, deviceBooks: [] });
+  backgroundTargetsRef.current = {
+    selected: selectedBookId ?? null,
+    deviceBooks: isNative ? books.map(b => b.id) : [],
+  };
+
+  const runBackgroundRefresh = useCallback(async (force = false) => {
+    const state = backgroundRefreshRef.current;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (state.running) return;
+    if (!force && Date.now() - state.last < 5 * 60 * 1000) return;
+    state.running = true;
+    try {
+      // Notice images for the book shelf: download new ones, delete expired ones
+      await syncNoticeImages().catch(err => console.warn('[notices] sync failed:', err));
+      const savedBookIds = (await dbLocal.offline_lessons.toCollection().primaryKeys().catch(() => [])) as number[];
+      const { selected, deviceBooks } = backgroundTargetsRef.current;
+      const ids = Array.from(new Set<number>([
+        ...(selected ? [selected] : []),
+        ...deviceBooks,
+        ...savedBookIds.filter(id => typeof id === 'number'),
+      ]));
+      for (const id of ids) {
+        if (!navigator.onLine) break;
+        await fetchBookLessons(id, { background: id !== selected });
+      }
+      state.last = Date.now();
+    } catch (err) {
+      console.warn('[background refresh] failed:', err);
+    } finally {
+      state.running = false;
+    }
+  }, [fetchBookLessons]);
+
+  useEffect(() => {
+    if (!isBooksLoaded) return;
+    const startTimer = window.setTimeout(() => runBackgroundRefresh(true), 4000);
+    const onOnline = () => runBackgroundRefresh(true);
+    const onVisible = () => { if (document.visibilityState === 'visible') runBackgroundRefresh(false); };
+    const interval = window.setInterval(() => runBackgroundRefresh(true), 15 * 60 * 1000);
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(startTimer);
+      window.clearInterval(interval);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isBooksLoaded, runBackgroundRefresh]);
 
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
@@ -822,14 +881,9 @@ export default function App() {
 
   // Auto-detect real network connectivity changes
   useEffect(() => {
-    const goOnline = () => {
-      setIsOnline(true);
-      addToast('Connection restored. Back online.', 'success');
-    };
-    const goOffline = () => {
-      setIsOnline(false);
-      addToast('No internet connection. Working in offline mode.', 'warn');
-    };
+    // Silent: the app works the same offline, so no "offline" / "back online" messages.
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
     // Sync initial state with actual browser connectivity
     setIsOnline(navigator.onLine);
     window.addEventListener('online', goOnline);
@@ -1794,6 +1848,9 @@ export default function App() {
           bookmarks={bookmarks}
           onSelectBookBookmark={handleSelectBookBookmark}
         />
+
+        {/* Admin notice images scheduled for today (saved on the device, works offline) */}
+        <NoticeOverlay />
         
         {/* Toasts feed for consistent alerts on entry selection */}
         <div className="absolute top-4 left-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none" id="toasts-feed">
@@ -2001,8 +2058,8 @@ export default function App() {
                 NCERT Text Book
               </span>
             )}
-            {/* Conditional Sync Button for Students */}
-            {isOnline && (
+            {/* Sync Button for Students (always shown; content also refreshes automatically in the background) */}
+            {(
               <button
                 onClick={handleTriggerSync}
                 disabled={isSyncing}
@@ -2216,13 +2273,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* Mini offline queue synchronization monitoring board footer */}
-      {offlineQueue.filter(a => a.status === 'pending').length > 0 && (
-        <div className="absolute bottom-4 left-76 bg-amber-400 text-slate-950 text-[10px] font-sans font-bold py-1.5 px-3.5 rounded-lg shadow-lg flex items-center gap-2 z-30 select-none border border-amber-300 transition-all font-sans" id="footer-queue-alert">
-          <Database className="w-3.5 h-3.5 animate-bounce" />
-          <span>{offlineQueue.filter(a => a.status === 'pending').length} Actions cached waiting for internet alignment.</span>
-        </div>
-      )}
     </div>
   );
 

@@ -1041,6 +1041,55 @@ export default function InquiryQuestionManager({
                 {/* Sidebar Controls */}
                 <div className="lg:col-span-1 space-y-6 bg-slate-900/50 p-5 rounded-xl border border-slate-800">
 
+                  {/* Topic & Marks Metadata Fields */}
+                  <div className="space-y-3 pb-4 border-b border-slate-800/80">
+                    <label className="text-xs font-mono uppercase tracking-widest text-slate-400 block mb-1">Metadata (Topic, Source & Marks)</label>
+                    <div>
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                        Topic of Lesson
+                      </label>
+                      <select
+                        value={advTopicTitleDraft}
+                        onChange={e => setAdvTopicTitleDraft(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white focus:outline-none focus:border-teal-500 font-sans"
+                      >
+                        <option value="">-- No Topic / Chapter Level --</option>
+                        {availableTopics.map((top, idx) => (
+                          <option key={idx} value={top}>
+                            {top}
+                          </option>
+                        ))}
+                        {advTopicTitleDraft && !availableTopics.includes(advTopicTitleDraft) && (
+                          <option value={advTopicTitleDraft}>
+                            {advTopicTitleDraft} (Current)
+                          </option>
+                        )}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Source</label>
+                      <input
+                        type="text"
+                        list={sourceListId}
+                        value={advSourceDraft}
+                        onChange={e => setAdvSourceDraft(e.target.value)}
+                        placeholder="e.g. NCERT, CBSE 2023"
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 font-sans"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Marks (Numeric)</label>
+                      <input
+                        type="number"
+                        value={advMarksDraft}
+                        onChange={e => setAdvMarksDraft(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 1, 2, 5, 10"
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+
                   {/* Image Uploader */}
                   <div>
                     <label className="text-xs font-mono uppercase tracking-widest text-slate-400 mb-2 block">
@@ -1088,54 +1137,6 @@ export default function InquiryQuestionManager({
                           </span>
                         </label>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Topic & Marks Metadata Fields */}
-                  <div className="space-y-3 pt-4 border-t border-slate-800/80">
-                    <label className="text-xs font-mono uppercase tracking-widest text-slate-400 block mb-1">Metadata (Topic, Source & Marks)</label>
-                    <div>
-                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
-                        Topic of Lesson
-                      </label>
-                      <select
-                        value={advTopicTitleDraft}
-                        onChange={e => setAdvTopicTitleDraft(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white focus:outline-none focus:border-teal-500 font-sans"
-                      >
-                        <option value="">-- No Topic / Chapter Level --</option>
-                        {availableTopics.map((top, idx) => (
-                          <option key={idx} value={top}>
-                            {top}
-                          </option>
-                        ))}
-                        {advTopicTitleDraft && !availableTopics.includes(advTopicTitleDraft) && (
-                          <option value={advTopicTitleDraft}>
-                            {advTopicTitleDraft} (Current)
-                          </option>
-                        )}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Source</label>
-                      <input
-                        type="text"
-                        list={sourceListId}
-                        value={advSourceDraft}
-                        onChange={e => setAdvSourceDraft(e.target.value)}
-                        placeholder="e.g. NCERT, CBSE 2023"
-                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 font-sans"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Marks (Numeric)</label>
-                      <input
-                        type="number"
-                        value={advMarksDraft}
-                        onChange={e => setAdvMarksDraft(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="e.g. 1, 2, 5, 10"
-                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
-                      />
                     </div>
                   </div>
 

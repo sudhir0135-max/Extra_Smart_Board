@@ -43,6 +43,8 @@ import FlashQuestionManager from './FlashQuestionManager';
 import InquiryQuestionManager from './InquiryQuestionManager';
 import SyncManager from './SyncManager';
 import AssetLibraryModal from './AssetLibraryModal';
+import NoticeManager from './NoticeManager';
+import { Bell } from 'lucide-react';
 
 export interface AdminPanelProps {
   books: Book[];
@@ -84,7 +86,7 @@ export default function AdminPanel({
   const [pinError, setPinError] = useState<string>('');
 
   // Tabs: 'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced'
-  const [activeTab, setActiveTab] = useState<'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'classes' | 'subjects' | 'books' | 'editors' | 'options' | 'forced' | 'notices'>('stats');
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
   const [assetLibraryFolder, setAssetLibraryFolder] = useState<string>('images');
 
@@ -1043,6 +1045,14 @@ export default function AdminPanel({
               }`}
             >
               <ShieldAlert className="w-4 h-4" /> Forced Entries
+            </button>
+            <button
+              onClick={() => { setActiveTab('notices'); setSelectedBookId(null); setSelectedLessonId(null); setSelectedPageIndex(null); }}
+              className={`w-full text-left p-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'notices' ? 'bg-slate-900 text-emerald-400' : 'text-slate-400 hover:bg-slate-950 hover:text-slate-200'
+              }`}
+            >
+              <Bell className="w-4 h-4" /> Notice Images
             </button>
             <button
               onClick={() => {
@@ -2516,6 +2526,8 @@ export default function AdminPanel({
           )}
 
           {/* TAB 5: PORTAL OPTIONS */}
+          {activeTab === 'notices' && <NoticeManager />}
+
           {activeTab === 'options' && (
             <div className="flex-1 overflow-y-auto p-6" id="options-dashboard">
               <div className="max-w-xl space-y-6">

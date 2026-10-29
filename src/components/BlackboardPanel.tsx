@@ -432,12 +432,10 @@ export default function BlackboardPanel({
                 {!isOnline ? (
                   <div style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    justifyContent: 'center', color: '#fca5a5', gap: 12, padding: 20
+                    justifyContent: 'center', color: '#94a3b8', gap: 8, padding: 20
                   }}>
-                    <span style={{ fontSize: 40 }}>📶❌</span>
-                    <h4 style={{ margin: 0, fontSize: 16, fontWeight: 'bold' }}>Offline: Streaming Paused</h4>
-                    <p style={{ margin: 0, fontSize: 11, opacity: 0.6, textAlign: 'center', maxWidth: 220, fontFamily: 'monospace' }}>
-                      Internet connection is required to stream this video annotation.
+                    <p style={{ margin: 0, fontSize: 13, textAlign: 'center', maxWidth: 240 }}>
+                      Videos will play when the device is connected to the internet.
                     </p>
                   </div>
                 ) : (

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-29] - Source Field Placement & Update Notice
+
+### Fixed & Improved
+- **Advanced Editor (`InquiryQuestionManager.tsx`) and new-window editor (`QuestionEditorPage.tsx`)**: the Topic / Source / Marks fields moved to the top of the right-hand column (they were below the image settings and easy to miss).
+- **New-version notice (`components/UpdateBanner.tsx`, web only)**: a tab left open across a deploy kept running the old code (why the Source field looked missing). Open tabs now check for a newer deploy when they come back into view and every 10 minutes, and show "A new version of the app is available — Reload".
+
+## [2026-10-29] - Notice Images on the Book Shelf
+
+### Added
+- **Admin → Notice Images (`components/NoticeManager.tsx`)**: upload an image with a start date and an end date (both days included), change dates, or delete. The list is stored in Firestore `settings/notice_images` (`{ items: NoticeImage[] }`, readable by everyone, writable when signed in — no rules change needed); images go to Storage `images/notices/`. Status shows Scheduled / Showing now / Expired.
+- **Device sync (`lib/notices.ts`)**: whenever internet is available (app start, reconnect, foreground, every 15 min via the background refresh, and when the book shelf opens) the device downloads every notice that is not yet saved and not expired — Android app: files in the app folder `extrapadhai/notices/`; browser: IndexedDB table `notice_images` (Dexie version 3). Saved notices are deleted after their end date (also offline) or when the admin deletes them; changed dates or a replaced image are picked up.
+- **Overlay on the book shelf page (`components/NoticeOverlay.tsx`, grade-selector screen)**: shows the saved notices whose dates include today, from the device copy (works offline). Several notices → arrows and dots. They appear every time the student comes to the book shelf; closing hides them only for that visit.
+
+## [2026-10-29] - Seamless Offline Mode & Background Content Refresh
+
+### Added & Improved
+- **Background refresh (`App.tsx` `runBackgroundRefresh`)**: whenever internet is available the app silently re-downloads the chapters of this device's books (the selected book, the class/subjects set up on the Android device, and every book already saved on the device), with their PDFs, HTML pages and images. Runs at start-up, when the connection comes back, when the app returns to the foreground (at most every 5 minutes) and every 15 minutes. `fetchBookLessons(bookId, { background: true })` no longer changes the open chapter.
+- **No offline marks**: removed the "No internet connection / Back online" toasts and the "Actions cached waiting for internet" footer; the Sync button is always shown. Question images use the copy saved on the device (`SavedImage` in `FloatingButton.tsx`) instead of an "Image unavailable offline" box. The red "Offline / Internet Connection Required" video screens (`FloatingButton.tsx`, `BlackboardPanel.tsx`) are replaced by a quiet note that videos play when the device is connected. The HTML page fallback text is softened (`HtmlPageFrame.tsx`).
+- **Android APK rebuilt** with all changes up to this date (including the Approve All fix and question sources).
+
 ## [2026-10-29] - Question Source Field & Student Source Filter
 
 ### Added & Improved

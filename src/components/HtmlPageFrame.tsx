@@ -149,9 +149,8 @@ export default function HtmlPageFrame({ url, title, className }: HtmlPageFramePr
   if (state.kind === 'offline') {
     return (
       <div className={`${className || ''} !bg-slate-900/60 !border !border-slate-700/50 flex flex-col items-center justify-center gap-2 text-slate-400 p-6 text-center`}>
-        <p className="font-bold text-slate-300 text-sm">Page Not Saved for Offline Use</p>
-        <p className="text-xs text-slate-500 max-w-sm">
-          This interactive page hasn't been downloaded on this device yet. Open it once while online (or use Synchronize) to read it offline.
+        <p className="text-sm text-slate-400 max-w-sm">
+          This page will appear once the device has connected to the internet and updated its content.
         </p>
       </div>
     );

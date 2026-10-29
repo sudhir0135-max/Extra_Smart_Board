@@ -479,74 +479,8 @@ export default function QuestionEditorPage() {
         {activeQ && (
           <aside className="w-[220px] flex-shrink-0 bg-[#0b0f1f] border-l border-slate-800 flex flex-col overflow-y-auto p-4 space-y-5">
 
-            {/* Mode indicator */}
-            <div className={`text-center py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider ${
-              editorMode === 'question'
-                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                : 'bg-amber-600/20 text-amber-300 border border-amber-500/30'
-            }`}>
-              {editorMode === 'question' ? '📝 Question Image' : '💡 Answer Image'}
-            </div>
-
-            <div>
-              <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-2">
-                Accompanying Image
-              </label>
-              {currentImage ? (
-                <div className="relative group">
-                  <img src={currentImage} alt="Q img" className="w-full aspect-video object-cover rounded-lg border border-slate-700" />
-                  <button
-                    onClick={removeImage}
-                    className="absolute top-1.5 right-1.5 p-1 bg-black/70 text-white rounded hover:bg-rose-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-700 hover:border-indigo-500 hover:bg-indigo-500/5 rounded-xl cursor-pointer transition-all">
-                  {isUploading
-                    ? <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                    : <ImageIcon className="w-6 h-6 text-slate-600" />
-                  }
-                  <span className="text-[10px] text-slate-500">{isUploading ? 'Uploading…' : 'Upload Image'}</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploading} />
-                </label>
-              )}
-            </div>
-
-            {/* Image position */}
-            {currentImage && (
-              <div>
-                <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-2">
-                  Image Position
-                </label>
-                <div className="space-y-1.5">
-                  {(['left', 'center', 'right'] as const).map((pos) => (
-                    <label
-                      key={pos}
-                      className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all text-xs ${
-                        currentImagePosition === pos
-                          ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
-                          : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={`imgPos-${editorMode}`}
-                        value={pos}
-                        checked={currentImagePosition === pos}
-                        onChange={() => setImagePosition(pos)}
-                        className="w-3 h-3"
-                      />
-                      <span className="capitalize font-bold">{pos}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Topic & Marks Metadata */}
-            <div className="pt-3 border-t border-slate-800 space-y-3">
+            <div className="pb-3 border-b border-slate-800 space-y-3">
               <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block">
                 Metadata (Topic, Source & Marks)
               </label>
@@ -618,6 +552,72 @@ export default function QuestionEditorPage() {
                 </button>
               </div>
             </div>
+
+            {/* Mode indicator */}
+            <div className={`text-center py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider ${
+              editorMode === 'question'
+                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
+                : 'bg-amber-600/20 text-amber-300 border border-amber-500/30'
+            }`}>
+              {editorMode === 'question' ? '📝 Question Image' : '💡 Answer Image'}
+            </div>
+
+            <div>
+              <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-2">
+                Accompanying Image
+              </label>
+              {currentImage ? (
+                <div className="relative group">
+                  <img src={currentImage} alt="Q img" className="w-full aspect-video object-cover rounded-lg border border-slate-700" />
+                  <button
+                    onClick={removeImage}
+                    className="absolute top-1.5 right-1.5 p-1 bg-black/70 text-white rounded hover:bg-rose-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-700 hover:border-indigo-500 hover:bg-indigo-500/5 rounded-xl cursor-pointer transition-all">
+                  {isUploading
+                    ? <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    : <ImageIcon className="w-6 h-6 text-slate-600" />
+                  }
+                  <span className="text-[10px] text-slate-500">{isUploading ? 'Uploading…' : 'Upload Image'}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploading} />
+                </label>
+              )}
+            </div>
+
+            {/* Image position */}
+            {currentImage && (
+              <div>
+                <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-2">
+                  Image Position
+                </label>
+                <div className="space-y-1.5">
+                  {(['left', 'center', 'right'] as const).map((pos) => (
+                    <label
+                      key={pos}
+                      className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all text-xs ${
+                        currentImagePosition === pos
+                          ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
+                          : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`imgPos-${editorMode}`}
+                        value={pos}
+                        checked={currentImagePosition === pos}
+                        onChange={() => setImagePosition(pos)}
+                        className="w-3 h-3"
+                      />
+                      <span className="capitalize font-bold">{pos}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="pt-3 border-t border-slate-800">
               <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block mb-3">

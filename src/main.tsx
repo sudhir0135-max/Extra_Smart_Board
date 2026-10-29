@@ -1,6 +1,7 @@
 import {StrictMode, lazy, Suspense} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import UpdateBanner from './components/UpdateBanner';
 import './index.css';
 
 // /recover runs the Chapter Recovery Tool INSTEAD of the app, so the app can't re-sync
@@ -15,7 +16,10 @@ createRoot(document.getElementById('root')!).render(
         <ChapterRecoveryTool />
       </Suspense>
     ) : (
-      <App />
+      <>
+        <App />
+        {import.meta.env.PROD && !(window as any).Capacitor?.isNativePlatform?.() && <UpdateBanner />}
+      </>
     )}
   </StrictMode>,
 );
