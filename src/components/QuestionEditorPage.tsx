@@ -94,6 +94,7 @@ export default function QuestionEditorPage() {
       answerImagePosition: q.answerImagePosition || 'right',
       marks: q.marks !== undefined && q.marks !== null ? q.marks : null,
       topicTitle: q.topicTitle || null,
+      source: q.source || null,
       displayMode: q.displayMode || 'standard',
       tabs: q.tabs || [],
     };
@@ -547,7 +548,7 @@ export default function QuestionEditorPage() {
             {/* Topic & Marks Metadata */}
             <div className="pt-3 border-t border-slate-800 space-y-3">
               <label className="text-[9px] font-mono uppercase tracking-widest text-slate-500 font-bold block">
-                Metadata (Topic & Marks)
+                Metadata (Topic, Source & Marks)
               </label>
               <div>
                 <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Topic Title</label>
@@ -567,6 +568,23 @@ export default function QuestionEditorPage() {
                     <option value={activeQ.topicTitle}>{activeQ.topicTitle} (Current)</option>
                   )}
                 </select>
+              </div>
+              <div>
+                <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Source</label>
+                <input
+                  type="text"
+                  list="qeditor-source-list"
+                  value={activeQ.source || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setQuestions(prev => prev.map((q, i) => i === activeIdx ? { ...q, source: val || null } : q));
+                  }}
+                  placeholder="e.g. NCERT, CBSE 2023"
+                  className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 font-sans"
+                />
+                <datalist id="qeditor-source-list">
+                  {Array.from(new Set(questions.map(q => (q.source || '').trim()).filter(Boolean))).sort().map(s => <option key={s} value={s} />)}
+                </datalist>
               </div>
               <div>
                 <label className="text-[8px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Marks (Numeric)</label>

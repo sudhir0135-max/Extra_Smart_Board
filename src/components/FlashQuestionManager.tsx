@@ -3,7 +3,7 @@ import { Database, Upload, Trash2, Plus, FileSpreadsheet } from 'lucide-react';
 import { FlashQuestion } from '../types';
 import { Editor } from '@tinymce/tinymce-react';
 import * as XLSX from 'xlsx';
-import { hasTextContent } from '../lib/contentUtils';
+import { hasTextContent, confirmUploadTopics } from '../lib/contentUtils';
 import { setupTinyMceMath, tinymceMathContentStyle } from '../lib/tinymceMathPlugin';
 import { setupTinyMceAnnotation, tinymceAnnotationContentStyle } from '../lib/tinymceAnnotationPlugin';
 
@@ -24,9 +24,21 @@ export default function FlashQuestionManager({
   const [newQAns, setNewQAns] = useState('');
   const [newQDiff, setNewQDiff] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
   const [newQTopic, setNewQTopic] = useState(activeTopicTitle || '');
+  const [newQSource, setNewQSource] = useState('');
   const [editingQId, setEditingQId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filterTopic, setFilterTopic] = useState<'all' | 'active'>('all');
+
+  // Distinct source names already used in this chapter (suggestions for the Source field)
+  const sourceListId = React.useId();
+  const existingSources = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const q of questions) {
+      const s = typeof q === 'string' ? '' : (q?.source || '').trim();
+      if (s && !seen.has(s.toLowerCase())) seen.set(s.toLowerCase(), s);
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [questions]);
 
   const qTextEditorRef = useRef<any>(null);
   const qAnsEditorRef = useRef<any>(null);
@@ -107,7 +119,8 @@ export default function FlashQuestionManager({
         question: currentQText.trim(),
         answer: currentQAns.trim(),
         difficulty: newQDiff,
-        topicTitle: newQTopic.trim() || null
+        topicTitle: newQTopic.trim() || null,
+        source: newQSource.trim() || null
       } : q);
       onQuestionsUpdate(updated);
       setEditingQId(null);
@@ -117,7 +130,8 @@ export default function FlashQuestionManager({
         question: currentQText.trim(),
         answer: currentQAns.trim(),
         difficulty: newQDiff,
-        topicTitle: newQTopic.trim() || null
+        topicTitle: newQTopic.trim() || null,
+        source: newQSource.trim() || null
       };
       onQuestionsUpdate([...questions, newQuestion]);
     }
@@ -136,6 +150,7 @@ export default function FlashQuestionManager({
     setNewQAns(q.answer);
     setNewQDiff(q.difficulty);
     setNewQTopic(q.topicTitle || '');
+    setNewQSource(q.source || '');
     if (qTextEditorRef.current) qTextEditorRef.current.setContent(q.question);
     if (qAnsEditorRef.current) qAnsEditorRef.current.setContent(q.answer);
   };
@@ -161,8 +176,13 @@ export default function FlashQuestionManager({
               question: q.question || '',
               answer: q.answer || '',
               difficulty: q.difficulty || 'Medium',
-              topicTitle: q.topicTitle || q.topic || null
+              topicTitle: q.topicTitle || q.topic || null,
+              source: q.source || q.Source || null
             })).filter(q => q.question && q.answer);
+            if (!confirmUploadTopics(formattedQuestions.map(q => q.topicTitle), availableTopics)) {
+              alert('Upload cancelled. Nothing was saved.');
+              return;
+            }
             onQuestionsUpdate([...questions, ...formattedQuestions]);
             alert(`Successfully bulk loaded ${formattedQuestions.length} questions!`);
           }
@@ -183,14 +203,19 @@ export default function FlashQuestionManager({
             question: String(r.Question || r.question || ''),
             answer: String(r.Answer || r.answer || ''),
             difficulty: (r.Difficulty || r.difficulty || 'Medium') as 'Easy' | 'Medium' | 'Hard',
-            topicTitle: r.Topic || r.topic ? String(r.Topic || r.topic) : null
+            topicTitle: r.Topic || r.topic ? String(r.Topic || r.topic) : null,
+            source: String(r.Source || r.source || '').trim() || null
           })).filter(q => q.question && q.answer);
 
           if (formattedQuestions.length > 0) {
+            if (!confirmUploadTopics(formattedQuestions.map(q => q.topicTitle), availableTopics)) {
+              alert('Upload cancelled. Nothing was saved.');
+              return;
+            }
             onQuestionsUpdate([...questions, ...formattedQuestions]);
             alert(`Successfully bulk loaded ${formattedQuestions.length} questions from Excel!`);
           } else {
-            alert("No valid questions found in Excel file. Make sure columns are named 'Question', 'Answer', and optional 'Difficulty', 'Topic'.");
+            alert("No valid questions found in Excel file. Make sure columns are named 'Question', 'Answer', and optional 'Difficulty', 'Topic', 'Source'.");
           }
         } catch (err) {
           alert("Failed to parse XLSX file");
@@ -204,8 +229,8 @@ export default function FlashQuestionManager({
   const handleDownloadTemplate = () => {
     try {
       const worksheet = XLSX.utils.json_to_sheet([
-        { Question: "What is 2+2?", Answer: "4", Difficulty: "Easy", Topic: availableTopics[0] || "Sample Topic" },
-        { Question: "What is the capital of France?", Answer: "Paris", Difficulty: "Medium", Topic: availableTopics[1] || "Sample Topic" }
+        { Question: "What is 2+2?", Answer: "4", Difficulty: "Easy", Topic: availableTopics[0] || "Sample Topic", Source: "NCERT" },
+        { Question: "What is the capital of France?", Answer: "Paris", Difficulty: "Medium", Topic: availableTopics[1] || "Sample Topic", Source: "CBSE 2023" }
       ]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "DiagnosticQuiz");
@@ -323,6 +348,25 @@ export default function FlashQuestionManager({
                 </option>
               )}
             </select>
+          </div>
+
+          {/* Source Field */}
+          <div className="w-full md:w-48 space-y-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 inline-block" />
+              Source <span className="text-slate-600 normal-case font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              list={sourceListId}
+              value={newQSource}
+              onChange={e => setNewQSource(e.target.value)}
+              placeholder="e.g. NCERT, CBSE 2023"
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors h-[38px] font-sans"
+            />
+            <datalist id={sourceListId}>
+              {existingSources.map(s => <option key={s} value={s} />)}
+            </datalist>
           </div>
 
           {/* Difficulty Selector */}
@@ -521,6 +565,11 @@ export default function FlashQuestionManager({
                       {q.topicTitle && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono uppercase tracking-wide">
                           Topic: {q.topicTitle}
+                        </span>
+                      )}
+                      {q.source && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono uppercase tracking-wide">
+                          Source: {q.source}
                         </span>
                       )}
                       <span className={`text-[8px] font-mono font-bold uppercase rounded px-1.5 py-0.5 border ${

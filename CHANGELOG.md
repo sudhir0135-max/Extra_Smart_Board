@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-29] - Question Source Field & Student Source Filter
+
+### Added & Improved
+- **`source` field on questions (`types.ts`)**: `InquiryQuestionObj.source` and `FlashQuestion.source` (optional, e.g. "NCERT", "CBSE 2023").
+- **Editors (`InquiryQuestionManager.tsx`, `FlashQuestionManager.tsx`, `QuestionEditorPage.tsx`)**: a Source text box (with suggestions from sources already used in the chapter) in the quick-add row and the advanced/new-window editors; a sky-blue "Source" badge on each question in the list. XLSX/JSON bulk upload reads an optional `Source` column, and the downloadable templates include it. The new-window editor now keeps `source` instead of dropping it on save.
+- **Student panel (`FloatingButton.tsx`, "Some Extra Questions from Lesson")**: one checkbox per distinct source name (with its question count) filters the list to the ticked sources. By default only **NCERT** is ticked (every source is ticked if the list has no NCERT questions); the selection resets when the chapter/topic changes. Source names are grouped ignoring case, spaces and dots ("T.S. Grewal" = "TS Grewal"). Questions without a source are not filtered and always show. The row is hidden when no question in the list has a source.
+
+## [2026-10-29] - Bulk Upload Topic Safeguard
+
+### Added & Improved
+- **Warning when uploaded Topic names do not match the chapter (`lib/contentUtils.ts` `confirmUploadTopics`, `InquiryQuestionManager.tsx`, `FlashQuestionManager.tsx`)**: questions only appear on a topic ribbon when their Topic exactly matches one of the chapter's topic titles. Before saving an XLSX/JSON bulk upload, any Topic values that match none of the selected chapter's topics (ignoring case and extra spaces) are listed with their question counts, together with the chapter's actual topics, and the editor can cancel (nothing is saved). Prompted by 7 debenture questions uploaded into "Accounting for Share Capital", whose debenture topic names matched no topic there, so they did not appear on any ribbon.
+
 ## [2026-10-29] - Editor Panel: Tabbed Chapter Content Layout
 
 ### Added & Improved

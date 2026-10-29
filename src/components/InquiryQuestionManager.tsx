@@ -6,6 +6,7 @@ import {
   FileSpreadsheet, CheckSquare, Square, Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { confirmUploadTopics } from '../lib/contentUtils';
 import { InquiryQuestionObj } from '../types';
 import { Editor } from '@tinymce/tinymce-react';
 import { uploadImageToStorage } from '../lib/firebaseHelper';
@@ -31,6 +32,7 @@ export default function InquiryQuestionManager({
   const [newAText, setNewAText] = useState('');
   const [newMarks, setNewMarks] = useState<number | ''>('');
   const [newTopicTitle, setNewTopicTitle] = useState(activeTopicTitle || '');
+  const [newSource, setNewSource] = useState('');
   const [editingQIdx, setEditingQIdx] = useState<number | null>(null);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [filterTopic, setFilterTopic] = useState<'all' | 'active'>('all');
@@ -122,6 +124,18 @@ export default function InquiryQuestionManager({
   // Topic & Marks drafts for Advanced Editor
   const [advMarksDraft, setAdvMarksDraft] = useState<number | ''>('');
   const [advTopicTitleDraft, setAdvTopicTitleDraft] = useState('');
+  const [advSourceDraft, setAdvSourceDraft] = useState('');
+
+  // Distinct source names already used in this chapter (suggestions for the Source field)
+  const sourceListId = React.useId();
+  const existingSources = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const q of questions) {
+      const s = typeof q === 'string' ? '' : (q?.source || '').trim();
+      if (s && !seen.has(s.toLowerCase())) seen.set(s.toLowerCase(), s);
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [questions]);
   const [advDisplayModeDraft, setAdvDisplayModeDraft] = useState<'standard' | 'accountancy_tabs'>('standard');
 
   const [isUploading, setIsUploading] = useState(false);
@@ -178,6 +192,7 @@ export default function InquiryQuestionManager({
       setAdvAnswerImagePosition('right');
       setAdvMarksDraft('');
       setAdvTopicTitleDraft('');
+      setAdvSourceDraft('');
       setAdvDisplayModeDraft('standard');
     } else if (q) {
       setAdvTextDraft(q.text || '');
@@ -188,6 +203,7 @@ export default function InquiryQuestionManager({
       setAdvAnswerImagePosition(q.answerImagePosition || 'right');
       setAdvMarksDraft(q.marks !== undefined && q.marks !== null ? q.marks : '');
       setAdvTopicTitleDraft(q.topicTitle || '');
+      setAdvSourceDraft(q.source || '');
       setAdvDisplayModeDraft(q.displayMode === 'accountancy_tabs' ? 'accountancy_tabs' : 'standard');
     } else {
       setAdvTextDraft('');
@@ -198,6 +214,7 @@ export default function InquiryQuestionManager({
       setAdvAnswerImagePosition('right');
       setAdvMarksDraft('');
       setAdvTopicTitleDraft('');
+      setAdvSourceDraft('');
       setAdvDisplayModeDraft('standard');
     }
   };
@@ -238,6 +255,7 @@ export default function InquiryQuestionManager({
 
     const parsedMarks = advMarksDraft !== '' && !isNaN(Number(advMarksDraft)) ? Number(advMarksDraft) : null;
     const parsedTopic = advTopicTitleDraft.trim() || null;
+    const parsedSource = advSourceDraft.trim() || null;
 
     const updatedQ: InquiryQuestionObj = {
       id: existingId,
@@ -249,6 +267,7 @@ export default function InquiryQuestionManager({
       answerImagePosition: advAnswerImagePosition,
       marks: parsedMarks,
       topicTitle: parsedTopic,
+      source: parsedSource,
       displayMode: advDisplayModeDraft,
       ...(typeof currentQ !== 'string' ? { tabs: currentQ.tabs } : {}),
     };
@@ -305,6 +324,7 @@ export default function InquiryQuestionManager({
 
     const parsedMarks = newMarks !== '' && !isNaN(Number(newMarks)) ? Number(newMarks) : null;
     const parsedTopic = newTopicTitle.trim() || null;
+    const parsedSource = newSource.trim() || null;
 
     if (editingQIdx !== null) {
       const updated = [...questions];
@@ -317,6 +337,7 @@ export default function InquiryQuestionManager({
           answerText: newAText.trim() || null,
           marks: parsedMarks,
           topicTitle: parsedTopic,
+      source: parsedSource,
         };
       } else {
         updated[editingQIdx] = {
@@ -325,6 +346,7 @@ export default function InquiryQuestionManager({
           answerText: newAText.trim() || existing.answerText || null,
           marks: parsedMarks,
           topicTitle: parsedTopic,
+      source: parsedSource,
         };
       }
       onQuestionsUpdate(updated);
@@ -337,6 +359,7 @@ export default function InquiryQuestionManager({
         answerText: newAText.trim() || null,
         marks: parsedMarks,
         topicTitle: parsedTopic,
+      source: parsedSource,
       };
       onQuestionsUpdate([...questions, newQ]);
     }
@@ -411,8 +434,8 @@ export default function InquiryQuestionManager({
   const handleDownloadTemplate = () => {
     try {
       const worksheet = XLSX.utils.json_to_sheet([
-        { Question: "How does this relate to chapter 1?", Answer: "Your answer here...", Topic: "Introduction", Marks: 5 },
-        { Question: "What are the real-world applications?", Answer: "Model answer...", Topic: "Real-world Applications", Marks: 3 }
+        { Question: "How does this relate to chapter 1?", Answer: "Your answer here...", Topic: "Introduction", Marks: 5, Source: "NCERT" },
+        { Question: "What are the real-world applications?", Answer: "Model answer...", Topic: "Real-world Applications", Marks: 3, Source: "CBSE 2023" }
       ]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Inquiry Questions");
@@ -433,6 +456,10 @@ export default function InquiryQuestionManager({
         try {
           const parsed = JSON.parse(content);
           if (Array.isArray(parsed)) {
+            if (!confirmUploadTopics(parsed.map((q: any) => (q && typeof q === 'object' ? q.topicTitle : null)), availableTopics)) {
+              alert('Upload cancelled. Nothing was saved.');
+              return;
+            }
             onQuestionsUpdate([...questions, ...parsed]);
             alert(`Successfully bulk loaded ${parsed.length} questions!`);
           }
@@ -452,6 +479,7 @@ export default function InquiryQuestionManager({
             const qText = String(r.Question || r.question || '').trim();
             const aText = String(r.Answer || r.answer || '').trim();
             const topicTitleStr = String(r.Topic || r.topic || r['Topic Title'] || r.topicTitle || '').trim();
+            const sourceStr = String(r.Source || r.source || '').trim();
             const rawMarks = r.Marks !== undefined ? r.Marks : (r.marks !== undefined ? r.marks : (r.Mark !== undefined ? r.Mark : r.mark));
             const parsedMarks = rawMarks !== undefined && rawMarks !== null && rawMarks !== '' && !isNaN(Number(rawMarks)) ? Number(rawMarks) : null;
 
@@ -463,16 +491,21 @@ export default function InquiryQuestionManager({
               answerText: aText || null,
               marks: parsedMarks,
               topicTitle: topicTitleStr || null,
+              source: sourceStr || null,
               imagePosition: 'right',
               answerImagePosition: 'right'
             } as InquiryQuestionObj;
           }).filter((q): q is NonNullable<typeof q> => q !== null);
 
           if (newQuestions.length > 0) {
+            if (!confirmUploadTopics(newQuestions.map(q => (typeof q === 'string' ? null : q.topicTitle)), availableTopics)) {
+              alert('Upload cancelled. Nothing was saved.');
+              return;
+            }
             onQuestionsUpdate([...questions, ...newQuestions]);
             alert(`Successfully bulk loaded ${newQuestions.length} questions from Excel!`);
           } else {
-            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer', 'Topic', 'Marks'.");
+            alert("No valid questions found in Excel file. Make sure columns are named 'Question' and optional 'Answer', 'Topic', 'Marks', 'Source'.");
           }
         } catch (err) {
           alert("Failed to parse XLSX file");
@@ -583,6 +616,25 @@ export default function InquiryQuestionManager({
                 </option>
               )}
             </select>
+          </div>
+
+          {/* Source Field */}
+          <div className="w-full md:w-48 space-y-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 inline-block" />
+              Source <span className="text-slate-600 normal-case font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              list={sourceListId}
+              value={newSource}
+              onChange={e => setNewSource(e.target.value)}
+              placeholder="e.g. NCERT, CBSE 2023"
+              className="w-full bg-[#03060c] border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors h-[38px] font-sans"
+            />
+            <datalist id={sourceListId}>
+              {existingSources.map(s => <option key={s} value={s} />)}
+            </datalist>
           </div>
 
           {/* Marks Field */}
@@ -774,6 +826,11 @@ export default function InquiryQuestionManager({
                           {typeof q !== 'string' && q.topicTitle && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 font-mono uppercase tracking-wide">
                               Topic: {q.topicTitle}
+                            </span>
+                          )}
+                          {typeof q !== 'string' && q.source && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono uppercase tracking-wide">
+                              Source: {q.source}
                             </span>
                           )}
                           {typeof q !== 'string' && q.marks !== undefined && q.marks !== null && (
@@ -1036,7 +1093,7 @@ export default function InquiryQuestionManager({
 
                   {/* Topic & Marks Metadata Fields */}
                   <div className="space-y-3 pt-4 border-t border-slate-800/80">
-                    <label className="text-xs font-mono uppercase tracking-widest text-slate-400 block mb-1">Metadata (Topic & Marks)</label>
+                    <label className="text-xs font-mono uppercase tracking-widest text-slate-400 block mb-1">Metadata (Topic, Source & Marks)</label>
                     <div>
                       <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
                         Topic of Lesson
@@ -1058,6 +1115,17 @@ export default function InquiryQuestionManager({
                           </option>
                         )}
                       </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Source</label>
+                      <input
+                        type="text"
+                        list={sourceListId}
+                        value={advSourceDraft}
+                        onChange={e => setAdvSourceDraft(e.target.value)}
+                        placeholder="e.g. NCERT, CBSE 2023"
+                        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 font-sans"
+                      />
                     </div>
                     <div>
                       <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block mb-1">Marks (Numeric)</label>

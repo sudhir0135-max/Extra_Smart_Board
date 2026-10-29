@@ -52,3 +52,35 @@ export const getEffectiveTopicInquiryQuestions = (
   return result;
 };
 
+
+/**
+ * Bulk-upload safeguard: questions only appear on a topic ribbon when their Topic exactly matches
+ * (ignoring case/spaces) one of the chapter's topic titles. Before saving, list any Topic values that
+ * match none of them and ask the editor whether to continue. Returns true to continue.
+ */
+export const confirmUploadTopics = (
+  topicTitles: (string | null | undefined)[],
+  availableTopics: string[]
+): boolean => {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const known = new Set(availableTopics.filter(Boolean).map(norm));
+  const counts = new Map<string, number>();
+  topicTitles.forEach(t => {
+    const v = (t || '').trim();
+    if (!v || known.has(norm(v))) return;
+    counts.set(v, (counts.get(v) || 0) + 1);
+  });
+  if (counts.size === 0) return true;
+
+  const list = Array.from(counts.entries()).map(([t, n]) => `  • "${t}" (${n} question${n > 1 ? 's' : ''})`).join('\n');
+  const chapterTopics = availableTopics.length > 0
+    ? `This chapter's topics are:\n${availableTopics.map(t => `  • ${t}`).join('\n')}`
+    : 'This chapter has no topics.';
+  return window.confirm(
+    `These Topic names in the file don't match any topic of the selected chapter:\n${list}\n\n` +
+    `${chapterTopics}\n\n` +
+    `Those questions will be saved to the chapter but will NOT appear on any topic ribbon. ` +
+    `Check that the right chapter is selected and the Topic names are spelled exactly as above.\n\n` +
+    `Continue the upload anyway?`
+  );
+};

@@ -542,6 +542,53 @@ export default function FloatingButton({
     return (currentLesson?.inquiryQuestions || []).filter(Boolean);
   };
 
+  // ── Source filter for "Some Extra Questions from Lesson" ──
+  // One checkbox per distinct source. By default only NCERT is ticked (or every
+  // source when the list has no NCERT questions). Questions without a source are
+  // not filtered and always stay visible.
+  const DEFAULT_QUESTION_SOURCE = 'ncert';
+  const [selectedQuestionSources, setSelectedQuestionSources] = useState<string[] | null>(null); // null = default
+  useEffect(() => {
+    setSelectedQuestionSources(null);
+  }, [currentLesson?.id, externalTopicModal?.topic?.title]);
+
+  /** "T.S. Grewal", "TS Grewal" and "t s grewal" are the same source. */
+  const questionSourceKey = (q: string | InquiryQuestionObj): string => {
+    if (!q || typeof q === 'string') return '';
+    return (q.source || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  };
+
+  const getQuestionSourceOptions = () => {
+    const map = new Map<string, { key: string; label: string; count: number }>();
+    for (const q of getLessonQuestions()) {
+      const key = questionSourceKey(q);
+      if (!key) continue;
+      const entry = map.get(key);
+      if (entry) entry.count += 1;
+      else map.set(key, { key, label: String((q as InquiryQuestionObj).source).trim(), count: 1 });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  };
+
+  const getEffectiveQuestionSources = (): string[] => {
+    if (selectedQuestionSources) return selectedQuestionSources;
+    const keys = getQuestionSourceOptions().map(o => o.key);
+    return keys.includes(DEFAULT_QUESTION_SOURCE) ? [DEFAULT_QUESTION_SOURCE] : keys;
+  };
+
+  const getVisibleLessonQuestions = () => {
+    const selected = getEffectiveQuestionSources();
+    return getLessonQuestions().filter(q => {
+      const key = questionSourceKey(q);
+      return !key || selected.includes(key);
+    });
+  };
+
+  const toggleQuestionSource = (key: string) => {
+    const current = getEffectiveQuestionSources();
+    setSelectedQuestionSources(current.includes(key) ? current.filter(k => k !== key) : [...current, key]);
+  };
+
   const allFlashQuestions = React.useMemo(() => {
     if (externalTopicModal?.topic) {
       return externalTopicModal.topic.flashQuestions || [];
@@ -1219,9 +1266,54 @@ export default function FloatingButton({
             </div>
           </div>
 
+          {(() => {
+            const sourceOptions = getQuestionSourceOptions();
+            if (sourceOptions.length === 0) return null;
+            const selectedSources = getEffectiveQuestionSources();
+            return (
+              <div className="bg-slate-950/80 border-b border-slate-900 px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 shrink-0 relative z-50 pointer-events-auto" id="question-source-filter">
+                <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400 mr-1">
+                  <Filter className="w-3.5 h-3.5 text-sky-400" /> Source
+                </span>
+                {sourceOptions.map(opt => {
+                  const checked = selectedSources.includes(opt.key);
+                  return (
+                    <label
+                      key={opt.key}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer select-none transition-colors ${
+                        checked
+                          ? 'bg-sky-500/15 border-sky-500/40 text-sky-200'
+                          : 'bg-slate-900 border-slate-800 text-slate-500'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleQuestionSource(opt.key)}
+                        className="w-3.5 h-3.5 accent-sky-500 cursor-pointer"
+                      />
+                      <span>{opt.label}</span>
+                      <span className="text-[10px] font-mono opacity-70">({opt.count})</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           <div className="p-4 md:p-8 space-y-6 flex-1 flex flex-col min-h-0 pt-6 relative z-10 pointer-events-none">
             <div className={`flex-1 overflow-y-auto space-y-8 pr-2 pb-4 ${isListDrawingMode ? 'pointer-events-none' : 'pointer-events-auto'}`}>
-              {getLessonQuestions().length === 0 ? (
+              {getLessonQuestions().length > 0 && getVisibleLessonQuestions().length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center">
+                    <Filter className="w-8 h-8 text-sky-400 opacity-80" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-300">No question from the selected source</h3>
+                  <p className="text-sm text-slate-500 text-center max-w-sm">
+                    Tick one or more sources above to see their questions.
+                  </p>
+                </div>
+              ) : getLessonQuestions().length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center space-y-4">
                   <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
                     <AlertTriangle className="w-8 h-8 text-amber-500 opacity-80" />
@@ -1233,9 +1325,9 @@ export default function FloatingButton({
                 </div>
               ) : (
                 <QuestionListErrorBoundary>
-                  {getLessonQuestions().map((qItem, index) => (
+                  {getVisibleLessonQuestions().map((qItem, index) => (
                     <QuestionItem 
-                      key={index}
+                      key={`${typeof qItem === 'string' ? 's' : (qItem.id || 'q')}-${index}`}
                       item={qItem}
                       isOnline={isOnline}
                       onOpenAccountancyWorkspace={handleOpenAccountancyWorkspace}

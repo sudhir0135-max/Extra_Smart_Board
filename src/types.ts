@@ -53,6 +53,8 @@ export interface InquiryQuestionObj {
   tabs?: AccountancyTabConfig[];
   marks?: number | null;
   topicTitle?: string | null;
+  /** Where the question comes from (e.g. NCERT, CBSE 2023). Used to filter questions in the student panel. */
+  source?: string | null;
 }
 
 export interface Topic {
@@ -144,6 +146,8 @@ export interface FlashQuestion {
   answer: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   topicTitle?: string | null;
+  /** Where the question comes from (e.g. NCERT, CBSE 2023). */
+  source?: string | null;
 }
 
 export interface DrawingStroke {
