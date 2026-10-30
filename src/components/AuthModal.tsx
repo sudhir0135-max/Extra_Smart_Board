@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { holdBackgroundWork } from '../lib/networkPriority';
 import { auth, db, googleProvider } from '../lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, User } from 'firebase/auth';
 import { doc, getDocFromServer, setDoc } from 'firebase/firestore';
@@ -68,6 +69,12 @@ export default function AuthModal({ isOpen, onClose, onSuccess, title, initialMo
       }
     }
   }, [isOpen, auth.currentUser, initialMode]);
+
+  // While the sign-in box is open, background downloads pause so the sign-in request gets the connection
+  React.useEffect(() => {
+    if (!isOpen) return;
+    return holdBackgroundWork();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-30] - Fix: Sign-in "auth/network-request-failed" on Slow Connections
+
+### Fixed
+- **Cause**: every chapter refresh re-downloaded every chapter PDF of the book, even PDFs already saved on the device, all at once. With the background refresh (all books on the device, at start-up and every 15 minutes) this flooded slow connections, and the sign-in request could time out with `auth/network-request-failed`.
+- **`lib/pdfCache.ts` `queuePdfPrecache`**: background PDF pre-caching skips PDFs already saved, downloads one at a time, and waits while someone is signing in. Used by both PDF pre-cache spots in `App.tsx` (the PDF viewer itself still downloads on demand).
+- **`lib/networkPriority.ts`**: `holdBackgroundWork()` / `waitForBackgroundTurn()`. `AuthModal` holds background work while the sign-in box is open; the background refresh (`App.tsx`) and HTML/image pre-caching (`lib/offlineCache.ts`) wait their turn.
+- The first background refresh now starts 20 seconds after the app opens (was 4 seconds).
+
 ## [2026-10-30] - Greenboard: Simpler Toolbar with Highlighter
 
 ### Changed

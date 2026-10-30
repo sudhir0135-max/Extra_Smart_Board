@@ -29,7 +29,8 @@ import AuthModal from './components/AuthModal';
 import { Capacitor } from '@capacitor/core';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dbLocal } from './lib/db';
-import { downloadAndCachePdf } from './lib/pdfCache';
+import { queuePdfPrecache } from './lib/pdfCache';
+import { waitForBackgroundTurn } from './lib/networkPriority';
 import { hasTextContent } from './lib/contentUtils';
 import { getStudentViewLesson, getChapterContentType } from './lib/chapterContent';
 import { precacheLessonsForOffline } from './lib/offlineCache';
@@ -160,7 +161,7 @@ export default function App() {
             // Pre-cache chapter PDFs in background (only for chapters whose content type is PDF)
             sanitizedLessons.forEach(l => {
               if (l.pdfUrl && l.pdfUrl.trim().length > 0 && getChapterContentType(l) === 'pdf') {
-                downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
+                queuePdfPrecache(l.pdfUrl);
               }
             });
           }
@@ -421,9 +422,10 @@ export default function App() {
         }).catch(console.error);
 
         // 3. Pre-cache chapter PDFs locally in background (only for chapters whose content type is PDF)
+        // (skips PDFs already saved, downloads one at a time, pauses during sign-in)
         sanitizedLessons.forEach(l => {
           if (l.pdfUrl && l.pdfUrl.trim().length > 0 && getChapterContentType(l) === 'pdf') {
-            downloadAndCachePdf(l.pdfUrl).catch(err => console.warn('PDF pre-cache error:', err));
+            queuePdfPrecache(l.pdfUrl);
           }
         });
 
@@ -633,6 +635,7 @@ export default function App() {
         ...savedBookIds.filter(id => typeof id === 'number'),
       ]));
       for (const id of ids) {
+        await waitForBackgroundTurn(); // let a sign-in finish first
         if (!navigator.onLine) break;
         await fetchBookLessons(id, { background: id !== selected });
       }
@@ -646,7 +649,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isBooksLoaded) return;
-    const startTimer = window.setTimeout(() => runBackgroundRefresh(true), 4000);
+    const startTimer = window.setTimeout(() => runBackgroundRefresh(true), 20000); // after start-up / sign-in
     const onOnline = () => runBackgroundRefresh(true);
     const onVisible = () => { if (document.visibilityState === 'visible') runBackgroundRefresh(false); };
     const interval = window.setInterval(() => runBackgroundRefresh(true), 15 * 60 * 1000);

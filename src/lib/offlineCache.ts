@@ -6,6 +6,7 @@
 import { Lesson } from '../types';
 import { dbLocal } from './db';
 import { extractImagesFromLesson, downloadAndCacheImage } from './imageCache';
+import { waitForBackgroundTurn } from './networkPriority';
 
 const isNative = () =>
   typeof (window as any).Capacitor !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
@@ -72,6 +73,7 @@ export async function precacheLessonsForOffline(lessons: Lesson[]): Promise<void
 
   const BATCH = 3;
   for (let i = 0; i < htmlUrls.length; i += BATCH) {
+    await waitForBackgroundTurn(); // pause while someone is signing in
     await Promise.all(htmlUrls.slice(i, i + BATCH).map(async url => {
       if (inFlight.has(url)) return;
       inFlight.add(url);
@@ -84,6 +86,7 @@ export async function precacheLessonsForOffline(lessons: Lesson[]): Promise<void
   }
 
   for (let i = 0; i < imageUrls.length; i += BATCH) {
+    await waitForBackgroundTurn();
     await Promise.all(imageUrls.slice(i, i + BATCH).map(url => {
       if (inFlight.has(url)) return Promise.resolve();
       inFlight.add(url);

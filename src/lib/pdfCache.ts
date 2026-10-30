@@ -281,6 +281,43 @@ export async function isPdfCached(url: string): Promise<boolean> {
   return webIsPdfCached(url);
 }
 
+// ─── Background pre-cache queue ───────────────────────────────────────────────
+// Used when chapters are refreshed in the background. PDFs already saved on the device are
+// skipped (they used to be downloaded again on every refresh), new ones download one at a
+// time, and the queue waits while someone is signing in (see lib/networkPriority.ts).
+const pdfQueue: string[] = [];
+const pdfQueued = new Set<string>();
+let pdfQueueRunning = false;
+
+export function queuePdfPrecache(url: string): void {
+  if (!url || pdfQueued.has(url)) return;
+  pdfQueued.add(url);
+  pdfQueue.push(url);
+  if (!pdfQueueRunning) void runPdfQueue();
+}
+
+async function runPdfQueue(): Promise<void> {
+  pdfQueueRunning = true;
+  const { waitForBackgroundTurn } = await import('./networkPriority');
+  try {
+    while (pdfQueue.length > 0) {
+      const url = pdfQueue.shift()!;
+      try {
+        await waitForBackgroundTurn();
+        if (typeof navigator !== 'undefined' && !navigator.onLine) continue;
+        if (await isPdfCached(url)) continue;
+        await downloadAndCachePdf(url);
+      } catch (e) {
+        console.warn('[pdfCache] background pre-cache failed:', url, e);
+      } finally {
+        pdfQueued.delete(url);
+      }
+    }
+  } finally {
+    pdfQueueRunning = false;
+  }
+}
+
 // ─── Download + Cache ─────────────────────────────────────────────────────────
 
 /**
