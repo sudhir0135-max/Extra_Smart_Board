@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-30] - Greenboard: Simpler Toolbar with Highlighter
+
+### Changed
+- **Greenboard (`BlackboardPanel.tsx`)**: only four colours — Red, Blue, Yellow, White (bright shades readable on green). The pen-size picker is removed; each tool has a fixed thickness. New **Highlighter** tool (wide, see-through strokes in the selected colour) next to **Pen**. The **Eraser is removed** — Undo and Clear cover corrections. White pen is the default.
+- **Drag handle**: the Rough Work strip sits on the board's moving (left) edge. Tap = open/close; drag sideways = resize (pull it out from closed to open it). Released below **30%** → closes; above **80%** → **full width** (100% of the lesson area). Width remembered on the device (`localStorage greenboard_width_pct`). Closed board = exactly the handle width (no blank gap). Canvas follows the size without stretching drawings (ResizeObserver).
+- **Fixed button positions**: title, colours, Pen/Highlighter, Undo, Clear and Close share one top bar, icon-only, right-aligned to the board's fixed right edge with no wrapping, so buttons never move while the board is dragged.
+- **See-through mode**: at full width an eye button makes the board 70% transparent (30% green) so the lesson shows through clearly (drawings stay solid); switched off automatically when the board is made narrower.
+
 ## [2026-10-30] - Editor Panel: Reorder Topics
 
 ### Added

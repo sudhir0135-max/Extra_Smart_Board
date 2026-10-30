@@ -17,15 +17,19 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { X, Trash2, Undo2, Eraser, Pencil } from 'lucide-react';
+import { X, Trash2, Undo2, Pencil, Highlighter, Eye, EyeOff } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+type Tool = 'pen' | 'highlighter';
 
 interface Stroke {
   points: { x: number; y: number }[];
   color: string;
   width: number;
   isEraser: boolean;
+  /** 'highlighter' strokes are wide and see-through */
+  tool?: Tool;
 }
 
 export interface BlackboardPanelProps {
@@ -46,16 +50,26 @@ export interface BlackboardPanelProps {
 
 // ─── Chalk colour palette ────────────────────────────────────────────────────
 
+// Only four colours (bright shades that stay readable on the green board)
 const CHALK_COLORS = [
-  { label: 'White',  hex: '#f0ece0' },
+  { label: 'Red',    hex: '#ff5a5a' },
+  { label: 'Blue',   hex: '#5aa9ff' },
   { label: 'Yellow', hex: '#f5d76e' },
-  { label: 'Cyan',   hex: '#7ee8e8' },
-  { label: 'Pink',   hex: '#f4a0b5' },
-  { label: 'Orange', hex: '#f4a44a' },
-  { label: 'Green',  hex: '#a8e6a3' },
+  { label: 'White',  hex: '#f0ece0' },
 ];
 
-const CHALK_WIDTHS = [3, 6, 10, 16];
+// Fixed thickness per tool (no size picker)
+const TOOL_WIDTH: Record<Tool, number> = { pen: 4, highlighter: 22 };
+const TOOL_ALPHA: Record<Tool, number> = { pen: 0.92, highlighter: 0.45 };
+
+// Board width (percent of the lesson area): dragged by the handle, remembered on this device
+const WIDTH_KEY = 'greenboard_width_pct';
+const DEFAULT_WIDTH = 40;
+const MIN_OPEN_WIDTH = 30;   // narrowest open board; released narrower than this → board closes
+const FULL_FROM = 80;        // released wider than this → full width
+const MAX_WIDTH = 100;
+const SEE_THROUGH_ALPHA = 0.3; // full-width board can be made see-through: 70% transparent (30% green)
+const DRAG_THRESHOLD_PX = 6; // smaller movements count as a tap
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -70,12 +84,24 @@ export default function BlackboardPanel({
   lessonId,
   isOnline = true,
 }: BlackboardPanelProps) {
-  const [color, setColor]         = useState(CHALK_COLORS[0].hex);
-  const [width, setWidth]         = useState(CHALK_WIDTHS[1]);
-  const [isEraser, setIsEraser]   = useState(false);
+  const [color, setColor]         = useState(CHALK_COLORS[3].hex); // white chalk by default
+  const [tool, setTool]           = useState<Tool>('pen');
+  const isEraser = false; // eraser removed: Undo and Clear cover corrections
   const [strokes, setStrokes]     = useState<Stroke[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
+
+  const [widthPct, setWidthPct] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem(WIDTH_KEY));
+      return v >= MIN_OPEN_WIDTH && v <= MAX_WIDTH ? v : DEFAULT_WIDTH;
+    } catch { return DEFAULT_WIDTH; }
+  });
+  const [dragPct, setDragPct] = useState<number | null>(null); // live width while dragging
+  const [seeThrough, setSeeThrough] = useState(false);          // only offered at full width
+  const [parentW, setParentW] = useState<number>(() => window.innerWidth);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startPct: number; parentW: number; moved: boolean; pct: number } | null>(null);
 
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const panelRef     = useRef<HTMLDivElement>(null);
@@ -100,7 +126,7 @@ export default function BlackboardPanel({
       ctx.save();
       ctx.globalCompositeOperation = s.isEraser ? 'destination-out' : 'source-over';
       ctx.strokeStyle = s.isEraser ? 'rgba(0,0,0,1)' : s.color;
-      ctx.globalAlpha = s.isEraser ? 1 : 0.88;
+      ctx.globalAlpha = s.isEraser ? 1 : TOOL_ALPHA[s.tool === 'highlighter' ? 'highlighter' : 'pen'];
       ctx.lineWidth = s.width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -136,6 +162,67 @@ export default function BlackboardPanel({
     return () => clearTimeout(t);
   }, [isOpen, mode, resizeCanvas]);
 
+  // Keep the canvas pixel size equal to the board size while it is dragged wider/narrower.
+  // Strokes keep their positions (nothing is stretched); widening shows hidden parts again.
+  const resizeRef = useRef(resizeCanvas);
+  resizeRef.current = resizeCanvas;
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => { if (panel.clientWidth > 0) resizeRef.current(); });
+    ro.observe(panel);
+    return () => ro.disconnect();
+  }, []);
+
+  // Width of the lesson area (the board's container), so the handle and the closed board are the same size
+  useEffect(() => {
+    const parent = rootRef.current?.parentElement;
+    if (!parent) return;
+    const update = () => setParentW(parent.clientWidth || window.innerWidth);
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, []);
+  const handlePx = Math.max(28, Math.round(parentW * 0.03));
+  const openPct = Math.min(MAX_WIDTH, Math.max(MIN_OPEN_WIDTH, widthPct));
+  const isFull = isOpen && dragPct === null && openPct >= MAX_WIDTH;
+  useEffect(() => { if (!isFull) setSeeThrough(false); }, [isFull]);
+
+  // ── Drag handle: tap = open/close, drag sideways = resize ─────────────────
+  const stripPct = () => (handlePx / (rootRef.current?.parentElement?.clientWidth || parentW)) * 100;
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const parentW = rootRef.current?.parentElement?.clientWidth || window.innerWidth;
+    const startPct = isOpen ? openPct : stripPct();
+    dragRef.current = { startX: e.clientX, startPct, parentW, moved: false, pct: startPct };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = d.startX - e.clientX; // board is on the right: moving left makes it wider
+    if (!d.moved && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
+    d.moved = true;
+    d.pct = Math.min(MAX_WIDTH, Math.max(stripPct(), d.startPct + (dx / d.parentW) * 100));
+    setDragPct(d.pct);
+  };
+  const onHandleUp = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d) return;
+    setDragPct(null);
+    if (!d.moved) { onStripClick(); return; } // tap: open / close as before
+    if (d.pct < MIN_OPEN_WIDTH) {
+      if (isOpen) onClose();
+      return;
+    }
+    const next = d.pct > FULL_FROM ? MAX_WIDTH : Math.round(d.pct);
+    setWidthPct(next);
+    try { localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* storage unavailable */ }
+    if (!isOpen) onStripClick(); // dragged out from closed: open it
+  };
+
   // ── Pointer events ──────────────────────────────────────────────────────
   const getPos = (e: React.PointerEvent) => {
     const canvas = canvasRef.current!;
@@ -152,7 +239,7 @@ export default function BlackboardPanel({
     isDrawingRef.current = true;
     setIsDrawing(true);
     const pos = getPos(e);
-    const stroke: Stroke = { points: [pos], color, width, isEraser };
+    const stroke: Stroke = { points: [pos], color, width: TOOL_WIDTH[tool], isEraser, tool };
     setCurrentStroke(stroke);
     redraw(strokes, stroke);
   };
@@ -196,33 +283,84 @@ export default function BlackboardPanel({
 
   // ── Shared styles ───────────────────────────────────────────────────────
   const boardBg = 'linear-gradient(160deg, #1a3d2b 0%, #14532d 30%, #0f3d24 70%, #0a2e1b 100%)';
+  const a = SEE_THROUGH_ALPHA;
+  const boardBgSeeThrough = `linear-gradient(160deg, rgba(26,61,43,${a}) 0%, rgba(20,83,45,${a}) 30%, rgba(15,61,36,${a}) 70%, rgba(10,46,27,${a}) 100%)`;
   const grainBg = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3'%3E%3Ccircle cx='1.5' cy='1.5' r='0.7' fill='rgba(255,255,255,0.025)'/%3E%3C/svg%3E")`;
 
   return (
     <div
+      ref={rootRef}
       style={{
         position: 'absolute',
         top: 0,
         right: 0,
         height: '100%',
-        width: isOpen ? '40%' : 'max(3%, 28px)',
+        width: dragPct !== null ? `${dragPct}%` : isOpen ? `${openPct}%` : `${handlePx}px`,
         zIndex: 40,
         display: 'flex',
         flexDirection: 'row',
-        transition: 'width 300ms cubic-bezier(0.4, 0, 0.2, 1)',
+        transition: dragPct !== null ? 'none' : 'width 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         pointerEvents: 'auto',
       }}
     >
-      {/* ── Expanded panel body (left side of the right panel) ─────── */}
+      {/* ── Handle on the board's moving edge: tap = open/close, drag sideways = resize ── */}
+      <div
+        onPointerDown={onHandleDown}
+        onPointerMove={onHandleMove}
+        onPointerUp={onHandleUp}
+        onPointerCancel={onHandleUp}
+        title={isOpen ? 'Drag to resize · Tap to close' : 'Tap to open · Drag to pull out the Rough Work board'}
+        style={{
+          width: handlePx,
+          minWidth: handlePx,
+          flexShrink: 0,
+          background: 'linear-gradient(180deg, #1b4332 0%, #145a32 40%, #0f3d26 100%)',
+          borderRight: '2px solid #2d6a4f',
+          touchAction: 'none',
+          boxShadow: isOpen ? 'none' : '-3px 0 12px rgba(0,0,0,0.4)',
+          cursor: 'ew-resize',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          userSelect: 'none',
+          position: 'relative',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Grain texture */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Ccircle cx='1' cy='1' r='0.6' fill='rgba(255,255,255,0.04)'/%3E%3C/svg%3E")`,
+          backgroundRepeat: 'repeat', pointerEvents: 'none',
+        }} />
+        <div style={{
+          writingMode: 'vertical-rl',
+          textOrientation: 'mixed',
+          transform: 'rotate(180deg)',
+          color: 'rgba(240,236,224,0.75)',
+          fontSize: 9,
+          fontFamily: 'monospace',
+          fontWeight: 700,
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+        }}>
+          {isOpen ? '⇔ Drag · Tap to close' : '✏ Rough Work'}
+        </div>
+      </div>
+
+      {/* ── Board body (to the right of the handle) ─────── */}
       <div
         ref={panelRef}
         style={{
           flex: 1,
-          background: boardBg,
+          background: seeThrough ? boardBgSeeThrough : boardBg,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          opacity: isOpen ? 1 : 0,
+          opacity: isOpen || dragPct !== null ? 1 : 0,
           transition: 'opacity 200ms ease',
           pointerEvents: isOpen ? 'auto' : 'none',
           position: 'relative',
@@ -230,39 +368,139 @@ export default function BlackboardPanel({
       >
         {/* Chalk grain overlay */}
         <div style={{
+          display: seeThrough ? 'none' : 'block',
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
           backgroundImage: grainBg, backgroundRepeat: 'repeat',
         }} />
 
-        {/* ── Header (shared by both modes) ──────────────────────────── */}
+        {/* ── Top bar: title on the left, all buttons on the right ─────────
+             The board's right edge never moves, so right-aligned buttons keep their
+             place while the board is dragged wider or narrower (no wrapping). */}
         <div style={{
           zIndex: 2, flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 12px',
+          display: 'flex', alignItems: 'center', gap: 8,
+          justifyContent: 'flex-end', // anything that does not fit is cut off on the left, never pushes buttons
+          overflow: 'hidden',
+          padding: '6px 8px 6px 12px',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           background: 'rgba(0,0,0,0.25)',
+          whiteSpace: 'nowrap',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14 }}>{mode === 'media' ? '🖼' : '🖊'}</span>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>{mode === 'media' ? '🖼' : '🖊'}</span>
             <span style={{
-              color: '#d4f0c4', fontSize: 11, fontWeight: 700,
+              color: '#d4f0c4', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis',
               fontFamily: 'monospace', letterSpacing: '0.08em', textTransform: 'uppercase',
             }}>
-              {mode === 'media' ? 'Annotation Detail' : 'Explanation / Rough Work'}
+              {mode === 'media' ? 'Annotation Detail' : 'Rough Work'}
             </span>
           </div>
+
+          {mode === 'draw' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              {/* Colours */}
+              {CHALK_COLORS.map(c => {
+                const active = color === c.hex;
+                return (
+                  <button key={c.hex} title={c.label} aria-label={c.label}
+                    onClick={() => setColor(c.hex)}
+                    style={{
+                      width: 22, height: 22, borderRadius: '50%', background: c.hex,
+                      border: active ? '2px solid #fff' : '2px solid rgba(255,255,255,0.2)',
+                      cursor: 'pointer', flexShrink: 0,
+                      boxShadow: active ? `0 0 0 2px rgba(0,0,0,0.35), 0 0 8px ${c.hex}aa` : 'none',
+                      transform: active ? 'scale(1.12)' : 'none',
+                      transition: 'all 0.15s',
+                    }} />
+                );
+              })}
+
+              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)', flexShrink: 0, margin: '0 2px' }} />
+
+              {/* Pen / Highlighter */}
+              {([
+                { id: 'pen', label: 'Pen', Icon: Pencil },
+                { id: 'highlighter', label: 'Highlighter', Icon: Highlighter },
+              ] as const).map(({ id, label, Icon }) => {
+                const active = tool === id;
+                return (
+                  <button key={id} onClick={() => setTool(id)} title={label} aria-label={label}
+                    style={{
+                      width: 30, height: 28, borderRadius: 6, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                      background: active ? 'rgba(255,255,255,0.18)' : 'transparent',
+                      border: active ? '1px solid rgba(255,255,255,0.45)' : '1px solid rgba(255,255,255,0.12)',
+                      color: active ? color : 'rgba(255,255,255,0.7)',
+                    }}>
+                    <Icon size={15} />
+                  </button>
+                );
+              })}
+
+              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)', flexShrink: 0, margin: '0 2px' }} />
+
+              {/* Undo */}
+              <button onClick={handleUndo} disabled={strokes.length === 0} title="Undo" aria-label="Undo"
+                style={{
+                      width: 30, height: 28, borderRadius: 6, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all 0.15s',
+                  background: 'transparent',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  cursor: strokes.length === 0 ? 'not-allowed' : 'pointer',
+                  color: strokes.length === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
+                }}>
+                <Undo2 size={15} />
+              </button>
+
+              {/* Clear */}
+              <button onClick={handleClear} disabled={strokes.length === 0} title="Clear board" aria-label="Clear"
+                style={{
+                      width: 30, height: 28, borderRadius: 6, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all 0.15s',
+                  background: strokes.length === 0 ? 'transparent' : 'rgba(239,68,68,0.15)',
+                  border: strokes.length === 0 ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(239,68,68,0.4)',
+                  cursor: strokes.length === 0 ? 'not-allowed' : 'pointer',
+                  color: strokes.length === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(252,165,165,0.95)',
+                }}>
+                <Trash2 size={15} />
+              </button>
+
+              {/* See-through (full width only) */}
+              {isFull && (
+                <button onClick={() => setSeeThrough(s => !s)}
+                  title={seeThrough ? 'Make board solid' : 'See through the board (70% transparent)'}
+                  aria-label="See-through board"
+                  style={{
+                      width: 30, height: 28, borderRadius: 6, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    background: seeThrough ? 'rgba(255,255,255,0.22)' : 'transparent',
+                    border: seeThrough ? '1px solid rgba(255,255,255,0.55)' : '1px solid rgba(255,255,255,0.12)',
+                    color: '#fff',
+                  }}>
+                  {seeThrough ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              )}
+            </div>
+          )}
+
           <button
             onClick={onClose}
             title="Close"
+            aria-label="Close board"
             style={{
+                      width: 30, height: 28, borderRadius: 6, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', transition: 'all 0.15s',
               background: 'rgba(255,255,255,0.07)',
               border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 6, padding: '3px 6px',
-              cursor: 'pointer', color: 'rgba(255,255,255,0.6)',
-              display: 'flex', alignItems: 'center',
+              color: 'rgba(255,255,255,0.7)',
             }}
           >
-            <X size={13} />
+            <X size={15} />
           </button>
         </div>
 
@@ -271,95 +509,6 @@ export default function BlackboardPanel({
         ══════════════════════════════════════════════════════════════ */}
         {mode === 'draw' && (
           <>
-            {/* Toolbar */}
-            <div style={{
-              zIndex: 2, flexShrink: 0,
-              display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6,
-              padding: '7px 10px',
-              borderBottom: '1px solid rgba(255,255,255,0.07)',
-              background: 'rgba(0,0,0,0.18)',
-            }}>
-              {/* Colours */}
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                {CHALK_COLORS.map(c => (
-                  <button key={c.hex} title={c.label}
-                    onClick={() => { setColor(c.hex); setIsEraser(false); }}
-                    style={{
-                      width: 18, height: 18, borderRadius: '50%', background: c.hex,
-                      border: (!isEraser && color === c.hex) ? '2px solid #fff' : '2px solid rgba(255,255,255,0.2)',
-                      cursor: 'pointer', flexShrink: 0,
-                      boxShadow: (!isEraser && color === c.hex) ? `0 0 6px ${c.hex}88` : 'none',
-                      transition: 'all 0.15s',
-                    }} />
-                ))}
-              </div>
-
-              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
-
-              {/* Widths */}
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                {CHALK_WIDTHS.map(w => (
-                  <button key={w} title={`Size ${w}`}
-                    onClick={() => { setWidth(w); setIsEraser(false); }}
-                    style={{
-                      width: 22, height: 22, borderRadius: 4,
-                      background: (!isEraser && width === w) ? 'rgba(255,255,255,0.15)' : 'transparent',
-                      border: (!isEraser && width === w) ? '1px solid rgba(255,255,255,0.4)' : '1px solid rgba(255,255,255,0.1)',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.15s', flexShrink: 0,
-                    }}>
-                    <div style={{
-                      width: Math.min(w * 1.1, 16), height: Math.min(w * 1.1, 16),
-                      borderRadius: '50%', background: isEraser ? 'rgba(255,255,255,0.3)' : color,
-                    }} />
-                  </button>
-                ))}
-              </div>
-
-              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
-
-              {/* Eraser toggle */}
-              <button onClick={() => setIsEraser(e => !e)}
-                style={{
-                  padding: '3px 8px', borderRadius: 5,
-                  background: isEraser ? 'rgba(255,255,255,0.18)' : 'transparent',
-                  border: isEraser ? '1px solid rgba(255,255,255,0.4)' : '1px solid rgba(255,255,255,0.12)',
-                  cursor: 'pointer', color: 'rgba(255,255,255,0.75)',
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: 10, fontFamily: 'monospace', transition: 'all 0.15s', flexShrink: 0,
-                }}>
-                {isEraser ? <><Pencil size={11} /> Chalk</> : <><Eraser size={11} /> Eraser</>}
-              </button>
-
-              {/* Undo */}
-              <button onClick={handleUndo} disabled={strokes.length === 0}
-                style={{
-                  padding: '3px 8px', borderRadius: 5,
-                  background: 'transparent',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  cursor: strokes.length === 0 ? 'not-allowed' : 'pointer',
-                  color: strokes.length === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.75)',
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-                }}>
-                <Undo2 size={11} /> Undo
-              </button>
-
-              {/* Clear */}
-              <button onClick={handleClear} disabled={strokes.length === 0}
-                style={{
-                  padding: '3px 8px', borderRadius: 5,
-                  background: strokes.length === 0 ? 'transparent' : 'rgba(239,68,68,0.15)',
-                  border: strokes.length === 0 ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(239,68,68,0.4)',
-                  cursor: strokes.length === 0 ? 'not-allowed' : 'pointer',
-                  color: strokes.length === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(252,165,165,0.9)',
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-                }}>
-                <Trash2 size={11} /> Clear
-              </button>
-            </div>
-
             {/* Canvas */}
             <canvas
               ref={canvasRef}
@@ -477,49 +626,6 @@ export default function BlackboardPanel({
         )}
       </div>
 
-      {/* ── 3% Collapsed strip (right edge) ───────────────────────────── */}
-      <div
-        onClick={onStripClick}
-        title={isOpen ? 'Collapse board' : 'Open Rough Work board'}
-        style={{
-          width: 'max(3%, 28px)',
-          minWidth: 28,
-          flexShrink: 0,
-          background: 'linear-gradient(180deg, #1b4332 0%, #145a32 40%, #0f3d26 100%)',
-          borderLeft: '2px solid #2d6a4f',
-          boxShadow: isOpen ? 'none' : '-3px 0 12px rgba(0,0,0,0.4)',
-          cursor: 'pointer',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          userSelect: 'none',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Grain texture */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Ccircle cx='1' cy='1' r='0.6' fill='rgba(255,255,255,0.04)'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'repeat', pointerEvents: 'none',
-        }} />
-        <div style={{
-          writingMode: 'vertical-rl',
-          textOrientation: 'mixed',
-          transform: 'rotate(180deg)',
-          color: 'rgba(240,236,224,0.75)',
-          fontSize: 9,
-          fontFamily: 'monospace',
-          fontWeight: 700,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-        }}>
-          {isOpen ? 'Close →' : '✏ Rough Work'}
-        </div>
-      </div>
     </div>
   );
 }
