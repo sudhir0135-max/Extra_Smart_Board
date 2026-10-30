@@ -392,7 +392,10 @@ export default function App() {
         let lessonsToPersist = sanitizedLessons;
         let finalSyncStatus: 'synced' | 'pending' = 'synced';
 
-        if (existingOffline && existingOffline.sync_status === 'pending' && existingOffline.lessons) {
+        // A "pending" copy holds editor changes that may not have reached the server yet. Editor saves go
+        // straight to Firestore, so a pending copy older than 10 minutes is stale: the server copy wins.
+        const pendingAgeMs = existingOffline?.updated_at ? Date.now() - Date.parse(existingOffline.updated_at) : Infinity;
+        if (existingOffline && existingOffline.sync_status === 'pending' && existingOffline.lessons && pendingAgeMs < 10 * 60 * 1000) {
           finalSyncStatus = 'pending';
           // Preserve local pending edits/topics so network refresh doesn't overwrite unsaved work
           lessonsToPersist = sanitizedLessons.map(liveL => {
@@ -545,6 +548,11 @@ export default function App() {
     // LOCAL-FIRST MERGE: Always merge offline disk data across ALL screens (Student Panel, Admin, Book Editor)
     return baseBooks.map(b => {
       const offline = offlineBookLessons.find(ol => ol.bookId === b.id);
+      // The saved copy is only a fallback for offline use: once fresh chapters have been loaded from
+      // the server, they win (otherwise an old saved copy hides newer questions, sources, etc.).
+      if (offline && offline.sync_status !== 'pending' && b.lessons && b.lessons.length > 0) {
+        return b;
+      }
       if (offline && offline.sync_status !== 'deleted') {
         // Merge offline and live lessons deeply: 
         // 1. Map through offline lessons and pull in missing nested data from live.

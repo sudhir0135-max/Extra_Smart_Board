@@ -261,6 +261,9 @@ export default function BookEditorPanel({
       const lessonRef = doc(db, 'books', bookIdStr, 'lessons', updatedLesson.id);
       await setDoc(lessonRef, docToWrite);
 
+      // Saved on the server: the local copy is no longer "pending", so screens use the server copy
+      await (dbLocal.offline_lessons as any).update(modifiedBook.id, { sync_status: 'synced' }).catch(() => {});
+
       // Refresh in-memory subLessonsCache, firebaseBooks, and offline_lessons so all screens immediately see the update
       if (fetchBookLessons) {
         await fetchBookLessons(modifiedBook.id);
@@ -702,6 +705,32 @@ export default function BookEditorPanel({
         console.error('Failed to delete topic:', err);
         alert('Failed to delete topic.');
       }
+    }
+  };
+
+  /** Moves the selected topic one place up (-1) or down (+1) in the chapter's topic order. */
+  const handleMoveTopic = async (direction: -1 | 1) => {
+    if (!assignedBook || !activeLesson || !selectedTopic) return;
+    const topics = [...(activeLesson.topics || [])];
+    const from = topics.findIndex(t => t.id === selectedTopic.id);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= topics.length) return;
+    [topics[from], topics[to]] = [topics[to], topics[from]];
+    try {
+      const modifiedBook = {
+        ...assignedBook,
+        lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? { ...l, topics } : l))
+      };
+      const updatedLesson = modifiedBook.lessons.find(l => l.id === activeLesson.id);
+      if (updatedLesson) {
+        await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      } else {
+        await saveBookLocally(modifiedBook);
+      }
+      flashMessage(`Topic moved to position ${to + 1}.`);
+    } catch (err) {
+      console.error('Failed to move topic:', err);
+      alert('Failed to change the topic order.');
     }
   };
 
@@ -1720,6 +1749,32 @@ export default function BookEditorPanel({
 
                           {selectedTopic && !isEditingTopic && (
                             <div className="flex items-center gap-1.5 ml-2">
+                              {(() => {
+                                const pos = (activeLesson.topics || []).findIndex(t => t.id === selectedTopic.id);
+                                const count = (activeLesson.topics || []).length;
+                                return (
+                                  <div className="flex items-center gap-0.5 bg-[#03060c] border border-slate-700 rounded-lg p-0.5" title="Change topic order">
+                                    <button
+                                      onClick={() => handleMoveTopic(-1)}
+                                      disabled={isSaving || isPreviewMode || pos <= 0}
+                                      className="p-1 rounded text-slate-300 hover:bg-indigo-600 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move topic up"
+                                      aria-label="Move topic up"
+                                    >
+                                      <ArrowUp className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleMoveTopic(1)}
+                                      disabled={isSaving || isPreviewMode || pos < 0 || pos >= count - 1}
+                                      className="p-1 rounded text-slate-300 hover:bg-indigo-600 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move topic down"
+                                      aria-label="Move topic down"
+                                    >
+                                      <ArrowDown className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })()}
                               <button
                                 onClick={handleStartEditTopic}
                                 className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"

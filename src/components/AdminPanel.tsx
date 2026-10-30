@@ -44,7 +44,8 @@ import InquiryQuestionManager from './InquiryQuestionManager';
 import SyncManager from './SyncManager';
 import AssetLibraryModal from './AssetLibraryModal';
 import NoticeManager from './NoticeManager';
-import { Bell } from 'lucide-react';
+import { Bell, FileSpreadsheet as XlsxIcon } from 'lucide-react';
+import { downloadChapterQuestionsXlsx } from '../lib/questionExport';
 
 export interface AdminPanelProps {
   books: Book[];
@@ -630,6 +631,7 @@ export default function AdminPanel({
 
   // Active book context details
   const activeBook = books.find(b => b.id === selectedBookId) || null;
+  const [exportingQuestions, setExportingQuestions] = useState<'flash' | 'inquiry' | null>(null);
   const activeLesson = activeBook ? (activeBook.lessons || []).find(l => l.id === selectedLessonId) || null : null;
 
   // 4. LESSON CRUD OPERATIONS
@@ -1864,6 +1866,32 @@ export default function AdminPanel({
                                   onChange={e => handleUpdateLessonMeta({ title: e.target.value })}
                                   className="bg-transparent border border-transparent focus:border-slate-800 rounded px-1.5 py-0.5 text-sm font-extrabold text-white focus:bg-[#03060c] max-w-sm"
                                 />
+                                {/* Download this chapter's questions as XLSX (same columns as the upload templates) */}
+                                {(['flash', 'inquiry'] as const).map(kind => (
+                                  <button
+                                    key={kind}
+                                    type="button"
+                                    disabled={exportingQuestions !== null}
+                                    onClick={async () => {
+                                      if (!activeBook || !activeLesson) return;
+                                      setExportingQuestions(kind);
+                                      try {
+                                        const n = await downloadChapterQuestionsXlsx(kind, activeBook.id, activeBook.title, activeLesson);
+                                        if (n === 0) alert(`This chapter has no ${kind === 'flash' ? 'flash' : 'inquiry'} questions to download.`);
+                                        else flashMessage(`Downloaded ${n} ${kind === 'flash' ? 'flash' : 'inquiry'} question${n === 1 ? '' : 's'}.`);
+                                      } catch (err: any) {
+                                        alert('Could not create the XLSX file: ' + (err?.message || err));
+                                      } finally {
+                                        setExportingQuestions(null);
+                                      }
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border border-emerald-600/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                                    title={`Download this chapter's ${kind === 'flash' ? 'flash' : 'inquiry'} questions as an Excel (XLSX) file`}
+                                  >
+                                    <XlsxIcon className="w-3.5 h-3.5" />
+                                    {exportingQuestions === kind ? 'Preparing…' : kind === 'flash' ? 'Flash XLSX' : 'Inquiry XLSX'}
+                                  </button>
+                                ))}
                               </div>
                               <div className="flex items-center gap-3 mt-1 text-[10px]">
                                 <span className="text-slate-400">Subtitle:</span>

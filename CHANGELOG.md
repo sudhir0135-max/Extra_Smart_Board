@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-30] - Editor Panel: Reorder Topics
+
+### Added
+- **Topic order (`BookEditorPanel.tsx` `handleMoveTopic`)**: ↑ / ↓ buttons next to Edit Topic move the selected topic one place up or down. The new order is saved straight to the chapter (same save as editing a topic), so the topic dropdown ("Topic 1, 2, …") and the student panel's topic ribbons follow it. The moved topic stays selected; the buttons are disabled at the first/last position and in admin preview.
+
+## [2026-10-30] - Admin: Download Chapter Questions as XLSX
+
+### Added
+- **Admin panel → Textbooks → chapter header**: "Flash XLSX" and "Inquiry XLSX" buttons next to the chapter title download the selected chapter's existing questions (`lib/questionExport.ts`). The chapter is re-read from the server first; chapter-level and topic-level copies are combined without duplicates. Columns match the upload templates so the file can be edited and uploaded again — Flash: Question, Answer, Difficulty, Topic, Source; Inquiry: Question, Answer, Topic, Marks, Source. File name: "<Book> - <Chapter> - Inquiry Questions.xlsx".
+
+## [2026-10-29] - Fix: Student Panel Showed Old Saved Questions (Source Checkboxes Missing)
+
+### Fixed
+- **Root cause**: every editor save stored the whole book in this browser as `sync_status: 'pending'` and nothing ever cleared it. The books merge in `App.tsx` always preferred the saved copy over fresh server data, and `fetchBookLessons` never refreshed a pending copy — so the student panel kept showing old questions (without `source`) and the Source checkboxes never appeared.
+- `BookEditorPanel.tsx`: after a successful Firestore save the local copy is marked `synced`.
+- `App.tsx` `fetchBookLessons`: a pending copy older than 10 minutes is treated as stale and replaced by the server copy (heals devices that already have a stuck pending copy).
+- `App.tsx` books merge: a synced saved copy is only used when the server chapters are not loaded (offline); loaded server chapters always win.
+
 ## [2026-10-29] - Source Field Placement & Update Notice
 
 ### Fixed & Improved
