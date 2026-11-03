@@ -18,8 +18,10 @@ import CachedImage from './CachedImage';
 import { getLocalImageSrc } from '../lib/imageCache';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
-import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+import { hasTextContent, getEffectiveTopicInquiryQuestions, getEffectiveTopicFlashQuestions, getEffectiveTopicVideos } from '../lib/contentUtils';
 import PdfPageViewer from './PdfPageViewer';
+import { getChapterContentType } from '../lib/chapterContent';
+import { getChapterVideoUrls, getPdfChapterQuestions } from '../lib/chapterMedia';
 import HtmlPageFrame from './HtmlPageFrame';
 
 
@@ -210,6 +212,8 @@ interface WorkspaceProps {
   onAutoBookmark?: (bookId: number, lessonId: string, pageNumber: number) => void;
   initialTargetPage?: number | null;
   onOpenTopicModal?: (topic: Topic, panel: 'video' | 'questions' | 'notes') => void;
+  /** Opens the chapter's lecture videos ('video') or, for PDF chapters, its "Some Extra Questions" ('notes') */
+  onOpenChapterPanel?: (panel: 'video' | 'notes') => void;
 }
 
 export default function Workspace({
@@ -235,6 +239,7 @@ export default function Workspace({
   onAutoBookmark,
   initialTargetPage,
   onOpenTopicModal,
+  onOpenChapterPanel,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
@@ -261,6 +266,7 @@ export default function Workspace({
   };
 
   const [expandedTopicIds, setExpandedTopicIds] = useState<Record<string, boolean>>({});
+  const [selectedTopicVideoParts, setSelectedTopicVideoParts] = useState<Record<string, number>>({});
   const toggleTopicExpand = (topicId: string) => {
     setExpandedTopicIds(prev => ({
       ...prev,
@@ -636,6 +642,10 @@ export default function Workspace({
             onStripClick={handleBoardStripClick}
             onClose={handleBoardClose}
             isOnline={isOnline}
+            chapterVideoCount={getChapterVideoUrls(activeLesson).length}
+            onOpenChapterVideos={onOpenChapterPanel ? () => onOpenChapterPanel('video') : undefined}
+            chapterQuestionCount={getChapterContentType(activeLesson) === 'pdf' ? getPdfChapterQuestions(activeLesson).length : undefined}
+            onOpenChapterQuestions={onOpenChapterPanel && getChapterContentType(activeLesson) === 'pdf' ? () => onOpenChapterPanel('notes') : undefined}
           />
 
             {/* ── PAGE MODE: render lesson pages as before ── */}
@@ -675,43 +685,58 @@ export default function Workspace({
                           onClick={(e) => e.stopPropagation()}
                           className="flex items-center gap-2.5 shrink-0 self-end md:self-auto"
                         >
-                          {/* Video Player Icon Only */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenTopicModal?.(topic, 'video');
-                            }}
-                            disabled={!topic.videoUrl}
-                            className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
-                              topic.videoUrl
-                                ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 ring-1 ring-sky-400/40 shadow-sky-500/20'
-                                : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
-                            }`}
-                            title={topic.videoUrl ? `Play Video Lecture for '${topic.title}'` : 'No video attached to this topic'}
-                          >
-                            <Video className="w-4.5 h-4.5" />
-                          </button>
+                          {/* Video Player Icon Only (per-topic videos) */}
+                          {(() => {
+                            const topicVideos = getEffectiveTopicVideos(topic, activeLesson);
+                            const hasVideo = topicVideos.length > 0;
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenTopicModal?.(topic, 'video');
+                                }}
+                                disabled={!hasVideo}
+                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                  hasVideo
+                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 ring-1 ring-sky-400/40 shadow-sky-500/20'
+                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                }`}
+                                title={
+                                  hasVideo
+                                    ? `Play Video Lecture (${topicVideos.length}) for '${topic.title}'`
+                                    : 'No video attached to this topic'
+                                }
+                              >
+                                <Video className="w-4.5 h-4.5" />
+                              </button>
+                            );
+                          })()}
 
-                          {/* Flashcard Icon Only */}
+                          {/* Flashcard Icon Only (topic copy + chapter questions tagged with this topic) */}
+                          {(() => {
+                          const topicFlashCount = getEffectiveTopicFlashQuestions(topic, activeLesson).length;
+                          return (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               onOpenTopicModal?.(topic, 'questions');
                             }}
-                            disabled={!topic.flashQuestions || topic.flashQuestions.length === 0}
+                            disabled={topicFlashCount === 0}
                             className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
-                              topic.flashQuestions && topic.flashQuestions.length > 0
+                              topicFlashCount > 0
                                 ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950 active:scale-95'
                                 : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
                             }`}
                             title={
-                              topic.flashQuestions && topic.flashQuestions.length > 0
-                                ? `Open Flashcards (${topic.flashQuestions.length})`
+                              topicFlashCount > 0
+                                ? `Open Flashcards (${topicFlashCount})`
                                 : 'No flashcards for this topic'
                             }
                           >
                             <HelpCircle className="w-4.5 h-4.5" />
                           </button>
+                          );
+                          })()}
 
                           {/* Question Icon Only */}
                           {(() => {
@@ -743,28 +768,52 @@ export default function Workspace({
                       );
 
                       const renderTopicVideoSection = () => {
-                        if (!topic.videoUrl) return null;
+                        const topicVideos = getEffectiveTopicVideos(topic, activeLesson);
+                        if (topicVideos.length === 0) return null;
+                        const currentPart = selectedTopicVideoParts[topic.id] || 0;
+                        const activeUrl = topicVideos[currentPart] || topicVideos[0];
                         return (
                           <div className="bg-slate-950/90 border border-sky-500/30 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3">
                             <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                               <div className="flex items-center gap-2">
                                 <Video className="w-4 h-4 text-sky-400" />
                                 <span className="text-[11px] font-mono uppercase text-sky-400 font-black tracking-wider">
-                                  Topic Video Lecture • {topic.title}
+                                  Topic Video Lecture • {topic.title} {topicVideos.length > 1 ? `(Part ${currentPart + 1} of ${topicVideos.length})` : ''}
                                 </span>
                               </div>
                               <button
                                 onClick={() => onOpenTopicModal?.(topic, 'video')}
                                 className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 cursor-pointer transition-all hover:scale-105 active:scale-95"
-                                title="Open in Full Screen theater modal"
+                                title="Open in Video Box (3-column grid)"
                               >
-                                <Maximize2 className="w-3.5 h-3.5" /> Theater Mode
+                                <Maximize2 className="w-3.5 h-3.5" /> Video Box {topicVideos.length > 1 ? `(${topicVideos.length} Videos)` : ''}
                               </button>
                             </div>
 
                             <div className="relative aspect-video w-full max-w-4xl mx-auto rounded-xl overflow-hidden border border-slate-800 bg-black shadow-lg flex items-center justify-center">
-                              {renderTopicVideo(topic.videoUrl, topic.title)}
+                              {renderTopicVideo(activeUrl, topic.title)}
                             </div>
+
+                            {topicVideos.length > 1 && (
+                              <div className="flex items-center gap-2 pt-1 border-t border-slate-900">
+                                <span className="text-[10px] uppercase font-mono text-slate-400 font-bold">Parts:</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {topicVideos.map((_, idx) => (
+                                    <button
+                                      key={idx}
+                                      onClick={() => setSelectedTopicVideoParts(prev => ({ ...prev, [topic.id]: idx }))}
+                                      className={`text-[10px] font-mono px-2.5 py-1 rounded-lg border cursor-pointer transition-all ${
+                                        currentPart === idx
+                                          ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-sm'
+                                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                                      }`}
+                                    >
+                                      Part {idx + 1}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       };

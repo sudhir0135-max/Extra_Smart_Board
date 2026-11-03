@@ -4,14 +4,16 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator, Filter } from 'lucide-react';
+import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator, Filter, ExternalLink, Tv, Film, Tag } from 'lucide-react';
 import { Book, AcademicSubject, Lesson, Topic, FlashQuestion, Note, InquiryQuestionObj } from '../types';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
 import ScribbleOverlay from './ScribbleOverlay';
 import AccountancyQuestionModal from './AccountancyQuestionModal';
 import CachedImage from './CachedImage';
-import { getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+import { getEffectiveTopicInquiryQuestions, getEffectiveTopicFlashQuestions, getEffectiveTopicVideos } from '../lib/contentUtils';
+import { getChapterVideoUrls, getPdfChapterQuestions, sourceKey } from '../lib/chapterMedia';
+import { getChapterContentType } from '../lib/chapterContent';
 import { getLocalImageSrc } from '../lib/imageCache';
 
 /** Question image that uses the copy saved on the device when there is no internet. Hidden if it cannot load. */
@@ -42,6 +44,11 @@ interface FloatingButtonProps {
   onCloseExternalTopicModal?: () => void;
   /** Show the round draggable launcher button. The panels (topic video/questions) work either way. */
   showLauncher?: boolean;
+  /** Chapter-level panel opened from the closed greenboard's icons: lecture videos or "Some Extra Questions" */
+  externalChapterPanel?: 'video' | 'notes' | null;
+  onCloseExternalChapterPanel?: () => void;
+  /** The book's source (admin panel); ticked by default in the chapter "Some Extra Questions" panel */
+  bookSource?: string | null;
 }
 
 class QuestionListErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
@@ -309,6 +316,9 @@ export default function FloatingButton({
   externalTopicModal,
   onCloseExternalTopicModal,
   showLauncher = true,
+  externalChapterPanel = null,
+  onCloseExternalChapterPanel,
+  bookSource = null,
 }: FloatingButtonProps) {
   // Movement management for responsive smartboards
   const [position, setPosition] = useState({ x: 4, y: 15 }); // percentages from bottom-right coords
@@ -322,6 +332,7 @@ export default function FloatingButton({
   // Panels visibility options
   const [activePanel, setActivePanel] = useState<'video' | 'questions' | 'notes' | null>(null);
   const [maximizedVideoId, setMaximizedVideoId] = useState<string | null>(null);
+  const [videoMetaMap, setVideoMetaMap] = useState<Record<string, { title?: string; author?: string; thumbnail?: string }>>({});
   const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
@@ -333,10 +344,22 @@ export default function FloatingButton({
     if (externalTopicModal) {
       setActivePanel(externalTopicModal.panel);
       if (externalTopicModal.panel === 'video') {
-        setMaximizedVideoId('topic-video-0');
+        // Videos open in 3-column grid view
+        setMaximizedVideoId(null);
       }
     }
-  }, [externalTopicModal]);
+  }, [externalTopicModal, currentLesson]);
+
+  // Chapter-level panels opened from the greenboard handle icons
+  useEffect(() => {
+    if (!externalChapterPanel) return;
+    setActivePanel(externalChapterPanel);
+    if (externalChapterPanel === 'video') {
+      // Videos open in 3-column grid view
+      setMaximizedVideoId(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalChapterPanel]);
 
   const closeActivePanel = () => {
     setActivePanel(null);
@@ -345,6 +368,7 @@ export default function FloatingButton({
     if (onCloseExternalTopicModal) {
       onCloseExternalTopicModal();
     }
+    onCloseExternalChapterPanel?.();
   };
 
   // Full Screen Question Drawing State
@@ -398,44 +422,96 @@ export default function FloatingButton({
     setIsAccountancyModalOpen(true);
   };
 
-  // Dynamic videos list based on currentLesson or external topic override
+  // Dynamic videos list based on currentLesson or external topic override with rich metadata
   const activeVideos = React.useMemo(() => {
-    if (externalTopicModal?.topic?.videoUrl) {
-      const url = externalTopicModal.topic.videoUrl;
-      const youtubeIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
-      const youtubeId = youtubeIdMatch ? youtubeIdMatch[1] : '';
-      return [{
-        id: `topic-video-0`,
-        title: externalTopicModal.topic.title,
-        channel: 'Topic Lecture',
-        youtubeId: youtubeId,
-        rawUrl: url,
-        duration: 'Topic Video'
-      }];
+    if (externalTopicModal?.topic) {
+      const topicUrls = getEffectiveTopicVideos(externalTopicModal.topic, currentLesson);
+      if (topicUrls.length > 0) {
+        return topicUrls.map((url, idx) => {
+          const youtubeIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+          const youtubeId = youtubeIdMatch ? youtubeIdMatch[1] : '';
+          const isDirect = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url) || url.includes('/videos%2F') || url.includes('/videos/');
+          let fileName = '';
+          try {
+            const decoded = decodeURIComponent(url);
+            const m = decoded.match(/([^\/?#]+)\.(mp4|webm|ogg|mov)/i);
+            if (m) fileName = m[1].replace(/^\d+[-_]/, '').replace(/[-_]/g, ' ');
+          } catch {}
+
+          return {
+            id: `topic-video-${idx}`,
+            partNumber: idx + 1,
+            totalParts: topicUrls.length,
+            title: externalTopicModal.topic.title + (topicUrls.length > 1 ? ` (Part ${idx + 1} of ${topicUrls.length})` : ''),
+            scopeTitle: externalTopicModal.topic.title,
+            scopeType: 'topic' as const,
+            channel: 'Topic Lecture',
+            youtubeId: youtubeId,
+            rawUrl: url,
+            isDirectVideo: isDirect,
+            fileName: fileName,
+            duration: topicUrls.length > 1 ? `Part ${idx + 1}` : 'Topic Video'
+          };
+        });
+      }
     }
 
     if (!currentLesson) return [];
     
-    // Combine new array and legacy single URL
-    const urlsToProcess = currentLesson.videoUrls && currentLesson.videoUrls.length > 0 
-      ? currentLesson.videoUrls 
-      : (currentLesson.videoUrl ? [currentLesson.videoUrl] : []);
+    // Chapter lecture videos (new array or legacy single URL; empty entries skipped)
+    const urlsToProcess = getChapterVideoUrls(currentLesson);
 
     return urlsToProcess.map((url, idx) => {
-      // Try to extract youtube ID, or just use the raw URL if it's already an embed
       const youtubeIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
       const youtubeId = youtubeIdMatch ? youtubeIdMatch[1] : '';
+      const isDirect = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url) || url.includes('/videos%2F') || url.includes('/videos/');
+      let fileName = '';
+      try {
+        const decoded = decodeURIComponent(url);
+        const m = decoded.match(/([^\/?#]+)\.(mp4|webm|ogg|mov)/i);
+        if (m) fileName = m[1].replace(/^\d+[-_]/, '').replace(/[-_]/g, ' ');
+      } catch {}
       
       return {
         id: `lesson-video-${idx}`,
-        title: currentLesson.title + (urlsToProcess.length > 1 ? ` (Part ${idx + 1})` : ' (Active Chapter)'),
+        partNumber: idx + 1,
+        totalParts: urlsToProcess.length,
+        title: currentLesson.title + (urlsToProcess.length > 1 ? ` (Part ${idx + 1} of ${urlsToProcess.length})` : ' (Active Chapter)'),
+        scopeTitle: currentLesson.title,
+        scopeType: 'chapter' as const,
         channel: 'Chapter Lecture',
         youtubeId: youtubeId,
-        rawUrl: url, // Use this directly if youtubeId extraction fails
+        rawUrl: url,
+        isDirectVideo: isDirect,
+        fileName: fileName,
         duration: urlsToProcess.length > 1 ? `Part ${idx + 1}` : 'Current'
       };
     });
   }, [currentLesson, externalTopicModal]);
+
+  // Fetch online YouTube metadata (real titles, channel names, thumbnails)
+  useEffect(() => {
+    if (activePanel !== 'video' || !isOnline) return;
+    activeVideos.forEach(vid => {
+      if (vid.youtubeId && !videoMetaMap[vid.youtubeId]) {
+        fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${vid.youtubeId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && (data.title || data.author_name)) {
+              setVideoMetaMap(prev => ({
+                ...prev,
+                [vid.youtubeId]: {
+                  title: data.title,
+                  author: data.author_name,
+                  thumbnail: data.thumbnail_url
+                }
+              }));
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, [activePanel, activeVideos, isOnline, videoMetaMap]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -538,6 +614,9 @@ export default function FloatingButton({
       closeActivePanel();
     } else {
       setActivePanel(panel);
+      if (panel === 'video') {
+        setMaximizedVideoId(null);
+      }
     }
   };
 
@@ -549,6 +628,8 @@ export default function FloatingButton({
     if (externalTopicModal?.topic) {
       return getEffectiveTopicInquiryQuestions(externalTopicModal.topic, currentLesson);
     }
+    // PDF chapters (Q icon on the greenboard handle): only questions that have a source
+    if (getChapterContentType(currentLesson) === 'pdf') return getPdfChapterQuestions(currentLesson);
     return (currentLesson?.inquiryQuestions || []).filter(Boolean);
   };
 
@@ -556,11 +637,12 @@ export default function FloatingButton({
   // One checkbox per distinct source. By default only NCERT is ticked (or every
   // source when the list has no NCERT questions). Questions without a source are
   // not filtered and always stay visible.
-  const DEFAULT_QUESTION_SOURCE = 'ncert';
+  // Default ticked source: the book's source for the chapter panel (Q icon); NCERT for topic panels
+  const DEFAULT_QUESTION_SOURCE = !externalTopicModal?.topic && sourceKey(bookSource) ? sourceKey(bookSource) : 'ncert';
   const [selectedQuestionSources, setSelectedQuestionSources] = useState<string[] | null>(null); // null = default
   useEffect(() => {
     setSelectedQuestionSources(null);
-  }, [currentLesson?.id, externalTopicModal?.topic?.title]);
+  }, [currentLesson?.id, externalTopicModal?.topic?.title, externalChapterPanel]);
 
   /** "T.S. Grewal", "TS Grewal" and "t s grewal" are the same source. */
   const questionSourceKey = (q: string | InquiryQuestionObj): string => {
@@ -601,7 +683,7 @@ export default function FloatingButton({
 
   const allFlashQuestions = React.useMemo(() => {
     if (externalTopicModal?.topic) {
-      return externalTopicModal.topic.flashQuestions || [];
+      return getEffectiveTopicFlashQuestions(externalTopicModal.topic, currentLesson);
     }
     return currentLesson?.flashQuestions || [];
   }, [currentLesson, externalTopicModal]);
@@ -833,23 +915,66 @@ export default function FloatingButton({
                 return (
                   <div className="h-full flex flex-col p-4 md:p-6 space-y-4 animate-fade-in">
                     {/* Full screen video header inside the borders */}
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-shrink-0">
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[3px] text-amber-400 font-mono font-bold">
-                          Now Playing • Full Screen Mode
+                    <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-2 flex-shrink-0">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-[3px] text-amber-400 font-mono font-bold">
+                            Now Playing • Full Screen Mode
+                          </span>
+                          {activeVideos.length > 1 && (
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold">
+                              Part {(activeVideos.findIndex(v => v.id === maximizedVideoId) + 1 || 1)} of {activeVideos.length}
+                            </span>
+                          )}
                         </div>
-                        <h3 className="font-sans text-xs md:text-base font-extrabold text-slate-100 mt-0.5 max-w-[200px] md:max-w-none truncate md:normal-case">
-                          {activeVid.title}
+                        <h3 className="font-sans text-xs md:text-base font-extrabold text-slate-100 mt-0.5 truncate" title={videoMetaMap[activeVid.youtubeId]?.title || activeVid.title}>
+                          {videoMetaMap[activeVid.youtubeId]?.title || activeVid.title}
                         </h3>
+                        {videoMetaMap[activeVid.youtubeId]?.author && (
+                          <p className="text-[11px] font-mono text-slate-400 truncate">
+                            Channel: {videoMetaMap[activeVid.youtubeId]?.author} • {activeVid.scopeType === 'topic' ? `Topic: ${activeVid.scopeTitle}` : `Chapter: ${activeVid.scopeTitle}`}
+                          </p>
+                        )}
                       </div>
-                      <button
-                        onClick={() => setMaximizedVideoId(null)}
-                        className="bg-slate-900 hover:bg-slate-850 border border-slate-800 text-amber-400 hover:text-amber-300 font-sans text-[10px] md:text-[11px] font-bold uppercase tracking-wider px-2 py-1 md:px-3.5 md:py-2 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 active:scale-95 shadow-md flex-shrink-0"
-                        title="Back to grid"
-                      >
-                        <RotateCcw className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                        <span className="hidden sm:inline">Back to </span>Library
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {activeVideos.length > 1 && (
+                          <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-1 rounded-lg">
+                            {activeVideos.map((vid, vIdx) => {
+                              const isCurrent = vid.id === maximizedVideoId;
+                              return (
+                                <button
+                                  key={vid.id}
+                                  onClick={() => setMaximizedVideoId(vid.id)}
+                                  className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded transition-all cursor-pointer ${
+                                    isCurrent
+                                      ? 'bg-amber-400 text-slate-950 shadow-sm'
+                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                                  }`}
+                                  title={`Switch to Part ${vIdx + 1}`}
+                                >
+                                  Part {vIdx + 1}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {/* "All Videos" button to return to 3-column grid view */}
+                        <button
+                          onClick={() => setMaximizedVideoId(null)}
+                          className="bg-slate-900 hover:bg-slate-850 border border-slate-800 text-amber-400 hover:text-amber-300 font-sans text-[10px] md:text-[11px] font-bold uppercase tracking-wider px-2 py-1 md:px-3 md:py-1.5 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 active:scale-95 shadow-md flex-shrink-0"
+                          title="Back to grid view"
+                        >
+                          <RotateCcw className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                          <span className="hidden sm:inline">All </span>Videos ({activeVideos.length})
+                        </button>
+                        <button
+                          onClick={closeActivePanel}
+                          className="bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white p-1.5 rounded-lg cursor-pointer transition-all flex items-center justify-center ml-1"
+                          title="Close Video Box"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Full screen video display */}
@@ -886,68 +1011,252 @@ export default function FloatingButton({
                         ></iframe>
                       )}
                     </div>
+
+                    {/* Multi-video parts selector strip below the player */}
+                    {activeVideos.length > 1 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-900 flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 font-bold">
+                            Lecture Parts:
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {activeVideos.map((vid, vIdx) => {
+                              const isCurrent = vid.id === maximizedVideoId;
+                              return (
+                                <button
+                                  key={vid.id}
+                                  onClick={() => setMaximizedVideoId(vid.id)}
+                                  className={`text-[11px] font-mono px-3 py-1 rounded-lg border flex items-center gap-1.5 cursor-pointer transition-all ${
+                                    isCurrent
+                                      ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-md shadow-amber-950/40'
+                                      : 'bg-slate-900/90 text-slate-300 border-slate-800 hover:border-slate-700 hover:bg-slate-850 hover:text-white'
+                                  }`}
+                                >
+                                  <Play className={`w-3 h-3 ${isCurrent ? 'fill-slate-950 text-slate-950' : 'text-amber-400'}`} />
+                                  <span>Part {vIdx + 1}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {activeVideos.length} videos available for this topic
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })()
             ) : (
-              /* Scrollable contents within the bordered frame showing the library */
-              <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4 no-scrollbar">
+              /* Scrollable Video Library Grid (3-column) */
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar flex flex-col">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4 flex-shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400">
+                      <Video className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-sans text-xs md:text-sm font-bold text-slate-100 uppercase tracking-wide">
+                        {externalTopicModal?.topic
+                          ? `Topic Video Lectures • ${externalTopicModal.topic.title}`
+                          : `Chapter Lecture Videos • ${currentLesson?.title || ''}`}
+                      </h3>
+                      <p className="text-[10px] font-mono text-slate-400">
+                        Select a video to play in full screen
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-400 px-2.5 py-1 rounded-full uppercase tracking-wider font-bold">
+                      {activeVideos.length} {activeVideos.length === 1 ? 'Video' : 'Videos'}
+                    </span>
+                    <button
+                      onClick={closeActivePanel}
+                      className="bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white p-1.5 rounded-lg cursor-pointer transition-all flex items-center justify-center ml-1"
+                      title="Close Video Box"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
                 {activeVideos.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-500 py-12">
                     <Video className="w-12 h-12 mb-4 text-slate-700/50" />
-                    <p className="text-sm font-bold font-mono uppercase tracking-widest text-slate-400">No Video Available for This Lesson</p>
-                    <p className="text-[10px] mt-2 max-w-xs text-center leading-relaxed">The instructor has not attached a video lecture URL to this specific chapter. Please check your reading materials.</p>
+                    <p className="text-sm font-bold font-mono uppercase tracking-widest text-slate-400">No Video Available</p>
+                    <p className="text-[10px] mt-2 max-w-xs text-center leading-relaxed">The instructor has not attached a video lecture to this topic or chapter.</p>
                   </div>
                 ) : (
-                  <>
-                    <div className="border-b border-slate-800 pb-2 mb-2 flex justify-between items-end">
-                      <span className="hidden md:inline font-mono text-[9px] bg-amber-500/10 border border-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                        {activeVideos.length} active lecture{activeVideos.length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
+                    {activeVideos.map((vid, vIdx) => {
+                      const meta = vid.youtubeId ? videoMetaMap[vid.youtubeId] : null;
+                      const displayTitle = meta?.title || (vid.fileName ? `${vid.title}: ${vid.fileName}` : vid.title);
+                      const authorName = meta?.author || (vid.youtubeId ? 'YouTube Lecture' : (vid.isDirectVideo ? 'Direct MP4 File' : 'Classroom Video'));
+                      const isYouTube = Boolean(vid.youtubeId);
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
-                      {activeVideos.map((vid) => (
-                        <div 
+                      return (
+                        <div
                           key={vid.id}
                           onClick={() => setMaximizedVideoId(vid.id)}
-                          className="bg-slate-900/50 border border-slate-850 rounded-lg md:rounded-xl p-1.5 md:p-2.5 flex flex-col gap-1 md:gap-2 group hover:border-amber-400/40 transition-all duration-300 cursor-pointer shadow-md select-none"
+                          className="group bg-[#090d16] hover:bg-[#0c1220] border border-slate-800/80 hover:border-amber-400/60 rounded-2xl p-3 flex flex-col justify-between cursor-pointer select-none transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-amber-500/10 hover:-translate-y-1 relative"
                         >
-                          <div className="relative aspect-video bg-black rounded md:rounded-lg overflow-hidden border border-slate-950 flex items-center justify-center">
-                            {/* Static thumbnail cover / embedded loader so we can intercept mouse clicks perfectly */}
-                            {!isOnline ? (
-                              <div className="flex flex-col items-center justify-center text-slate-600">
-                                <Play className="w-6 h-6 mb-1" />
-                              </div>
+                          {/* TOP: Video Thumbnail Box with Badges */}
+                          <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-800 shadow-inner group-hover:border-slate-700 transition-colors">
+                            {/* Thumbnail Image or Preview */}
+                            {isYouTube ? (
+                              <img
+                                src={meta?.thumbnail || `https://img.youtube.com/vi/${vid.youtubeId}/mqdefault.jpg`}
+                                alt={displayTitle}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                onError={(e) => {
+                                  const img = e.target as HTMLImageElement;
+                                  if (!img.src.includes('mqdefault')) {
+                                    img.src = `https://img.youtube.com/vi/${vid.youtubeId}/mqdefault.jpg`;
+                                  }
+                                }}
+                              />
+                            ) : vid.isDirectVideo ? (
+                              <video
+                                src={`${vid.rawUrl}#t=0.5`}
+                                preload="metadata"
+                                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                              />
                             ) : (
-                              <>
-                                <iframe
-                                  src={vid.youtubeId ? `https://www.youtube.com/embed/${vid.youtubeId}` : vid.rawUrl}
-                                  title={vid.title}
-                                  className="absolute inset-0 w-full h-full pointer-events-none opacity-80 group-hover:opacity-100 transition-opacity"
-                                  frameBorder="0"
-                                ></iframe>
-                                <div className="absolute inset-0 bg-slate-950/50 group-hover:bg-slate-950/20 flex items-center justify-center transition-all">
-                                  <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-amber-400/90 text-slate-950 flex items-center justify-center group-hover:scale-110 active:scale-95 transition-all shadow-md md:shadow-lg shadow-amber-500/20">
-                                    <Play className="w-3.5 h-3.5 md:w-5 md:h-5 fill-current ml-0.5" />
-                                  </div>
-                                </div>
-                              </>
+                              <div className="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-950 flex items-center justify-center">
+                                <Video className="w-12 h-12 text-slate-700/60" />
+                              </div>
                             )}
-                          </div>
-                          <div className="flex flex-col gap-0.5 px-0.5">
-                            <div className="flex items-center justify-between text-[7px] md:text-[9px] font-mono text-amber-400/80 uppercase tracking-tight">
-                              <span>{vid.channel}</span>
-                              <span>{vid.duration}</span>
+
+                            {/* Top Badges (Scope & Provider) */}
+                            <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1 z-10 pointer-events-none">
+                              <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border shadow-sm backdrop-blur-md ${
+                                vid.scopeType === 'topic'
+                                  ? 'bg-sky-950/80 text-sky-300 border-sky-500/40'
+                                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                              }`}>
+                                {vid.scopeType === 'topic' ? 'Topic Lecture' : 'Chapter Lecture'}
+                              </span>
+
+                              <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-black/75 border border-white/10 text-slate-200 shadow-sm backdrop-blur-md flex items-center gap-1">
+                                {isYouTube ? (
+                                  <>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                                    <span>YouTube</span>
+                                  </>
+                                ) : vid.isDirectVideo ? (
+                                  <>
+                                    <Film className="w-3 h-3 text-sky-400" />
+                                    <span>MP4 Video</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Video className="w-3 h-3 text-amber-400" />
+                                    <span>Embed</span>
+                                  </>
+                                )}
+                              </span>
                             </div>
-                            <h4 className="text-[10px] md:text-xs font-bold leading-tight line-clamp-2 md:line-clamp-1 group-hover:text-amber-400 transition-colors">
-                              {vid.title}
-                            </h4>
+
+                            {/* Hover Play Button Overlay */}
+                            <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center">
+                              <div className="w-11 h-11 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/30 group-hover:scale-110 active:scale-95 transition-all">
+                                <Play className="w-5 h-5 fill-slate-950 ml-0.5" />
+                              </div>
+                            </div>
+
+                            {/* Bottom Badges (Part & Quality) */}
+                            <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between gap-1 z-10 pointer-events-none">
+                              <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded bg-black/85 text-amber-300 border border-amber-500/30 backdrop-blur-sm">
+                                {vid.totalParts > 1 ? `Part ${vid.partNumber} of ${vid.totalParts}` : 'Full Lecture'}
+                              </span>
+                              <span className="text-[9px] font-mono text-slate-300 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm">
+                                {isYouTube ? 'HD Stream' : (vid.isDirectVideo ? 'Direct Video' : 'Online')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* MIDDLE: Card Title & Metadata Details */}
+                          <div className="flex-1 pt-2.5 pb-2 flex flex-col justify-between space-y-2">
+                            {/* Title & Context */}
+                            <div className="space-y-0.5">
+                              <h4 className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-amber-300 transition-colors leading-snug line-clamp-2" title={displayTitle}>
+                                {displayTitle}
+                              </h4>
+                              {meta?.title && (
+                                <p className="text-[10px] text-slate-400 truncate font-mono">
+                                  {vid.scopeType === 'topic' ? `Topic: ${vid.scopeTitle}` : `Chapter: ${vid.scopeTitle}`}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Metadata Details Box */}
+                            <div className="bg-slate-950/80 border border-slate-850 rounded-xl p-2 space-y-1.5 text-[10.5px] font-mono">
+                              {/* Channel / Author */}
+                              <div className="flex items-center justify-between gap-2 text-slate-300">
+                                <span className="flex items-center gap-1.5 truncate">
+                                  <Tv className="w-3 h-3 text-amber-400 shrink-0" />
+                                  <span className="truncate">{authorName}</span>
+                                </span>
+                                <span className="text-[9px] text-slate-400 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 shrink-0">
+                                  {isYouTube ? 'Stream' : 'Storage'}
+                                </span>
+                              </div>
+
+                              {/* Topic / Chapter Scope */}
+                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-slate-400 text-[10px]">
+                                <span className="flex items-center gap-1 truncate">
+                                  <Tag className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                                  <span className="truncate">{vid.scopeTitle}</span>
+                                </span>
+                                <span className="text-amber-400 font-bold shrink-0">
+                                  {vid.totalParts > 1 ? `Part ${vid.partNumber}` : 'Full'}
+                                </span>
+                              </div>
+
+                              {/* Video ID or File identifier */}
+                              {(vid.youtubeId || vid.fileName) && (
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-[9.5px] text-slate-400">
+                                  <span className="truncate">
+                                    {vid.youtubeId ? `ID: ${vid.youtubeId}` : `File: ${vid.fileName}`}
+                                  </span>
+                                  <span className="text-emerald-400 font-bold shrink-0">Ready</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* BOTTOM: Action Bar */}
+                          <div className="pt-2 border-t border-slate-850 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-mono font-bold group-hover:translate-x-0.5 transition-transform">
+                              <Play className="w-3 h-3 fill-amber-400" />
+                              <span>Play Video</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {vid.rawUrl && (
+                                <a
+                                  href={vid.rawUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-amber-300 border border-slate-800 transition-colors"
+                                  title="Open original video URL in new tab"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                              <button
+                                onClick={() => setMaximizedVideoId(vid.id)}
+                                className="px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500 border border-amber-500/30 text-amber-300 hover:text-slate-950 text-[10px] font-mono font-bold uppercase transition-all"
+                              >
+                                Watch
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}

@@ -61,6 +61,7 @@ export interface Topic {
   id: string;
   title: string;
   videoUrl?: string | null;
+  videoUrls?: string[];
   pages: {
     pageNumber: number;
     content: string;
@@ -194,6 +195,9 @@ export interface OfflineBookLessons {
   lessons: Lesson[];
   sync_status: SyncStatus;
   updated_at?: string;
+  /** Chapters changed in the editor on this device and not yet saved straight to the server.
+   *  Only these keep the local version; every other chapter follows the server copy. */
+  pendingLessonIds?: string[];
 }
 
 export interface EditorSubmission {

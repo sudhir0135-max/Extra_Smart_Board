@@ -17,7 +17,7 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { X, Trash2, Undo2, Pencil, Highlighter, Eye, EyeOff } from 'lucide-react';
+import { X, Trash2, Undo2, Pencil, Highlighter, Eye, EyeOff, Video } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +46,12 @@ export interface BlackboardPanelProps {
   onClose: () => void;
   lessonId: string;
   isOnline?: boolean;
+  /** Chapter lecture videos (shown as a video icon on the closed handle) */
+  chapterVideoCount?: number;
+  onOpenChapterVideos?: () => void;
+  /** PDF chapters: "Some Extra Questions" (Q icon under the video icon); undefined = no Q icon */
+  chapterQuestionCount?: number;
+  onOpenChapterQuestions?: () => void;
 }
 
 // ─── Chalk colour palette ────────────────────────────────────────────────────
@@ -83,6 +89,10 @@ export default function BlackboardPanel({
   onClose,
   lessonId,
   isOnline = true,
+  chapterVideoCount = 0,
+  onOpenChapterVideos,
+  chapterQuestionCount,
+  onOpenChapterQuestions,
 }: BlackboardPanelProps) {
   const [color, setColor]         = useState(CHALK_COLORS[3].hex); // white chalk by default
   const [tool, setTool]           = useState<Tool>('pen');
@@ -334,6 +344,59 @@ export default function BlackboardPanel({
           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Ccircle cx='1' cy='1' r='0.6' fill='rgba(255,255,255,0.04)'/%3E%3C/svg%3E")`,
           backgroundRepeat: 'repeat', pointerEvents: 'none',
         }} />
+
+        {/* Chapter video / questions icons — only on the CLOSED board. Tap only: they never start a drag. */}
+        {!isOpen && dragPct === null && (onOpenChapterVideos || onOpenChapterQuestions) && (
+          <div
+            style={{ position: 'absolute', top: 10, left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, zIndex: 2 }}
+            onPointerDown={e => e.stopPropagation()}
+            onPointerUp={e => e.stopPropagation()}
+          >
+            {onOpenChapterVideos && (() => {
+              const on = chapterVideoCount > 0;
+              return (
+                <button
+                  onClick={e => { e.stopPropagation(); if (on) onOpenChapterVideos(); }}
+                  disabled={!on}
+                  title={on ? `Chapter videos (${chapterVideoCount})` : 'No chapter video'}
+                  aria-label="Chapter videos"
+                  style={{
+                    width: Math.min(30, handlePx - 4), height: Math.min(30, handlePx - 4), borderRadius: 8,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: on ? 'rgba(56,189,248,0.22)' : 'rgba(255,255,255,0.05)',
+                    border: on ? '1px solid rgba(56,189,248,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                    color: on ? '#7dd3fc' : 'rgba(255,255,255,0.25)',
+                    cursor: on ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  <Video size={15} />
+                </button>
+              );
+            })()}
+            {onOpenChapterQuestions && chapterQuestionCount !== undefined && (() => {
+              const on = chapterQuestionCount > 0;
+              return (
+                <button
+                  onClick={e => { e.stopPropagation(); if (on) onOpenChapterQuestions(); }}
+                  disabled={!on}
+                  title={on ? `Some Extra Questions (${chapterQuestionCount})` : 'No questions for this chapter'}
+                  aria-label="Chapter questions"
+                  style={{
+                    width: Math.min(30, handlePx - 4), height: Math.min(30, handlePx - 4), borderRadius: 8,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: on ? 'rgba(16,185,129,0.22)' : 'rgba(255,255,255,0.05)',
+                    border: on ? '1px solid rgba(16,185,129,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                    color: on ? '#6ee7b7' : 'rgba(255,255,255,0.25)',
+                    cursor: on ? 'pointer' : 'not-allowed',
+                    fontWeight: 900, fontSize: 14, fontFamily: 'sans-serif',
+                  }}
+                >
+                  Q
+                </button>
+              );
+            })()}
+          </div>
+        )}
         <div style={{
           writingMode: 'vertical-rl',
           textOrientation: 'mixed',

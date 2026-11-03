@@ -8,7 +8,7 @@ import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage, uploadLargeLessonPayload, deleteFileFromStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
-import { hasTextContent, getEffectiveTopicInquiryQuestions } from '../lib/contentUtils';
+import { hasTextContent, getEffectiveTopicInquiryQuestions, getEffectiveTopicVideos } from '../lib/contentUtils';
 import { getChapterContentType, getChapterTopicMode, hasExplicitChapterType, ChapterContentType, ChapterTopicMode } from '../lib/chapterContent';
 import {
   Shield,
@@ -192,6 +192,7 @@ export default function BookEditorPanel({
   const [activeLessonTitleDraft, setActiveLessonTitleDraft] = useState('');
   const [activeLessonSubtitleDraft, setActiveLessonSubtitleDraft] = useState('');
   const [activeLessonVideoDrafts, setActiveLessonVideoDrafts] = useState<string[]>([]);
+  const [topicVideoDrafts, setTopicVideoDrafts] = useState<string[]>([]);
 
   // Topic Management State
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
@@ -212,12 +213,20 @@ export default function BookEditorPanel({
   const saveBookLocally = async (modifiedBook: Book) => {
     if (isPreviewMode) return; // Do not overwrite local offline state if admin is previewing a submission!
     
+    // Remember exactly which chapters were changed here, so only those keep the local version
+    // (all other chapters keep following the server copy). Compared with the chapters currently loaded.
+    const existing = await dbLocal.offline_lessons.get(modifiedBook.id).catch(() => undefined);
+    const before = new Map((assignedBook?.id === modifiedBook.id ? assignedBook.lessons : []).map(l => [l.id, JSON.stringify(l)]));
+    const changedIds = modifiedBook.lessons.filter(l => before.get(l.id) !== JSON.stringify(l)).map(l => l.id);
+    const pendingLessonIds = Array.from(new Set([...(existing?.pendingLessonIds || []), ...changedIds]));
+
     // Instant local save to IndexedDB (<5ms)
     await dbLocal.offline_lessons.put({
       bookId: modifiedBook.id,
       lessons: modifiedBook.lessons,
-      sync_status: 'pending',
-      updated_at: new Date().toISOString()
+      sync_status: pendingLessonIds.length > 0 ? 'pending' : 'synced',
+      updated_at: new Date().toISOString(),
+      pendingLessonIds
     });
   };
 
@@ -261,8 +270,17 @@ export default function BookEditorPanel({
       const lessonRef = doc(db, 'books', bookIdStr, 'lessons', updatedLesson.id);
       await setDoc(lessonRef, docToWrite);
 
-      // Saved on the server: the local copy is no longer "pending", so screens use the server copy
-      await (dbLocal.offline_lessons as any).update(modifiedBook.id, { sync_status: 'synced' }).catch(() => {});
+      // This chapter is now saved on the server: it no longer needs the local version
+      try {
+        const rec = await dbLocal.offline_lessons.get(modifiedBook.id);
+        if (rec) {
+          const remaining = (rec.pendingLessonIds || []).filter(id => id !== updatedLesson.id);
+          await (dbLocal.offline_lessons as any).update(modifiedBook.id, {
+            pendingLessonIds: remaining,
+            sync_status: remaining.length > 0 ? 'pending' : 'synced'
+          });
+        }
+      } catch { /* ignore */ }
 
       // Refresh in-memory subLessonsCache, firebaseBooks, and offline_lessons so all screens immediately see the update
       if (fetchBookLessons) {
@@ -337,6 +355,12 @@ export default function BookEditorPanel({
         setActiveLessonVideoDrafts([activeLesson.videoUrl]);
       } else {
         setActiveLessonVideoDrafts([]);
+      }
+
+      if (selectedTopic) {
+        setTopicVideoDrafts(getEffectiveTopicVideos(selectedTopic, activeLesson));
+      } else {
+        setTopicVideoDrafts([]);
       }
     }
 
@@ -949,6 +973,193 @@ export default function BookEditorPanel({
     } catch (err) {
       alert('Failed to reorder page.');
     }
+  };
+
+  // ── Topic-level and chapter-level lecture videos ─────────────────────────────
+  const [chapterVideoUploading, setChapterVideoUploading] = useState(false);
+
+  const saveTopicVideos = async (next: string[]) => {
+    if (!assignedBook || !activeLesson || !selectedTopic) return;
+    setTopicVideoDrafts(next);
+    try {
+      const cleaned = next.map(u => u.trim()).filter(Boolean);
+      const updatedTopic: Topic = {
+        ...selectedTopic,
+        videoUrls: cleaned,
+        videoUrl: cleaned[0] || null
+      };
+      // Clean from chapter level if these were previously placed there
+      const remainingChapterVideos = (activeLesson.videoUrls || []).filter(u => !cleaned.includes(u.trim()));
+      const updatedLesson: Lesson = {
+        ...activeLesson,
+        topics: (activeLesson.topics || []).map(t => t.id === selectedTopic.id ? updatedTopic : t),
+        videoUrls: remainingChapterVideos,
+        videoUrl: remainingChapterVideos[0] || null
+      };
+      const modifiedBook = {
+        ...assignedBook,
+        lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? updatedLesson : l))
+      };
+      await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      flashMessage('Topic videos saved.');
+    } catch (err: any) {
+      alert('Failed to save topic videos: ' + (err?.message || err));
+    }
+  };
+
+  const saveChapterVideos = async (next: string[]) => {
+    if (!assignedBook || !activeLesson) return;
+    setActiveLessonVideoDrafts(next);
+    try {
+      const cleaned = next.map(u => u.trim()).filter(Boolean);
+      const updatedLesson: Lesson = { ...activeLesson, videoUrls: cleaned, videoUrl: cleaned[0] || null };
+      const modifiedBook = {
+        ...assignedBook,
+        lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? updatedLesson : l))
+      };
+      await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+      flashMessage('Chapter videos saved.');
+    } catch (err: any) {
+      alert('Failed to save chapter videos: ' + (err?.message || err));
+    }
+  };
+
+  const [newVideoLinkDraft, setNewVideoLinkDraft] = useState('');
+  const renderChapterVideoEditor = () => {
+    const isEditingTopicVideos = Boolean(isTopicWise && selectedTopic);
+    const drafts = isEditingTopicVideos ? topicVideoDrafts : activeLessonVideoDrafts;
+    const setDraftsFn = isEditingTopicVideos ? setTopicVideoDrafts : setActiveLessonVideoDrafts;
+    const saveFn = isEditingTopicVideos ? saveTopicVideos : saveChapterVideos;
+    const titleText = isEditingTopicVideos
+      ? `Topic Video Lectures • ${selectedTopic?.title}`
+      : `Chapter Lecture Videos`;
+    const subtitleText = isEditingTopicVideos
+      ? `Students open these from the video icon on this topic's ribbon in the student panel.`
+      : `Students open these from the video icon on the closed greenboard.`;
+
+    return (
+      <div className="bg-[#070a14] border border-slate-800 rounded-xl p-3 space-y-2">
+        <div className="space-y-0.5">
+          <span className="text-[9.5px] uppercase font-mono tracking-widest text-sky-400 block font-bold">
+            {titleText}
+          </span>
+          <span className="text-[10px] text-slate-500">
+            {subtitleText} YouTube link or uploaded video.
+          </span>
+        </div>
+
+        {/* One row: link box + Add Video + Upload */}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={newVideoLinkDraft}
+            disabled={isPreviewMode}
+            onChange={e => setNewVideoLinkDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && newVideoLinkDraft.trim()) {
+                saveFn([...drafts.filter(u => u.trim()), newVideoLinkDraft.trim()]);
+                setNewVideoLinkDraft('');
+              }
+            }}
+            placeholder={isEditingTopicVideos ? 'Paste a YouTube link for this topic…' : 'Paste a YouTube link for this chapter…'}
+            className="flex-1 min-w-0 bg-[#03060c] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/60"
+          />
+          <button
+            type="button"
+            disabled={isPreviewMode || !newVideoLinkDraft.trim()}
+            onClick={() => {
+              saveFn([...drafts.filter(u => u.trim()), newVideoLinkDraft.trim()]);
+              setNewVideoLinkDraft('');
+            }}
+            className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg font-bold uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Video
+          </button>
+            <label className={`flex items-center gap-1 text-xs bg-sky-600/30 text-sky-300 hover:bg-sky-600/50 px-3 py-2 rounded-lg shrink-0 whitespace-nowrap font-bold uppercase cursor-pointer ${chapterVideoUploading || isPreviewMode ? 'opacity-40 pointer-events-none' : ''}`}>
+              <Upload className="w-3.5 h-3.5" /> {chapterVideoUploading ? 'Uploading…' : 'Upload Videos'}
+              <input
+                type="file"
+                accept="video/*"
+                multiple
+                className="hidden"
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = '';
+                  if (files.length === 0) return;
+                  setChapterVideoUploading(true);
+                  try {
+                    const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+                    const { storage } = await import('../lib/firebase');
+                    const urls: string[] = [];
+                    const folder = isEditingTopicVideos ? 'videos/topics' : 'videos/chapters';
+                    for (const file of files) {
+                      flashMessage(`Uploading "${file.name}"…`);
+                      const fileRef = ref(storage, `${folder}/${Date.now()}_${file.name}`);
+                      await uploadBytes(fileRef, file);
+                      urls.push(await getDownloadURL(fileRef));
+                    }
+                    await saveFn([...drafts.filter(u => u.trim()), ...urls]);
+                    flashMessage(`${urls.length} video${urls.length === 1 ? '' : 's'} added.`);
+                  } catch (err) {
+                    console.error('Failed to upload video:', err);
+                    alert('Failed to upload the video file(s).');
+                  } finally {
+                    setChapterVideoUploading(false);
+                  }
+                }}
+              />
+            </label>
+        </div>
+
+        <div className="space-y-2">
+          {drafts.map((vidUrl, idx) => (
+            <div key={idx} className="flex gap-2 items-center">
+              <span className="text-[10px] font-mono text-slate-500 w-5 text-right shrink-0">{idx + 1}.</span>
+              <input
+                type="text"
+                value={vidUrl}
+                disabled={isPreviewMode}
+                onChange={e => {
+                  const next = [...drafts];
+                  next[idx] = e.target.value;
+                  setDraftsFn(next);
+                }}
+                onBlur={e => {
+                  const next = [...drafts];
+                  next[idx] = e.target.value;
+                  saveFn(next);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder="YouTube link, e.g. https://www.youtube.com/watch?v=…"
+                className="flex-1 min-w-0 bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
+              />
+              <button
+                type="button"
+                disabled={isPreviewMode}
+                onClick={() => {
+                  if (vidUrl.trim() && !window.confirm(`Remove this video from ${isEditingTopicVideos ? 'this topic' : 'the chapter'}?`)) return;
+                  saveFn(drafts.filter((_, i) => i !== idx));
+                }}
+                className="bg-rose-600/20 text-rose-400 hover:bg-rose-600/40 p-2 rounded cursor-pointer disabled:opacity-40"
+                title="Delete this video"
+                aria-label="Delete this video"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {drafts.length === 0 && (
+            <div className="text-xs text-slate-500 italic p-2 border border-dashed border-slate-800 rounded text-center">
+              {isEditingTopicVideos ? 'No videos attached to this topic.' : 'No videos attached to this chapter.'}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   if (authLoading) {
@@ -1681,6 +1892,35 @@ export default function BookEditorPanel({
                           No PDF file attached to this chapter yet. Click "Upload Chapter PDF" above to select a PDF.
                         </div>
                       )}
+
+                      {/* Chapter lecture videos (video icon on the closed greenboard) */}
+                      {renderChapterVideoEditor()}
+
+                      {/* "Some Extra Questions" for this PDF chapter (Q icon on the closed greenboard).
+                          Students see only questions whose Source is filled in. */}
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-amber-300/80 font-mono">
+                          Students see only questions with a Source; the book's source is ticked by default.
+                        </p>
+                        <InquiryQuestionManager
+                          questions={(activeLesson.inquiryQuestions || []).filter(Boolean)}
+                          availableTopics={[]}
+                          onQuestionsUpdate={async (newQuestions) => {
+                            if (!assignedBook || !activeLesson) return;
+                            try {
+                              const updatedLesson: Lesson = { ...activeLesson, inquiryQuestions: newQuestions };
+                              const modifiedBook = {
+                                ...assignedBook,
+                                lessons: assignedBook.lessons.map(l => (l.id === activeLesson.id ? updatedLesson : l))
+                              };
+                              await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
+                              flashMessage('Questions saved.');
+                            } catch (err: any) {
+                              alert('Failed to save questions: ' + (err?.message || 'Error'));
+                            }
+                          }}
+                        />
+                      </div>
                     </div>
                     )}
 
@@ -1910,58 +2150,15 @@ export default function BookEditorPanel({
                         {!isHtmlChapter && (
                         <button
                           onClick={handleAddPage}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
                         >
-                          <Plus className="w-3.5 h-3.5" /> Add Page
+                          <Plus className="w-3 h-3" /> Add Page
                         </button>
                         )}
                       </div>
 
-                      {/* Chapter Video URLs */}
-                      <div className="pb-2 border-b border-slate-800/50">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[8.5px] uppercase font-mono text-slate-400">Chapter Lecture Video URLs:</span>
-                          <button
-                            onClick={() => setActiveLessonVideoDrafts([...activeLessonVideoDrafts, ''])}
-                            className="text-[8px] bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600/50 px-1.5 py-0.5 rounded font-bold uppercase cursor-pointer"
-                          >
-                            + Add Video
-                          </button>
-                        </div>
-                        <div className="space-y-2">
-                          {activeLessonVideoDrafts.map((vidUrl, idx) => (
-                            <div key={idx} className="flex gap-2">
-                              <input
-                                type="text"
-                                value={vidUrl}
-                                onChange={e => {
-                                  const next = [...activeLessonVideoDrafts];
-                                  next[idx] = e.target.value;
-                                  setActiveLessonVideoDrafts(next);
-                                }}
-                                onBlur={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts }, true)}
-                                placeholder="e.g. https://www.youtube.com/embed/..."
-                                className="flex-1 bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
-                              />
-                              <button
-                                onClick={() => {
-                                  const next = activeLessonVideoDrafts.filter((_, i) => i !== idx);
-                                  setActiveLessonVideoDrafts(next);
-                                  handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: next }, true);
-                                }}
-                                className="bg-rose-600/20 text-rose-500 hover:bg-rose-600/40 p-2 rounded cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ))}
-                          {activeLessonVideoDrafts.length === 0 && (
-                            <div className="text-xs text-slate-500 italic p-2 border border-dashed border-slate-800 rounded text-center">
-                              No videos attached to this chapter.
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      {/* Chapter lecture videos (shared with the PDF tab) */}
+                      {renderChapterVideoEditor()}
 
                       {/* Horizontal index dots of current pages (HTML tab: only when several pages already exist) */}
                       {(!isHtmlChapter || (selectedTopic ? (selectedTopic.pages || []) : activeLesson.pages).length > 1) && (

@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-03] - Topic Videos: Topic-only Links, Direct Player, Editor Layout
+
+### Changed
+- **Editor panel (pages card)**: the video section has the link box, a slightly larger "+ Add Video" button and "Upload" in one row; saved videos are listed below with a delete button each. "+ Add Page" is slightly smaller. In topic-wise chapters the list belongs to the selected topic (`topic.videoUrls`).
+- **Topic videos are topic-only (`lib/contentUtils.ts` `getEffectiveTopicVideos`)**: removed the fallback that showed chapter-level lecture videos on the first topic's ribbon. Chapter-level videos open only from the video icon on the closed greenboard.
+- **Topic ribbon video icon (`FloatingButton.tsx`)**: opens the player straight away on Part 1 (no 3-column grid); "Part 1 / Part 2 …" buttons switch videos; the "All Videos" grid button is hidden for topic videos.
+
+## [2026-11-02] - Chapter Videos & Questions on the Greenboard Handle; Safer Unsubmitted Edits
+
+### Added
+- **Icons on the closed greenboard handle (`BlackboardPanel.tsx`)**: a video icon (every chapter type) and, on PDF chapters, a **Q** icon beneath it. Shown only while the board is closed; tap-only (never starts a drag); greyed out when empty.
+  - Video icon → the chapter's lecture videos ("Chapter Lecture Video URLs" / admin "Lecture Embed"; topic videos are not included) in the existing video box. One video plays straight away.
+  - Q icon (PDF chapters) → "Some Extra Questions from Lesson" with the chapter's inquiry questions. Questions **without a source are not shown**; the book's source (admin panel) is ticked by default (`FloatingButton.tsx`, `lib/chapterMedia.ts`).
+- **Student view (`lib/chapterContent.ts`)**: PDF chapters keep their lecture videos and inquiry questions (the page still shows only the PDF).
+- **Editor panel → PDF tab (`BookEditorPanel.tsx`)**: "Chapter Lecture Videos" (add links, upload several video files at once, delete any) and the "Some Extra Questions" manager (bulk upload, Source, Marks, Advanced Editor; no topics). The same video list is used on HTML/Canvas chapters; both now save straight to the server.
+
+### Changed
+- The round floating button is hidden (`SHOW_ROUND_LAUNCHER = false` in `App.tsx`), kept in the code for possible future use.
+
+- **Topic Ribbon Video Decoupling and Multi-Video Lecture Player (`Workspace.tsx`, `FloatingButton.tsx`, `BookEditorPanel.tsx`, `contentUtils.ts`, `types.ts`)**:
+  - **Issue 1 (Only 1 video displaying)**: Topics previously supported only a single `topic.videoUrl` string. When multiple video URLs were linked to a topic or chapter, the player opened in maximized/theater mode playing only the first video, while subsequent videos were hidden behind a "Back to Library" button with no obvious way to switch between parts.
+  - **Issue 2 (All video icons active across every topic)**: In topic-based chapters where chapter lecture videos were added while editing, the ribbon previously enabled video buttons for *all* topics if `chapterVideos.length > 0`.
+  - **Fixes**:
+    1. **Data Model**: Added `videoUrls?: string[]` to the `Topic` interface in `types.ts` to support multiple video lectures per topic.
+    2. **Decoupled Status (`contentUtils.ts`)**: Implemented `getEffectiveTopicVideos(topic, lesson)` which looks for direct `topic.videoUrls` (or `topic.videoUrl`). For backward compatibility with legacy chapters having chapter-level videos, only Topic 1 inherits them when no topic has direct videos, ensuring Topics 2+ without videos are properly disabled and greyed out.
+    3. **Multi-Video Navigation (`FloatingButton.tsx`)**: When a topic contains multiple video URLs, the video player modal now renders:
+       - A header parts switcher (`Part 1`, `Part 2`, …) with a "Part X of Y" badge.
+       - A prominent "Lecture Parts: [ ▶ Part 1 ] [ ▶ Part 2 ]" quick-switch strip directly beneath the video player.
+       - All video parts are mapped into the active video playlist with explicit Part numbers.
+    4. **Topic-Level Video Management in Editor (`BookEditorPanel.tsx`)**: When editing a topic, the video manager dynamically adapts to show "Topic Video Lectures • <Topic Title>" and saves video URLs directly into `selectedTopic.videoUrls`, avoiding chapter-level pollution.
+- **Unsubmitted editor edits are kept**: the 10-minute "stale pending copy" rule (2026-10-29) could replace an editor's unsubmitted page edits with the server copy. The local copy now records exactly which chapters were changed (`pendingLessonIds`); only those keep the local version (no time limit) until saved straight to the server, all other chapters follow the server. Older copies without the list work it out by comparing with the server (identical chapters are released, differing ones kept).
+
+## [2026-10-31] - Fix: Topic Ribbon Diagnostic-Question Icon Flickering / Missing
+
+### Fixed
+- The topic ribbon's flashcard (diagnostic questions) icon and the topic flashcard panel read only `topic.flashQuestions` (the per-topic copy). Copies of a chapter on a device (saved offline copy, server copy, slim copy of a large chapter) do not always carry those per-topic copies, so the icon switched on and off as the app swapped copies.
+- New `getEffectiveTopicFlashQuestions(topic, lesson)` in `lib/contentUtils.ts` combines the topic's copy with the chapter's flash questions tagged with the topic title (ignoring case/spaces), without duplicates — same approach as inquiry questions. Used by the ribbon icon (`Workspace.tsx`) and the topic flashcard panel (`FloatingButton.tsx`).
+- Note: in some chapters the flash questions have no Topic at all (e.g. Business Studies XII: Consumer Protection 246, Directing 242, Nature and Significance of Management 17; many older chapters) — those cannot show on any topic ribbon until re-uploaded with a Topic column.
+
 ## [2026-10-30] - Fix: Sign-in "auth/network-request-failed" on Slow Connections
 
 ### Fixed

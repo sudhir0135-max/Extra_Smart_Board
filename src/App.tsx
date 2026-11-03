@@ -36,6 +36,9 @@ import { getStudentViewLesson, getChapterContentType } from './lib/chapterConten
 import { precacheLessonsForOffline } from './lib/offlineCache';
 import { syncNoticeImages } from './lib/notices';
 import NoticeOverlay from './components/NoticeOverlay';
+
+/** The round floating button (chapter video / questions launcher) is hidden for now; may be needed later. */
+const SHOW_ROUND_LAUNCHER = false;
 const PALETTE_COLORS = [
   { name: 'Classroom Amber', hex: '#f59e0b' },
   { name: 'Alert Red', hex: '#f43f5e' },
@@ -66,6 +69,8 @@ export default function App() {
   const [previewPendingLessonIds, setPreviewPendingLessonIds] = useState<string[]>([]);
   const [previewDeletedLessonIds, setPreviewDeletedLessonIds] = useState<string[]>([]);
   const [externalTopicModal, setExternalTopicModal] = useState<{ topic: Topic; panel: 'video' | 'questions' | 'notes' } | null>(null);
+  // Chapter videos / "Some Extra Questions" opened from the icons on the closed greenboard handle
+  const [externalChapterPanel, setExternalChapterPanel] = useState<'video' | 'notes' | null>(null);
   
   const [isBooksLoaded, setIsBooksLoaded] = useState(false);
 
@@ -393,14 +398,29 @@ export default function App() {
         let lessonsToPersist = sanitizedLessons;
         let finalSyncStatus: 'synced' | 'pending' = 'synced';
 
-        // A "pending" copy holds editor changes that may not have reached the server yet. Editor saves go
-        // straight to Firestore, so a pending copy older than 10 minutes is stale: the server copy wins.
-        const pendingAgeMs = existingOffline?.updated_at ? Date.now() - Date.parse(existingOffline.updated_at) : Infinity;
-        if (existingOffline && existingOffline.sync_status === 'pending' && existingOffline.lessons && pendingAgeMs < 10 * 60 * 1000) {
+        // A "pending" copy holds editor changes not yet on the server (page edits wait for "Submit").
+        // Only the chapters listed in pendingLessonIds keep the local version; all others follow the
+        // server. Older copies without the list: chapters identical to the server are released,
+        // chapters that differ are kept (never discard an editor's unsaved work).
+        let pendingIds: string[] = [];
+        if (existingOffline && existingOffline.sync_status === 'pending' && existingOffline.lessons) {
+          if (Array.isArray(existingOffline.pendingLessonIds)) {
+            pendingIds = existingOffline.pendingLessonIds;
+          } else {
+            const strip = (l: any) => { const { order, payloadUrl, ...rest } = l || {}; return JSON.stringify(rest); };
+            pendingIds = (existingOffline.lessons || [])
+              .filter((ol: any) => {
+                const live = sanitizedLessons.find(l => l.id === ol.id);
+                return !live || strip(live) !== strip(ol);
+              })
+              .map((ol: any) => ol.id);
+          }
+        }
+        if (pendingIds.length > 0) {
           finalSyncStatus = 'pending';
           // Preserve local pending edits/topics so network refresh doesn't overwrite unsaved work
           lessonsToPersist = sanitizedLessons.map(liveL => {
-            const pendingL = (existingOffline.lessons || []).find((ol: any) => ol.id === liveL.id);
+            const pendingL = pendingIds.includes(liveL.id) ? (existingOffline!.lessons || []).find((ol: any) => ol.id === liveL.id) : null;
             if (!pendingL) return liveL;
             return {
               ...liveL,
@@ -413,12 +433,20 @@ export default function App() {
           });
         }
 
+        // Chapters created on this device that the server does not have yet stay too
+        if (pendingIds.length > 0) {
+          for (const ol of existingOffline!.lessons || []) {
+            if (pendingIds.includes(ol.id) && !lessonsToPersist.some(l => l.id === ol.id)) lessonsToPersist.push(ol);
+          }
+        }
+
         dbLocal.offline_lessons.put({
           bookId: bookId,
           bookTitle: 'Textbook',
           lessons: lessonsToPersist,
           sync_status: finalSyncStatus,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          pendingLessonIds: pendingIds
         }).catch(console.error);
 
         // 3. Pre-cache chapter PDFs locally in background (only for chapters whose content type is PDF)
@@ -554,6 +582,14 @@ export default function App() {
       // the server, they win (otherwise an old saved copy hides newer questions, sources, etc.).
       if (offline && offline.sync_status !== 'pending' && b.lessons && b.lessons.length > 0) {
         return b;
+      }
+      // Pending copy with a known list of changed chapters: only those chapters use the local version
+      if (offline && offline.sync_status === 'pending' && Array.isArray(offline.pendingLessonIds) && b.lessons && b.lessons.length > 0) {
+        const ids = offline.pendingLessonIds;
+        const local = (offline.lessons || []).filter(ol => ids.includes(ol.id));
+        const merged = b.lessons.map(l => local.find(ol => ol.id === l.id) || l);
+        local.forEach(ol => { if (!merged.some(l => l.id === ol.id)) merged.push(ol); });
+        return { ...b, lessons: merged };
       }
       if (offline && offline.sync_status !== 'deleted') {
         // Merge offline and live lessons deeply: 
@@ -2233,7 +2269,8 @@ export default function App() {
           globalLogo={globalLogo}
           onAutoBookmark={handleAutoBookmark}
           initialTargetPage={initialTargetPage}
-          onOpenTopicModal={(topic, panel) => setExternalTopicModal({ topic, panel })}
+          onOpenTopicModal={(topic, panel) => { setExternalChapterPanel(null); setExternalTopicModal({ topic, panel }); }}
+          onOpenChapterPanel={(panel) => { setExternalTopicModal(null); setExternalChapterPanel(panel); }}
         />
 
 
@@ -2243,7 +2280,9 @@ export default function App() {
             on other chapters the component stays mounted so topic video / question panels still open from topic ribbons. */}
         {!isBlackboardOpen && (
         <FloatingButton
-          showLauncher={Boolean((activeBook?.bookType === 'pdf' && !activeLesson?.contentType) || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0))}
+          // The round floating button is hidden (replaced by the icons on the closed greenboard handle).
+          // Kept in the code: set SHOW_ROUND_LAUNCHER to true to bring it back.
+          showLauncher={SHOW_ROUND_LAUNCHER && Boolean((activeBook?.bookType === 'pdf' && !activeLesson?.contentType) || (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0))}
           currentLesson={activeLesson}
           onToggleButtonDraw={() => {
             setIsDrawingEnabled(!isDrawingEnabled);
@@ -2255,6 +2294,9 @@ export default function App() {
           globalLogo={globalLogo}
           externalTopicModal={externalTopicModal}
           onCloseExternalTopicModal={() => setExternalTopicModal(null)}
+          externalChapterPanel={externalChapterPanel}
+          onCloseExternalChapterPanel={() => setExternalChapterPanel(null)}
+          bookSource={activeBook?.source || null}
         />
         )}
       </div>

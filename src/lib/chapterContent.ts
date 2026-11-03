@@ -59,15 +59,13 @@ export const getStudentViewLesson = (lesson: Lesson): Lesson => {
   const type = lesson.contentType;
 
   if (type === 'pdf') {
-    // PDF chapters show the PDF only: no pages, topics, videos or questions.
+    // PDF chapters show the PDF on the page. The chapter's lecture videos and "Some Extra Questions"
+    // (inquiry) are kept: students open them from the video / Q icons on the closed greenboard handle.
     return {
       ...lesson,
       pages: [],
       topics: [],
-      videoUrl: null,
-      videoUrls: [],
       flashQuestions: [],
-      inquiryQuestions: [],
       interactiveImages: []
     };
   }

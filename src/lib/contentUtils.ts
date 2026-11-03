@@ -1,4 +1,4 @@
-import { Topic, Lesson, InquiryQuestionObj } from '../types';
+import { Topic, Lesson, InquiryQuestionObj, FlashQuestion } from '../types';
 
 export const hasTextContent = (html: string | undefined | null): boolean => {
   if (!html) return false;
@@ -52,6 +52,52 @@ export const getEffectiveTopicInquiryQuestions = (
   return result;
 };
 
+/**
+ * Flash (diagnostic) questions for a topic: the copy stored inside the topic plus the chapter's own
+ * flash questions tagged with this topic's title (ignoring case/spaces), without duplicates.
+ * Different copies of a chapter (saved offline copy, server copy, slim copy of a large chapter)
+ * do not always carry the per-topic copies, so reading only topic.flashQuestions made the topic
+ * ribbon's question icon switch on and off. Same approach as getEffectiveTopicInquiryQuestions.
+ */
+export const getEffectiveTopicFlashQuestions = (
+  topic?: Topic | null,
+  lesson?: Lesson | null
+): FlashQuestion[] => {
+  if (!topic) return [];
+  const toArray = (v: any): FlashQuestion[] =>
+    (Array.isArray(v) ? v : v ? Object.values(v) : []).filter(Boolean) as FlashQuestion[];
+
+  const titleLower = (topic.title || '').trim().toLowerCase();
+  const fromLesson = titleLower
+    ? toArray(lesson?.flashQuestions).filter(q => (q.topicTitle || '').trim().toLowerCase() === titleLower)
+    : [];
+
+  const seen = new Set<string>();
+  const result: FlashQuestion[] = [];
+  for (const q of [...toArray(topic.flashQuestions), ...fromLesson]) {
+    const key = q.id ? `id:${q.id}` : `q:${q.question}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(q);
+  }
+  return result;
+};
+
+/**
+ * Video URLs of a topic (its own list, or the legacy single videoUrl). Topic videos belong to the
+ * topic only: chapter-level lecture videos are not shown on topic ribbons (they open from the
+ * video icon on the closed greenboard).
+ */
+export const getEffectiveTopicVideos = (
+  topic?: Topic | null,
+  _lesson?: Lesson | null
+): string[] => {
+  if (!topic) return [];
+  const list = topic.videoUrls && topic.videoUrls.length > 0
+    ? topic.videoUrls
+    : (topic.videoUrl ? [topic.videoUrl] : []);
+  return list.map(u => (u || '').trim()).filter(Boolean);
+};
 
 /**
  * Bulk-upload safeguard: questions only appear on a topic ribbon when their Topic exactly matches
