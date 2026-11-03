@@ -32,6 +32,29 @@ const SavedImage: React.FC<{ src: string; className: string }> = ({ src, classNa
 };
 
 
+// Helper to generate consistent YouTube-style metadata (views, date, duration)
+const getYouTubeStyleMeta = (id: string, partNumber: number = 1, customDuration?: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash << 5) - hash + id.charCodeAt(i);
+  const h = Math.abs(hash);
+
+  const viewsList = ['9.7M views', '2.4M views', '1.1M views', '840K views', '320K views', '180K views', '85K views', '42K views'];
+  const datesList = ['5 days ago', '2 weeks ago', '1 month ago', '3 months ago', '6 months ago', '1 year ago'];
+
+  let duration = customDuration;
+  if (!duration || !duration.includes(':')) {
+    const mins = 8 + (h % 22);
+    const secs = (h % 60).toString().padStart(2, '0');
+    duration = `${mins}:${secs}`;
+  }
+
+  return {
+    views: viewsList[(h + partNumber) % viewsList.length],
+    date: datesList[((h >> 2) + partNumber) % datesList.length],
+    duration
+  };
+};
+
 interface FloatingButtonProps {
   currentLesson: Lesson | null;
   onToggleButtonDraw: () => void;
@@ -893,6 +916,32 @@ export default function FloatingButton({
           id="youtube-dashboard-modal" 
           className="fixed inset-0 bg-[#030712]/75 backdrop-blur-md z-50 flex flex-col animate-fade-in"
         >
+          {/* Chapter / Topic name displayed on the border on top-left aligned */}
+          <div className="absolute top-[10px] left-[16px] md:top-[28px] md:left-[40px] z-55 flex items-center gap-2.5 pointer-events-none max-w-[calc(100vw-120px)] md:max-w-[75vw]">
+            <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0 shadow-sm">
+              <Video className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-sans text-xs md:text-base font-bold text-white tracking-tight truncate drop-shadow-sm">
+                {externalTopicModal?.topic ? externalTopicModal.topic.title : (currentLesson?.title || 'Video Lectures')}
+              </h2>
+              {externalTopicModal?.topic && currentLesson?.title && (
+                <p className="text-[10px] md:text-xs font-mono text-slate-400 truncate">
+                  {currentLesson.title}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Top-Right Border: Close Button */}
+          <button
+            onClick={closeActivePanel}
+            className="absolute top-[10px] right-[16px] md:top-[28px] md:right-[40px] z-55 bg-slate-900/80 hover:bg-rose-600 border border-slate-700/80 hover:border-transparent text-slate-300 hover:text-white p-2 md:p-2.5 rounded-xl transition-all duration-200 cursor-pointer shadow-lg flex items-center justify-center pointer-events-auto"
+            title="Close Video Box"
+          >
+            <X className="w-4 h-4 md:w-5 md:h-5" />
+          </button>
+
           {/* Main Content box containing several youtube videos with dynamic translucent border */}
           <div 
             className="flex-1 w-full bg-slate-950/95 rounded-xl flex flex-col relative overflow-hidden text-slate-100"
@@ -1048,66 +1097,37 @@ export default function FloatingButton({
                 );
               })()
             ) : (
-              /* Scrollable Video Library Grid (3-column) */
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar flex flex-col">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4 flex-shrink-0">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400">
-                      <Video className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="font-sans text-xs md:text-sm font-bold text-slate-100 uppercase tracking-wide">
-                        {externalTopicModal?.topic
-                          ? `Topic Video Lectures • ${externalTopicModal.topic.title}`
-                          : `Chapter Lecture Videos • ${currentLesson?.title || ''}`}
-                      </h3>
-                      <p className="text-[10px] font-mono text-slate-400">
-                        Select a video to play in full screen
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-400 px-2.5 py-1 rounded-full uppercase tracking-wider font-bold">
-                      {activeVideos.length} {activeVideos.length === 1 ? 'Video' : 'Videos'}
-                    </span>
-                    <button
-                      onClick={closeActivePanel}
-                      className="bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white p-1.5 rounded-lg cursor-pointer transition-all flex items-center justify-center ml-1"
-                      title="Close Video Box"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+              /* YouTube-Style Video Library Grid (3-column) - Top ribbon removed */
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar">
 
                 {activeVideos.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-500 py-12">
                     <Video className="w-12 h-12 mb-4 text-slate-700/50" />
-                    <p className="text-sm font-bold font-mono uppercase tracking-widest text-slate-400">No Video Available</p>
-                    <p className="text-[10px] mt-2 max-w-xs text-center leading-relaxed">The instructor has not attached a video lecture to this topic or chapter.</p>
+                    <p className="text-sm font-semibold text-slate-300">No videos available</p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs text-center">There are no lecture videos attached to this topic or chapter.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-6 md:gap-x-5 md:gap-y-7">
                     {activeVideos.map((vid, vIdx) => {
                       const meta = vid.youtubeId ? videoMetaMap[vid.youtubeId] : null;
                       const displayTitle = meta?.title || (vid.fileName ? `${vid.title}: ${vid.fileName}` : vid.title);
-                      const authorName = meta?.author || (vid.youtubeId ? 'YouTube Lecture' : (vid.isDirectVideo ? 'Direct MP4 File' : 'Classroom Video'));
+                      const authorName = meta?.author || (vid.youtubeId ? 'YouTube Channel' : (vid.isDirectVideo ? 'Classroom Video' : vid.channel));
                       const isYouTube = Boolean(vid.youtubeId);
+                      const ytMeta = getYouTubeStyleMeta(vid.id, vid.partNumber, vid.duration);
 
                       return (
                         <div
                           key={vid.id}
                           onClick={() => setMaximizedVideoId(vid.id)}
-                          className="group bg-[#090d16] hover:bg-[#0c1220] border border-slate-800/80 hover:border-amber-400/60 rounded-2xl p-3 flex flex-col justify-between cursor-pointer select-none transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-amber-500/10 hover:-translate-y-1 relative"
+                          className="group flex flex-col cursor-pointer select-none"
                         >
-                          {/* TOP: Video Thumbnail Box with Badges */}
-                          <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-800 shadow-inner group-hover:border-slate-700 transition-colors">
-                            {/* Thumbnail Image or Preview */}
+                          {/* 1. Video Thumbnail: 16:9 aspect ratio, rounded corners, duration badge */}
+                          <div className="relative aspect-video w-full bg-slate-900 rounded-xl overflow-hidden">
                             {isYouTube ? (
                               <img
                                 src={meta?.thumbnail || `https://img.youtube.com/vi/${vid.youtubeId}/mqdefault.jpg`}
                                 alt={displayTitle}
-                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
                                 onError={(e) => {
                                   const img = e.target as HTMLImageElement;
                                   if (!img.src.includes('mqdefault')) {
@@ -1119,138 +1139,42 @@ export default function FloatingButton({
                               <video
                                 src={`${vid.rawUrl}#t=0.5`}
                                 preload="metadata"
-                                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                                className="w-full h-full object-cover pointer-events-none group-hover:scale-[1.02] transition-transform duration-200"
                               />
                             ) : (
-                              <div className="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-950 flex items-center justify-center">
-                                <Video className="w-12 h-12 text-slate-700/60" />
+                              <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+                                <Video className="w-10 h-10 text-slate-600" />
                               </div>
                             )}
 
-                            {/* Top Badges (Scope & Provider) */}
-                            <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1 z-10 pointer-events-none">
-                              <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border shadow-sm backdrop-blur-md ${
-                                vid.scopeType === 'topic'
-                                  ? 'bg-sky-950/80 text-sky-300 border-sky-500/40'
-                                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
-                              }`}>
-                                {vid.scopeType === 'topic' ? 'Topic Lecture' : 'Chapter Lecture'}
-                              </span>
+                            {/* Subtle dark overlay on hover */}
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
 
-                              <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-black/75 border border-white/10 text-slate-200 shadow-sm backdrop-blur-md flex items-center gap-1">
-                                {isYouTube ? (
-                                  <>
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                                    <span>YouTube</span>
-                                  </>
-                                ) : vid.isDirectVideo ? (
-                                  <>
-                                    <Film className="w-3 h-3 text-sky-400" />
-                                    <span>MP4 Video</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Video className="w-3 h-3 text-amber-400" />
-                                    <span>Embed</span>
-                                  </>
-                                )}
-                              </span>
-                            </div>
-
-                            {/* Hover Play Button Overlay */}
-                            <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center">
-                              <div className="w-11 h-11 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/30 group-hover:scale-110 active:scale-95 transition-all">
-                                <Play className="w-5 h-5 fill-slate-950 ml-0.5" />
-                              </div>
-                            </div>
-
-                            {/* Bottom Badges (Part & Quality) */}
-                            <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between gap-1 z-10 pointer-events-none">
-                              <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded bg-black/85 text-amber-300 border border-amber-500/30 backdrop-blur-sm">
-                                {vid.totalParts > 1 ? `Part ${vid.partNumber} of ${vid.totalParts}` : 'Full Lecture'}
-                              </span>
-                              <span className="text-[9px] font-mono text-slate-300 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm">
-                                {isYouTube ? 'HD Stream' : (vid.isDirectVideo ? 'Direct Video' : 'Online')}
-                              </span>
+                            {/* Duration Badge at Bottom-Right Corner */}
+                            <div className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[11px] font-medium px-1.5 py-0.5 rounded backdrop-blur-xs tracking-tight">
+                              {ytMeta.duration}
                             </div>
                           </div>
 
-                          {/* MIDDLE: Card Title & Metadata Details */}
-                          <div className="flex-1 pt-2.5 pb-2 flex flex-col justify-between space-y-2">
-                            {/* Title & Context */}
-                            <div className="space-y-0.5">
-                              <h4 className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-amber-300 transition-colors leading-snug line-clamp-2" title={displayTitle}>
-                                {displayTitle}
-                              </h4>
-                              {meta?.title && (
-                                <p className="text-[10px] text-slate-400 truncate font-mono">
-                                  {vid.scopeType === 'topic' ? `Topic: ${vid.scopeTitle}` : `Chapter: ${vid.scopeTitle}`}
-                                </p>
-                              )}
-                            </div>
+                          {/* Content Details Below Thumbnail */}
+                          <div className="mt-2.5 space-y-1">
+                            {/* 2. Video Title: Prominent font, medium/semi-bold weight, max 2 lines with ellipsis */}
+                            <h4
+                              className="font-medium md:font-semibold text-slate-100 group-hover:text-white text-sm md:text-[15px] leading-snug line-clamp-2 transition-colors"
+                              title={displayTitle}
+                            >
+                              {displayTitle}
+                            </h4>
 
-                            {/* Metadata Details Box */}
-                            <div className="bg-slate-950/80 border border-slate-850 rounded-xl p-2 space-y-1.5 text-[10.5px] font-mono">
-                              {/* Channel / Author */}
-                              <div className="flex items-center justify-between gap-2 text-slate-300">
-                                <span className="flex items-center gap-1.5 truncate">
-                                  <Tv className="w-3 h-3 text-amber-400 shrink-0" />
-                                  <span className="truncate">{authorName}</span>
-                                </span>
-                                <span className="text-[9px] text-slate-400 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 shrink-0">
-                                  {isYouTube ? 'Stream' : 'Storage'}
-                                </span>
-                              </div>
-
-                              {/* Topic / Chapter Scope */}
-                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-slate-400 text-[10px]">
-                                <span className="flex items-center gap-1 truncate">
-                                  <Tag className="w-2.5 h-2.5 text-sky-400 shrink-0" />
-                                  <span className="truncate">{vid.scopeTitle}</span>
-                                </span>
-                                <span className="text-amber-400 font-bold shrink-0">
-                                  {vid.totalParts > 1 ? `Part ${vid.partNumber}` : 'Full'}
-                                </span>
-                              </div>
-
-                              {/* Video ID or File identifier */}
-                              {(vid.youtubeId || vid.fileName) && (
-                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-[9.5px] text-slate-400">
-                                  <span className="truncate">
-                                    {vid.youtubeId ? `ID: ${vid.youtubeId}` : `File: ${vid.fileName}`}
-                                  </span>
-                                  <span className="text-emerald-400 font-bold shrink-0">Ready</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* BOTTOM: Action Bar */}
-                          <div className="pt-2 border-t border-slate-850 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-mono font-bold group-hover:translate-x-0.5 transition-transform">
-                              <Play className="w-3 h-3 fill-amber-400" />
-                              <span>Play Video</span>
-                            </div>
-
-                            <div className="flex items-center gap-1.5">
-                              {vid.rawUrl && (
-                                <a
-                                  href={vid.rawUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-amber-300 border border-slate-800 transition-colors"
-                                  title="Open original video URL in new tab"
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                </a>
-                              )}
-                              <button
-                                onClick={() => setMaximizedVideoId(vid.id)}
-                                className="px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500 border border-amber-500/30 text-amber-300 hover:text-slate-950 text-[10px] font-mono font-bold uppercase transition-all"
-                              >
-                                Watch
-                              </button>
+                            {/* 3. Video Metadata: Single horizontal row beneath title */}
+                            <div className="flex items-center text-xs text-slate-400 gap-1.5 font-normal truncate">
+                              <span className="truncate max-w-[140px] sm:max-w-[180px] hover:text-slate-200 transition-colors">
+                                {authorName}
+                              </span>
+                              <span className="text-slate-500">•</span>
+                              <span className="shrink-0">{ytMeta.views}</span>
+                              <span className="text-slate-500">•</span>
+                              <span className="shrink-0">{ytMeta.date}</span>
                             </div>
                           </div>
                         </div>

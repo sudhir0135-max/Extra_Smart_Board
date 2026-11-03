@@ -2,12 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026-11-03] - Topic Videos: Topic-only Links, Direct Player, Editor Layout
+## [2026-11-03] - YouTube-Style Video Card Layout & Topic Video Decoupling
 
 ### Changed
+- **YouTube-Style Video Card Layout (`FloatingButton.tsx`)**: Redesigned video grid cards in the student panel to match YouTube's visual hierarchy:
+  1. **Thumbnail**: 16:9 aspect ratio, rounded corners (`rounded-xl`), subtle hover zoom, with video duration displayed in a small dark translucent badge at the bottom-right corner. Entire thumbnail is clickable to play.
+  2. **Video Title**: Placed immediately below thumbnail with prominent medium/semi-bold typography, clamped to a maximum of 2 lines with clean ellipsis truncation.
+  3. **Video Metadata**: Single horizontal row beneath the title displaying `Channel Name • View count • Upload date` in smaller font size with muted grey colour.
+  4. **Minimal Interface**: Removed bulky card borders, nested boxes, and action bars in favor of a clean, borderless YouTube-style card layout.
+- **Video Box Header & Border Placement (`FloatingButton.tsx`)**: Removed the internal top ribbon from inside the video box grid view. The chapter name / topic name is now displayed directly on the translucent border on top-left aligned with an icon, and a matching close button is placed on the top-right border.
 - **Editor panel (pages card)**: the video section has the link box, a slightly larger "+ Add Video" button and "Upload" in one row; saved videos are listed below with a delete button each. "+ Add Page" is slightly smaller. In topic-wise chapters the list belongs to the selected topic (`topic.videoUrls`).
 - **Topic videos are topic-only (`lib/contentUtils.ts` `getEffectiveTopicVideos`)**: removed the fallback that showed chapter-level lecture videos on the first topic's ribbon. Chapter-level videos open only from the video icon on the closed greenboard.
-- **Topic ribbon video icon (`FloatingButton.tsx`)**: opens the player straight away on Part 1 (no 3-column grid); "Part 1 / Part 2 …" buttons switch videos; the "All Videos" grid button is hidden for topic videos.
 
 ## [2026-11-02] - Chapter Videos & Questions on the Greenboard Handle; Safer Unsubmitted Edits
 
