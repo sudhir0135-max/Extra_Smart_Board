@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-04] - Extra Questions Box Redesign (Sage and Terracotta)
+
+### Changed
+- **Extra Questions panel (`FloatingButton.tsx`)**: sage green background with terracotta accents. Floating translucent top bar shows the title, the chapter/topic name with the question count, the **source buttons** (terracotta pills with a tick and count; NCERT still ticked by default), Show/Hide all answers, a compact drawing toggle with its colour palette, and a round close button.
+- **Question cards**: off-white cards with a numbered circle, chips for topic, marks and source, and a serif question. The bare eye icon became a labelled "Show answer" button; answers open in a soft terracotta panel labelled ANSWER. The Accounts/Journal button and drag-to-resize handle are kept and restyled.
+- **Show all answers**: one tap opens or closes every answer in the list.
+
+## [2026-11-04] - Retrieval Cards Redesign
+
+### Changed
+- **Retrieval Cards (`FloatingButton.tsx`)**: rebuilt in the greenboard green and gold theme. Floating translucent header with the chapter/topic name, a pill difficulty filter with coloured dots, and one round close button.
+- **Flip card**: real 3D flip. The front is off-white paper with a large serif question and a difficulty chip; the back is soft gold with a gold top edge. Fixed card height, with scrolling inside long answers.
+- **Navigation**: progress bar with "n / total", large round previous/next arrows, and keyboard shortcuts (← → move, Space flips). The pulsing Next button was removed.
+- **Team arena**: large Team A (blue) and Team B (gold) score tiles with + and − buttons. Shuffle and Reset are quiet buttons below. The duplicate Close button and the old wording were removed.
+
 ## [2026-11-04] - Side Nav Matches Greenboard
 
 ### Changed

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator, Filter, ExternalLink, Tv, Film, Tag } from 'lucide-react';
+import { Play, HelpCircle, FileText, Move, Maximize, Video, Check, RotateCcw, AlertTriangle, Eye, EyeOff, X, Palette, Sparkles, Undo, Trash2, WifiOff, Calculator, Filter, ExternalLink, Tv, Film, Tag, ChevronLeft, ChevronRight, Shuffle } from 'lucide-react';
 import { Book, AcademicSubject, Lesson, Topic, FlashQuestion, Note, InquiryQuestionObj } from '../types';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import 'katex/dist/katex.min.css';
@@ -127,7 +127,7 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
 
   if (!image) {
     return (
-      <div className="w-full text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+      <div className="w-full text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
         <div dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
@@ -135,8 +135,8 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
 
   if (pos === 'center') {
     return (
-      <div className="w-full flex flex-col items-center gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        <SavedImage src={image} className="w-[80%] rounded-xl object-contain border border-slate-800" />
+      <div className="w-full flex flex-col items-center gap-6 text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+        <SavedImage src={image} className="w-[80%] rounded-xl object-contain border border-[#3f5a48]/20" />
         <div className="w-full" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
@@ -144,34 +144,28 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
 
   if (pos === 'left') {
     return (
-      <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" />
+      <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+        <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-[#3f5a48]/20" />
         <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
       </div>
     );
   }
 
   return (
-    <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
+    <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
       <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
-      <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-slate-800" />
+      <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-[#3f5a48]/20" />
     </div>
   );
 });
 
 const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: string; isFlipped: boolean }) => {
-  const contentRef = useRef<HTMLDivElement>(null);
-
   return (
-    <div ref={contentRef} className="flex items-start gap-4">
-      <div className={`font-black shrink-0 mt-2 select-none ${isFlipped ? 'text-slate-900/60' : 'text-amber-500/70'}`}>
-        {isFlipped ? 'A.-' : 'Q.-'}
-      </div>
-      <div 
-        className={`flex-1 reader-content prose max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl ${isFlipped ? 'font-extrabold text-shadow-sm text-slate-950 prose-p:text-slate-950 prose-headings:text-slate-950 prose-strong:text-slate-950 prose-em:text-slate-950' : 'prose-invert prose-emerald font-semibold text-slate-100 prose-p:text-slate-100 prose-headings:text-slate-100'}`}
-        dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(contentText) }} 
-      />
-    </div>
+    <div
+      className={`reader-content prose max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl prose-img:mx-auto ${isFlipped ? 'text-[#2a1f08] prose-p:text-[#2a1f08] prose-headings:text-[#2a1f08] prose-strong:text-[#2a1f08] prose-li:text-[#2a1f08] text-left' : 'text-[#1b2b25] prose-p:text-[#1b2b25] prose-headings:text-[#1b2b25] prose-strong:text-[#1b2b25] prose-li:text-[#1b2b25]'}`}
+      style={{ fontSize: 'inherit', lineHeight: 'inherit' }}
+      dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(contentText) }}
+    />
   );
 });
 
@@ -179,14 +173,21 @@ const QuestionItem = React.memo(({
   item,
   isOnline,
   onOpenAccountancyWorkspace,
+  questionNumber,
+  revealAll,
 }: {
   item: string | InquiryQuestionObj;
   isOnline: boolean;
   onOpenAccountancyWorkspace?: (item: string | InquiryQuestionObj) => void;
+  questionNumber?: number;
+  revealAll?: { open: boolean; nonce: number };
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [minHeight, setMinHeight] = useState<number>(0);
-  const [showAnswer, setShowAnswer] = useState<boolean>(false);
+  const [showAnswer, setShowAnswer] = useState<boolean>(revealAll?.open ?? false);
+  useEffect(() => {
+    if (revealAll && revealAll.nonce > 0) setShowAnswer(revealAll.open);
+  }, [revealAll?.nonce]);
   const dragStartRef = useRef<{ y: number; startHeight: number } | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -223,104 +224,88 @@ const QuestionItem = React.memo(({
     <div
       ref={containerRef}
       onContextMenu={(e) => e.preventDefault()}
-      className="group relative p-6 md:p-8 rounded-2xl border border-slate-800/40 bg-[#181e2a] text-slate-200 text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed select-none shadow-lg"
+      className="group relative rounded-2xl bg-[#fbfaf6] text-[#2c3a31] shadow-lg shadow-black/15 p-4 sm:p-6 md:p-7 flex gap-3 sm:gap-5 text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px]"
       style={{ minHeight: minHeight > 0 ? `${minHeight}px` : undefined }}
     >
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full mb-3 pb-3 border-b border-slate-900/80">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="w-2 h-2 rounded-full bg-amber-400" />
-          <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">Lesson Inquiry Question</span>
-          {typeof item !== 'string' && item.topicTitle && (
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-teal-500/20 text-teal-300 border border-teal-500/30 uppercase">
-              Topic: {item.topicTitle}
-            </span>
-          )}
-          {typeof item !== 'string' && item.marks !== undefined && item.marks !== null && (
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              {item.marks} Marks
-            </span>
-          )}
-          {isAccountancyMode && (
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-              Accountancy Workspace
-            </span>
+      {typeof questionNumber === 'number' && (
+        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#3f5a48] text-white text-sm sm:text-base font-semibold flex items-center justify-center shrink-0 select-none">
+          {questionNumber}
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {typeof item !== 'string' && item.topicTitle && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-[#EAF0E8] text-[#2f4a38]">{item.topicTitle}</span>
+            )}
+            {typeof item !== 'string' && item.marks !== undefined && item.marks !== null && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-[#f8e9e2] text-[#7a3520]">{item.marks} marks</span>
+            )}
+            {typeof item !== 'string' && (item as any).source && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-[#F1EFE8] text-[#444441]">{(item as any).source}</span>
+            )}
+          </div>
+          {isAccountancyMode && onOpenAccountancyWorkspace && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenAccountancyWorkspace(item); }}
+              className="bg-[#c8664a] hover:bg-[#b5573d] text-white px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 shrink-0 cursor-pointer shadow-sm"
+              title="Show Accounts/Journal Workspace"
+            >
+              <Calculator className="w-4 h-4" />
+              <span className="text-xs font-semibold">Show Accounts/Journal</span>
+            </button>
           )}
         </div>
 
-        {isAccountancyMode && onOpenAccountancyWorkspace && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenAccountancyWorkspace(item);
-            }}
-            className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 p-2 px-3 rounded-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95"
-            title="Show Accounts/Journal Workspace"
-          >
-            <Calculator className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs font-bold font-mono">Show Accounts/Journal</span>
-          </button>
+        <div className="flex justify-between items-start gap-4">
+          <QuestionContent item={item} isOnline={isOnline} />
+        </div>
+
+        {hasAnswer && (
+          <div className="mt-4 flex flex-col">
+            <div className="flex justify-end w-full">
+              <button
+                onClick={() => setShowAnswer(prev => !prev)}
+                className={`text-xs sm:text-sm font-semibold px-3.5 py-1.5 rounded-full border transition-all cursor-pointer flex items-center gap-1.5 ${
+                  showAnswer ? 'bg-[#a8492e] border-[#a8492e] text-white' : 'border-[#a8492e] text-[#a8492e] hover:bg-[#f8e9e2]'
+                }`}
+                title={showAnswer ? 'Hide answer' : 'Show answer'}
+              >
+                {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showAnswer ? 'Hide answer' : 'Show answer'}
+              </button>
+            </div>
+
+            {showAnswer && Boolean(item) && typeof item !== 'string' && (
+              <div className="mt-3 p-4 sm:p-5 bg-[#f8e9e2] border-t-[3px] border-[#a8492e] rounded-b-xl space-y-3 animate-fade-in">
+                <div className="text-[11px] sm:text-xs font-semibold tracking-[0.14em] text-[#a8492e]">ANSWER</div>
+                {item.answerText && (
+                  <div
+                    dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.answerText) }}
+                    className="text-[#4A1B0C] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed"
+                  />
+                )}
+                {item.answerImage && (
+                  <div className={`flex ${item.answerImagePosition === 'left' ? 'justify-start' : item.answerImagePosition === 'right' ? 'justify-end' : 'justify-center'} mt-2`}>
+                    <img src={item.answerImage} alt="Solution Illustration" className="max-h-80 rounded-xl border border-[#a8492e]/30 shadow object-contain" />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      <div className="flex justify-between items-start gap-4">
-        <QuestionContent item={item} isOnline={isOnline} />
-      </div>
-
-      {hasAnswer && (
-        <div className="mt-6 pt-4 border-t border-slate-900 flex flex-col gap-4">
-          <div className="flex justify-end w-full">
-            <button
-              onClick={() => setShowAnswer(prev => !prev)}
-              className={`p-2.5 rounded-xl transition-all border cursor-pointer ${
-                showAnswer
-                  ? 'bg-slate-700 text-slate-100 border-slate-500 shadow-md shadow-slate-950/40'
-                  : 'bg-slate-800/90 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white hover:border-slate-500 shadow-sm'
-              }`}
-              title={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
-              aria-label={showAnswer ? "Hide Solution/Answer" : "Show Solution/Answer"}
-            >
-              {showAnswer ? <EyeOff className="w-5 h-5 text-slate-300" /> : <Eye className="w-5 h-5 text-slate-300" />}
-            </button>
-          </div>
-
-          {showAnswer && Boolean(item) && typeof item !== 'string' && (
-            <div className="p-6 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl space-y-4 animate-fade-in">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs md:text-sm lg:text-base uppercase tracking-wider font-mono">
-                <Check className="w-4 h-4" />
-                <span>Verified Solution & Answer</span>
-              </div>
-
-              {item.answerText && (
-                <div
-                  dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.answerText) }}
-                  className="text-[#e8f0fe] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed"
-                />
-              )}
-
-              {item.answerImage && (
-                <div className={`flex ${item.answerImagePosition === 'left' ? 'justify-start' : item.answerImagePosition === 'right' ? 'justify-end' : 'justify-center'} mt-3`}>
-                  <img
-                    src={item.answerImage}
-                    alt="Solution Illustration"
-                    className="max-h-80 rounded-xl border border-emerald-500/30 shadow-lg object-contain"
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Resize Handle at Bottom Left */}
-      <div 
+      <div
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className="absolute bottom-0 left-0 w-12 h-12 flex items-end justify-start p-2 cursor-ns-resize opacity-20 hover:opacity-100 transition-opacity pointer-events-auto touch-none"
+        className="absolute bottom-0 left-0 w-12 h-12 flex items-end justify-start p-2 cursor-ns-resize opacity-25 hover:opacity-100 transition-opacity pointer-events-auto touch-none"
         title="Drag to resize question area"
       >
-        <Move className="w-5 h-5 text-emerald-400 rotate-45" />
+        <Move className="w-5 h-5 text-[#3f5a48] rotate-45" />
       </div>
     </div>
   );
@@ -385,6 +370,7 @@ export default function FloatingButton({
   }, [externalChapterPanel]);
 
   const closeActivePanel = () => {
+    setRevealAllAnswers({ open: false, nonce: 0 });
     setActivePanel(null);
     setMaximizedVideoId(null);
     setIsListDrawingMode(false);
@@ -396,6 +382,7 @@ export default function FloatingButton({
 
   // Full Screen Question Drawing State
   const [isListDrawingMode, setIsListDrawingMode] = useState(false);
+  const [revealAllAnswers, setRevealAllAnswers] = useState<{ open: boolean; nonce: number }>({ open: false, nonce: 0 });
   const [qSelectedColor, setQSelectedColor] = useState('#f59e0b');
   const [qIsHighlighter, setQIsHighlighter] = useState(false);
   const PALETTE_COLORS = [
@@ -416,6 +403,7 @@ export default function FloatingButton({
   const [scoreTeamA, setScoreTeamA] = useState(0);
   const [scoreTeamB, setScoreTeamB] = useState(0);
   const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'Easy' | 'Medium' | 'Hard'>('all');
+  const [flashShuffleOrder, setFlashShuffleOrder] = useState<number[] | null>(null);
 
   // Handwritten notes state
   const [localNote, setLocalNote] = useState('');
@@ -720,10 +708,33 @@ export default function FloatingButton({
   const mediumCount = React.useMemo(() => allFlashQuestions.filter(q => (q.difficulty || '').toLowerCase() === 'medium').length, [allFlashQuestions]);
   const hardCount = React.useMemo(() => allFlashQuestions.filter(q => (q.difficulty || '').toLowerCase() === 'hard').length, [allFlashQuestions]);
 
-  const hasFlash = filteredFlashQuestions.length > 0;
+  const orderedFlashQuestions = React.useMemo(() => {
+    if (flashShuffleOrder && flashShuffleOrder.length === filteredFlashQuestions.length) {
+      return flashShuffleOrder.map(k => filteredFlashQuestions[k]);
+    }
+    return filteredFlashQuestions;
+  }, [filteredFlashQuestions, flashShuffleOrder]);
+
+  const hasFlash = orderedFlashQuestions.length > 0;
   const activeQuestion: FlashQuestion | null = hasFlash
-    ? filteredFlashQuestions[currentQuestionIdx % filteredFlashQuestions.length]
+    ? orderedFlashQuestions[currentQuestionIdx % orderedFlashQuestions.length]
     : null;
+
+  // Keyboard: ← → move, Space flips (retrieval cards only)
+  useEffect(() => {
+    if (activePanel !== 'questions') return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const n = orderedFlashQuestions.length;
+      if (!n) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); setCurrentQuestionIdx(p => (p + 1) % n); setIsFlipped(false); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); setCurrentQuestionIdx(p => (p - 1 + n) % n); setIsFlipped(false); }
+      else if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); setIsFlipped(f => !f); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activePanel, orderedFlashQuestions.length]);
 
   const isOnLeft = position.x >= 50;
 
@@ -1197,358 +1208,338 @@ export default function FloatingButton({
           </button>
         </div>
       )}      {/* 2. FLASH QUESTIONS ACTIVE RETRIEVAL CARDS */}
-      {activePanel === 'questions' && (
-        <div className="fixed inset-0 w-full h-full bg-[#0b0f19] text-slate-100 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans shadow-2xl" id="panel-flashcards">
-          <div className="bg-slate-950 py-2 sm:py-2.5 px-4 sm:px-6 flex flex-wrap items-center justify-between border-b border-slate-900 shrink-0 gap-2 shadow-md">
-            <div className="flex items-center gap-2 text-amber-500 font-bold shrink-0">
-              <HelpCircle className="w-4 h-4" />
-              <span className="font-bold uppercase text-[10px] sm:text-xs tracking-widest font-sans">Classroom Retrieval Cards</span>
+      {activePanel === 'questions' && (() => {
+        const total = orderedFlashQuestions.length;
+        const pos = total ? (currentQuestionIdx % total) + 1 : 0;
+        const scopeLabel = externalTopicModal?.topic?.title || currentLesson?.title || '';
+        const selectFilter = (f: 'all' | 'Easy' | 'Medium' | 'Hard') => { setDifficultyFilter(f); setCurrentQuestionIdx(0); setIsFlipped(false); setFlashShuffleOrder(null); };
+        const filterBtns: { key: 'all' | 'Easy' | 'Medium' | 'Hard'; label: string; count: number; dot?: string }[] = [
+          { key: 'all', label: 'All', count: allFlashQuestions.length },
+          { key: 'Easy', label: 'Easy', count: easyCount, dot: '#5DCAA5' },
+          { key: 'Medium', label: 'Medium', count: mediumCount, dot: '#EF9F27' },
+          { key: 'Hard', label: 'Hard', count: hardCount, dot: '#F09595' },
+        ];
+        const diff = (activeQuestion?.difficulty || '').toLowerCase();
+        const diffChip = diff === 'easy' ? 'bg-[#E1F5EE] text-[#085041]' : diff === 'hard' ? 'bg-[#FCEBEB] text-[#791F1F]' : 'bg-[#FAEEDA] text-[#633806]';
+        const roundBtn = 'w-9 h-9 sm:w-12 sm:h-12 rounded-full flex items-center justify-center shrink-0 transition-all cursor-pointer active:scale-95';
+        const scoreBtn = 'w-8 h-8 sm:w-9 sm:h-9 rounded-lg border border-white/25 bg-black/20 hover:bg-black/35 text-[#e3efe7] text-lg font-medium cursor-pointer active:scale-95 transition-all';
+        return (
+        <div
+          className="fixed inset-0 w-full h-full text-[#e3efe7] z-[100] flex flex-col overflow-hidden animate-fade-in font-sans"
+          id="panel-flashcards"
+          style={{ background: 'linear-gradient(160deg, #1a3d2b 0%, #14532d 30%, #0f3d24 70%, #0a2e1b 100%)' }}
+        >
+          {/* Floating translucent header */}
+          <div className="m-2 sm:m-3 px-3 sm:px-4 py-2 rounded-2xl bg-[#e3f1e8]/[0.12] backdrop-blur-xl border border-white/20 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="min-w-0">
+              <div className="text-[15px] sm:text-base font-semibold text-[#f3e6c4] leading-tight">Retrieval Cards</div>
+              {scopeLabel && <div className="text-[11px] sm:text-xs text-[#a9cbb8] truncate max-w-[60vw] sm:max-w-[320px]">{scopeLabel}</div>}
             </div>
-
-            {/* Difficulty Filter Selector */}
-            <div className="flex items-center gap-1 bg-slate-900 py-0.5 px-1 rounded-xl border border-slate-800 text-[10px] sm:text-xs font-mono">
-              <button
-                onClick={() => { setDifficultyFilter('all'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  difficultyFilter === 'all'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                }`}
-                title="Show all retrieval questions"
-              >
-                All ({allFlashQuestions.length})
-              </button>
-              <button
-                onClick={() => { setDifficultyFilter('Easy'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  difficultyFilter === 'Easy'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50'
-                }`}
-                title="Show Easy level questions"
-              >
-                Easy ({easyCount})
-              </button>
-              <button
-                onClick={() => { setDifficultyFilter('Medium'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  difficultyFilter === 'Medium'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/50'
-                }`}
-                title="Show Medium level questions"
-              >
-                Medium ({mediumCount})
-              </button>
-              <button
-                onClick={() => { setDifficultyFilter('Hard'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                className={`px-2.5 py-0.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  difficultyFilter === 'Hard'
-                    ? 'bg-rose-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-rose-400 hover:bg-slate-800/50'
-                }`}
-                title="Show Hard level questions"
-              >
-                Hard ({hardCount})
-              </button>
+            <div className="flex items-center gap-0.5 bg-black/25 rounded-full p-1 order-3 sm:order-none w-full sm:w-auto justify-center">
+              {filterBtns.map(b => (
+                <button
+                  key={b.key}
+                  onClick={() => selectFilter(b.key)}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 rounded-full text-[11px] sm:text-[13px] whitespace-nowrap font-semibold transition-all cursor-pointer ${difficultyFilter === b.key ? 'bg-[#d4b06a] text-[#2a1f08] shadow' : 'text-[#cfe0d7] hover:text-white hover:bg-white/10'}`}
+                  title={`Show ${b.label.toLowerCase()} questions`}
+                >
+                  {b.dot && <span className="w-2 h-2 rounded-full" style={{ background: b.dot }} />}
+                  {b.label} <span className="opacity-70">{b.count}</span>
+                </button>
+              ))}
             </div>
-
-            <button id="close-flash" onClick={closeActivePanel} className="hover:text-amber-400 text-slate-400 p-1 hover:bg-slate-800/50 rounded-lg transition-colors cursor-pointer ml-auto sm:ml-0" title="Close">
+            <button id="close-flash" onClick={closeActivePanel} className="w-9 h-9 rounded-full border border-white/25 bg-black/20 hover:bg-rose-600 hover:border-rose-500 text-[#e3efe7] flex items-center justify-center transition-all cursor-pointer" title="Close">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <div className="p-3 sm:p-4 flex-1 overflow-y-auto min-h-0">
+          <div className="flex-1 overflow-y-auto min-h-0 px-3 sm:px-6 pb-4">
             {activeQuestion ? (
-              <div className="space-y-3">
-                {/* Visual Flipped Deck and question detail */}
-                <div
-                  id="flash-deck-card"
-                  onClick={() => setIsFlipped(!isFlipped)}
-                  className={`w-full max-w-4xl mx-auto rounded-xl relative cursor-pointer select-none transition-all duration-300 border p-4 sm:p-6 flex flex-col justify-between ${
-                    isFlipped
-                      ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-xl text-center scale-[1.01]'
-                      : 'bg-slate-900 border-slate-800 text-slate-100 hover:border-slate-700'
-                  }`}
-                  style={{ minHeight: '180px', maxHeight: '52vh' }}
-                >
-                  {/* Status header */}
-                  <div className="flex justify-between items-center text-[8px] font-sans font-bold uppercase tracking-widest opacity-70 shrink-0">
-                    <span>Card {currentQuestionIdx + 1} of {filteredFlashQuestions.length}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${activeQuestion.difficulty === 'Easy' ? 'bg-emerald-500/20 text-emerald-400' : activeQuestion.difficulty === 'Medium' ? 'bg-amber-500/20 text-amber-500' : 'bg-rose-500/20 text-rose-400'}`}>
-                      {activeQuestion.difficulty}
-                    </span>
+              <div className="max-w-5xl mx-auto w-full flex flex-col gap-3 sm:gap-4 pt-1">
+                {/* Progress */}
+                <div className="flex items-center gap-3 px-1 sm:px-16">
+                  <div className="flex-1 h-1.5 bg-white/[0.12] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#d4b06a] rounded-full transition-all duration-300" style={{ width: `${total ? Math.round((pos / total) * 100) : 0}%` }} />
                   </div>
-
-                  {/* Body textual block */}
-                  <div className="my-2 font-sans text-base sm:text-xl leading-relaxed overflow-y-auto flex-1">
-                    <FlashcardContent 
-                      contentText={isFlipped ? activeQuestion.answer : activeQuestion.question}
-                      isFlipped={isFlipped}
-                    />
-                  </div>
-
-                  {/* Flip Prompt Footer */}
-                  <div className="text-[8px] font-sans font-bold text-center uppercase tracking-widest opacity-60 shrink-0">
-                    {isFlipped ? 'Reveal active question prompts' : 'Tap cardboard to flip and reveal answer keys'}
-                  </div>
+                  <span className="text-xs sm:text-sm font-medium text-[#cfe0d7] tabular-nums">{pos} / {total}</span>
                 </div>
 
-                {/* Live scoreboard co-op multi-team tracker */}
-                <div className="bg-slate-950 rounded-xl p-3 border border-slate-850 flex items-center justify-between max-w-2xl mx-auto w-full" id="classroom-arena-scores">
-                  <div className="flex flex-col">
-                    <span className="text-[8px] font-sans uppercase font-bold text-sky-400 tracking-wider">Class Team A</span>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <button id="score-ta-down" onClick={(e) => { e.stopPropagation(); setScoreTeamA(Math.max(0, scoreTeamA - 1)); }} className="w-5.5 h-5.5 flex items-center justify-center rounded bg-slate-900 border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 cursor-pointer">-</button>
-                      <span className="text-sm font-sans font-bold text-sky-400 w-5 text-center">{scoreTeamA}</span>
-                      <button id="score-ta-up" onClick={(e) => { e.stopPropagation(); setScoreTeamA(scoreTeamA + 1); }} className="w-5.5 h-5.5 flex items-center justify-center rounded bg-slate-900 border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 cursor-pointer">+</button>
-                    </div>
-                  </div>
-
-                  <span className="text-[9px] font-sans uppercase font-bold text-slate-500 tracking-widest text-shadow">Arena Score</span>
-
-                  <div className="flex flex-col items-end">
-                    <span className="text-[8px] font-sans uppercase font-bold text-amber-400 tracking-wider">Class Team B</span>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <button id="score-tb-down" onClick={(e) => { e.stopPropagation(); setScoreTeamB(Math.max(0, scoreTeamB - 1)); }} className="w-5.5 h-5.5 flex items-center justify-center rounded bg-slate-900 border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 cursor-pointer">-</button>
-                      <span className="text-sm font-sans font-bold text-amber-400 w-5 text-center">{scoreTeamB}</span>
-                      <button id="score-tb-up" onClick={(e) => { e.stopPropagation(); setScoreTeamB(scoreTeamB + 1); }} className="w-5.5 h-5.5 flex items-center justify-center rounded bg-slate-900 border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 cursor-pointer">+</button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card controllers (Next, Reset) */}
-                <div className="flex items-center justify-between font-sans border-t border-slate-850 pt-3 max-w-2xl mx-auto w-full">
+                {/* Card with arrows */}
+                <div className="flex items-center gap-1.5 sm:gap-4">
                   <button
-                    id="close-flashcards-bottom-left"
-                    onClick={closeActivePanel}
-                    className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-[10px] font-sans font-bold uppercase px-3.5 py-1.5 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 shadow-md flex-shrink-0"
+                    id="btn-prev-card"
+                    onClick={() => { setCurrentQuestionIdx(p => (p - 1 + total) % total); setIsFlipped(false); }}
+                    className={`${roundBtn} border border-white/25 bg-black/20 hover:bg-black/35 text-[#e3efe7]`}
+                    title="Previous (←)"
                   >
-                    <X className="w-3.5 h-3.5" /> Close
+                    <ChevronLeft className="w-6 h-6" />
                   </button>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      id="btn-prev-card"
-                      disabled={currentQuestionIdx === 0}
-                      onClick={() => {
-                        setCurrentQuestionIdx(p => p - 1);
-                        setIsFlipped(false);
-                      }}
-                      className="text-[10px] font-sans font-bold uppercase px-3 py-1.5 border border-slate-800 rounded-lg hover:bg-slate-900 transition-colors disabled:opacity-40 cursor-pointer text-slate-300"
+                  <div className="flex-1 min-w-0" style={{ perspective: '1400px' }}>
+                    <div
+                      id="flash-deck-card"
+                      onClick={() => setIsFlipped(!isFlipped)}
+                      className="relative w-full cursor-pointer select-none"
+                      style={{ height: 'min(56vh, 520px)', minHeight: '240px', transformStyle: 'preserve-3d', transition: 'transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1)', transform: isFlipped ? 'rotateY(180deg)' : 'none' }}
                     >
-                      Previous
-                    </button>
-
-                    <button
-                      id="btn-reset-flash-scores"
-                      onClick={() => {
-                        setScoreTeamA(0);
-                        setScoreTeamB(0);
-                        setCurrentQuestionIdx(0);
-                        setIsFlipped(false);
-                      }}
-                      className="p-1.5 rounded hover:bg-slate-900 bg-transparent text-slate-500 hover:text-slate-350 transition-colors cursor-pointer"
-                      title="Reset deck parameters"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      id="btn-next-card"
-                      onClick={() => {
-                        setCurrentQuestionIdx(p => (p + 1) % filteredFlashQuestions.length);
-                        setIsFlipped(false);
-                      }}
-                      className="text-[10px] font-sans font-bold uppercase px-4 py-1.5 bg-amber-400 hover:bg-amber-350 text-slate-950 rounded-lg transition-colors cursor-pointer animate-pulse"
-                    >
-                      Next Deck
-                    </button>
+                      {/* Front: question */}
+                      <div className="absolute inset-0 rounded-2xl bg-[#fbf8f1] text-[#1b2b25] shadow-2xl shadow-black/30 flex flex-col p-4 sm:p-7" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+                        <div className="flex justify-between items-center shrink-0">
+                          <span className="text-[11px] sm:text-xs font-semibold tracking-[0.14em] text-[#3d6354]">QUESTION</span>
+                          {activeQuestion.difficulty && <span className={`px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold ${diffChip}`}>{activeQuestion.difficulty}</span>}
+                        </div>
+                        <div className="flex-1 overflow-y-auto min-h-0 my-3 flex">
+                          <div className="m-auto w-full text-center font-serif text-xl sm:text-[26px] leading-relaxed">
+                            <FlashcardContent contentText={activeQuestion.question} isFlipped={false} />
+                          </div>
+                        </div>
+                        <div className="text-center text-[11px] sm:text-xs text-[#6b8a7c] flex items-center justify-center gap-1.5 shrink-0">
+                          <RotateCcw className="w-3.5 h-3.5" /> Tap to reveal answer
+                        </div>
+                      </div>
+                      {/* Back: answer */}
+                      <div className="absolute inset-0 rounded-2xl bg-[#f6ecd2] text-[#2a1f08] shadow-2xl shadow-black/30 border-t-[5px] border-[#b8923f] flex flex-col p-4 sm:p-7" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                        <div className="text-[11px] sm:text-xs font-semibold tracking-[0.14em] text-[#854F0B] shrink-0">ANSWER</div>
+                        <div className="flex-1 overflow-y-auto min-h-0 my-3 flex">
+                          <div className="my-auto w-full text-lg sm:text-[22px] leading-relaxed">
+                            <FlashcardContent contentText={activeQuestion.answer} isFlipped={true} />
+                          </div>
+                        </div>
+                        <div className="text-center text-[11px] sm:text-xs text-[#854F0B] flex items-center justify-center gap-1.5 shrink-0">
+                          <RotateCcw className="w-3.5 h-3.5" /> Tap to see question
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  <button
+                    id="btn-next-card"
+                    onClick={() => { setCurrentQuestionIdx(p => (p + 1) % total); setIsFlipped(false); }}
+                    className={`${roundBtn} bg-[#d4b06a] hover:bg-[#e0bf7c] text-[#2a1f08] shadow-lg`}
+                    title="Next (→)"
+                  >
+                    <ChevronRight className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Team arena */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-4 sm:px-16" id="classroom-arena-scores">
+                  <div className="rounded-2xl px-3 sm:px-5 py-2.5 flex items-center justify-between bg-[#378ADD]/[0.18] border border-[#85B7EB]/40">
+                    <div>
+                      <div className="text-[11px] sm:text-xs font-semibold text-[#B5D4F4] tracking-wide">Team A</div>
+                      <div className="text-3xl sm:text-4xl font-bold text-[#E6F1FB] leading-tight tabular-nums">{scoreTeamA}</div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button id="score-ta-down" onClick={(e) => { e.stopPropagation(); setScoreTeamA(Math.max(0, scoreTeamA - 1)); }} className={scoreBtn}>−</button>
+                      <button id="score-ta-up" onClick={(e) => { e.stopPropagation(); setScoreTeamA(scoreTeamA + 1); }} className={scoreBtn}>+</button>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl px-3 sm:px-5 py-2.5 flex items-center justify-between bg-[#d4b06a]/[0.18] border border-[#d4b06a]/45">
+                    <div>
+                      <div className="text-[11px] sm:text-xs font-semibold text-[#FAC775] tracking-wide">Team B</div>
+                      <div className="text-3xl sm:text-4xl font-bold text-[#FAEEDA] leading-tight tabular-nums">{scoreTeamB}</div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button id="score-tb-down" onClick={(e) => { e.stopPropagation(); setScoreTeamB(Math.max(0, scoreTeamB - 1)); }} className={scoreBtn}>−</button>
+                      <button id="score-tb-up" onClick={(e) => { e.stopPropagation(); setScoreTeamB(scoreTeamB + 1); }} className={scoreBtn}>+</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quiet tools */}
+                <div className="flex items-center justify-center gap-5 text-xs sm:text-[13px] text-[#a9cbb8]">
+                  <button
+                    onClick={() => {
+                      const n = filteredFlashQuestions.length;
+                      const order = Array.from({ length: n }, (_, k) => k);
+                      for (let k = n - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
+                      setFlashShuffleOrder(order); setCurrentQuestionIdx(0); setIsFlipped(false);
+                    }}
+                    className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                    title="Shuffle cards"
+                  >
+                    <Shuffle className="w-4 h-4" /> Shuffle
+                  </button>
+                  <button
+                    id="btn-reset-flash-scores"
+                    onClick={() => { setScoreTeamA(0); setScoreTeamB(0); setCurrentQuestionIdx(0); setIsFlipped(false); setFlashShuffleOrder(null); }}
+                    className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                    title="Reset scores and deck"
+                  >
+                    <RotateCcw className="w-4 h-4" /> Reset
+                  </button>
+                  <span className="hidden md:flex items-center gap-1.5 text-[#a9cbb8]/80">← → move · Space flips</span>
                 </div>
               </div>
             ) : (
-              <div className="h-64 flex flex-col items-center justify-center space-y-4 text-center p-6">
-                <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+              <div className="h-full min-h-[300px] flex flex-col items-center justify-center gap-4 text-center p-6">
+                <div className="w-14 h-14 rounded-2xl bg-[#d4b06a]/15 border border-[#d4b06a]/30 flex items-center justify-center text-[#d4b06a]">
                   <Filter className="w-7 h-7" />
                 </div>
                 <div className="space-y-1 max-w-sm">
-                  <h3 className="text-base font-bold text-slate-200">
-                    No {difficultyFilter !== 'all' ? difficultyFilter : ''} questions available
+                  <h3 className="text-lg font-semibold text-[#f3e6c4]">
+                    No {difficultyFilter !== 'all' ? difficultyFilter.toLowerCase() : ''} questions yet
                   </h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {difficultyFilter !== 'all' 
-                      ? `There are no ${difficultyFilter.toLowerCase()} retrieval questions saved for this lesson.` 
-                      : 'There are no flashcard retrieval questions available for this lesson.'}
+                  <p className="text-sm text-[#a9cbb8] leading-relaxed">
+                    {difficultyFilter !== 'all'
+                      ? `This lesson has no ${difficultyFilter.toLowerCase()} retrieval questions.`
+                      : 'This lesson has no retrieval questions.'}
                   </p>
                 </div>
                 {difficultyFilter !== 'all' && allFlashQuestions.length > 0 && (
                   <button
-                    onClick={() => { setDifficultyFilter('all'); setCurrentQuestionIdx(0); setIsFlipped(false); }}
-                    className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold rounded-xl text-xs transition-all cursor-pointer shadow-md"
+                    onClick={() => selectFilter('all')}
+                    className="px-5 py-2 bg-[#d4b06a] text-[#2a1f08] hover:bg-[#e0bf7c] font-semibold rounded-full text-sm transition-all cursor-pointer shadow-md"
                   >
-                    Show All Questions ({allFlashQuestions.length})
+                    Show all questions ({allFlashQuestions.length})
                   </button>
                 )}
-                <div className="border-t border-slate-850 pt-3 w-full flex justify-center mt-2">
-                  <button
-                    id="close-flashcards-bottom-left-placeholder"
-                    onClick={closeActivePanel}
-                    className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-[10px] font-sans font-bold uppercase px-3.5 py-1.5 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 shadow-md"
-                  >
-                    <X className="w-3.5 h-3.5" /> Close
-                  </button>
-                </div>
               </div>
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 3. ACTIVE CLASSROOM QUESTIONS LIST PANEL */}
-      {activePanel === 'notes' && (
-        <div className="fixed inset-0 w-full h-full bg-[#0b0f19] text-slate-100 z-[100] flex flex-col overflow-hidden animate-fade-in font-sans shadow-2xl" id="panel-classroom-questions">
-          
-          <ScribbleOverlay 
+      {activePanel === 'notes' && (() => {
+        const sourceOptions = getQuestionSourceOptions();
+        const selectedSources = getEffectiveQuestionSources();
+        const visibleQs = getVisibleLessonQuestions();
+        const allQs = getLessonQuestions();
+        const isAccountancyList = allQs.some(q => Boolean(q) && typeof q !== 'string' && (q.displayMode === 'accountancy_tabs' || Boolean(q.tabs && q.tabs.length > 0)));
+        const anyAnswer = visibleQs.some(q => Boolean(q) && typeof q !== 'string' && Boolean(q.answerText || q.answerImage));
+        const scopeLabel = externalTopicModal?.topic?.title || currentLesson?.title || '';
+        const iconBtn = 'w-9 h-9 rounded-full border flex items-center justify-center transition-all cursor-pointer shrink-0';
+        return (
+        <div className="fixed inset-0 w-full h-full bg-[#5f7a68] text-[#f2f5f0] z-[100] flex flex-col overflow-hidden animate-fade-in font-sans" id="panel-classroom-questions">
+
+          <ScribbleOverlay
             lessonId={`questions-${currentLesson?.id || 'default'}`}
             isDrawingMode={isListDrawingMode}
             onStrokeSaved={() => {}}
             selectedColor={qSelectedColor}
             isHighlighter={qIsHighlighter}
           />
-          
-          <div className="bg-slate-950 py-1.5 px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-900 shadow-sm shrink-0 gap-2 relative z-50 pointer-events-auto">
-            <div className="flex items-center gap-2.5 text-emerald-400 font-bold shrink-0">
-              <span className="flex items-center justify-center w-6 h-6 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 font-extrabold select-none shadow-inner">Q</span>
-              <span className="font-bold uppercase text-sm tracking-widest font-sans">Some Extra Questions from Lesson</span>
+
+          {/* Floating translucent header with sources */}
+          <div className="m-2 sm:m-3 px-3 sm:px-4 py-2 rounded-2xl bg-white/[0.12] backdrop-blur-xl border border-white/25 flex flex-wrap items-center gap-x-3 gap-y-2 shrink-0 relative z-50 pointer-events-auto">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[#c8664a] text-white font-bold flex items-center justify-center select-none shrink-0">Q</div>
+              <div className="min-w-0">
+                <div className="text-[15px] sm:text-base font-semibold text-white leading-tight">Extra Questions</div>
+                <div className="text-[11px] sm:text-xs text-[#dfe8e0] truncate max-w-[60vw] sm:max-w-[380px]">
+                  {scopeLabel ? `${scopeLabel} · ` : ''}{visibleQs.length} question{visibleQs.length === 1 ? '' : 's'}
+                </div>
+              </div>
             </div>
-            
-            <div className="flex items-center gap-3">
-              {!getLessonQuestions().some(q => Boolean(q) && typeof q !== 'string' && (q.displayMode === 'accountancy_tabs' || Boolean(q.tabs && q.tabs.length > 0))) && (
+
+            {sourceOptions.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap order-3 lg:order-none w-full lg:w-auto lg:flex-1 lg:justify-center" id="question-source-filter">
+                <span className="text-[11px] sm:text-xs text-[#dfe8e0] mr-0.5">Source</span>
+                {sourceOptions.map(opt => {
+                  const checked = selectedSources.includes(opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => toggleQuestionSource(opt.key)}
+                      aria-pressed={checked}
+                      className={`flex items-center gap-1 px-3 py-1 rounded-full border text-xs sm:text-[13px] font-semibold transition-all cursor-pointer select-none ${
+                        checked ? 'bg-[#c8664a] border-[#c8664a] text-white shadow-sm' : 'border-white/30 text-[#dfe8e0] hover:bg-white/10'
+                      }`}
+                    >
+                      {checked && <Check className="w-3.5 h-3.5" />}
+                      {opt.label} <span className="opacity-75">{opt.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 ml-auto">
+              {anyAnswer && (
                 <button
-                  onClick={() => setIsListDrawingMode(!isListDrawingMode)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${
-                    isListDrawingMode
-                      ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
-                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-white'
-                  }`}
+                  onClick={() => setRevealAllAnswers(prev => ({ open: !prev.open, nonce: prev.nonce + 1 }))}
+                  className="hidden sm:flex items-center gap-1.5 text-xs sm:text-[13px] font-semibold text-[#f2f5f0] hover:text-white px-3 py-1.5 rounded-full hover:bg-white/10 transition-all cursor-pointer"
+                  title={revealAllAnswers.open ? 'Hide all answers' : 'Show all answers'}
                 >
-                  <Palette className="w-4 h-4" />
-                  {isListDrawingMode ? 'Drawing ON' : 'Enable Drawing'}
+                  {revealAllAnswers.open ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {revealAllAnswers.open ? 'Hide all answers' : 'Show all answers'}
                 </button>
               )}
 
               {isListDrawingMode && (
-                <div className="flex items-center gap-2 bg-slate-900 p-1.5 px-3 rounded-lg border border-slate-800 animate-fade-in">
+                <div className="flex items-center gap-1.5 bg-black/20 py-1 px-2 rounded-full animate-fade-in">
                   {PALETTE_COLORS.map(c => (
-                    <button 
-                      key={c.hex} 
+                    <button
+                      key={c.hex}
                       onClick={() => { setQSelectedColor(c.hex); setQIsHighlighter(false); }}
-                      className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 ${qSelectedColor === c.hex && !qIsHighlighter ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.3)]' : 'border-transparent'}`}
+                      className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 cursor-pointer ${qSelectedColor === c.hex && !qIsHighlighter ? 'border-white scale-110' : 'border-transparent'}`}
                       style={{ backgroundColor: c.hex }}
                       title={c.name}
                     />
                   ))}
-                  <div className="w-px h-6 bg-slate-700 mx-2" />
-                  <button 
-                    onClick={() => setQIsHighlighter(!qIsHighlighter)}
-                    className={`w-8 h-8 rounded flex items-center justify-center transition-all ${qIsHighlighter ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50' : 'text-slate-400 hover:text-slate-200'}`}
-                    title="Highlighter"
-                  >
+                  <div className="w-px h-5 bg-white/25 mx-1" />
+                  <button onClick={() => setQIsHighlighter(!qIsHighlighter)} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${qIsHighlighter ? 'bg-[#c8664a] text-white' : 'text-[#dfe8e0] hover:text-white'}`} title="Highlighter">
                     <Palette className="w-4 h-4" />
                   </button>
-                  <button 
-                    onClick={() => window.dispatchEvent(new CustomEvent('classroom-canvas-undo'))}
-                    className="w-8 h-8 rounded flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all"
-                    title="Undo"
-                  >
+                  <button onClick={() => window.dispatchEvent(new CustomEvent('classroom-canvas-undo'))} className="w-7 h-7 rounded-full flex items-center justify-center text-[#dfe8e0] hover:text-white hover:bg-white/10 transition-all cursor-pointer" title="Undo">
                     <Undo className="w-4 h-4" />
                   </button>
-                  <button 
-                    onClick={() => window.dispatchEvent(new CustomEvent('classroom-canvas-clear'))}
-                    className="w-8 h-8 rounded flex items-center justify-center text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition-all ml-1"
-                    title="Clear All"
-                  >
+                  <button onClick={() => window.dispatchEvent(new CustomEvent('classroom-canvas-clear'))} className="w-7 h-7 rounded-full flex items-center justify-center text-[#ffd2c4] hover:bg-[#a8492e]/40 transition-all cursor-pointer" title="Clear all">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               )}
 
-              <button 
-                id="close-questions" 
-                onClick={closeActivePanel} 
-                className="w-10 h-10 md:w-12 md:h-12 bg-rose-600/10 hover:bg-rose-600 border border-rose-500/25 hover:border-transparent text-rose-400 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95 ml-2 md:ml-6"
-                title="Close List"
+              {!isAccountancyList && (
+                <button
+                  onClick={() => setIsListDrawingMode(!isListDrawingMode)}
+                  className={`${iconBtn} ${isListDrawingMode ? 'bg-[#c8664a] border-[#c8664a] text-white' : 'border-white/30 bg-black/15 text-[#f2f5f0] hover:bg-black/25'}`}
+                  title={isListDrawingMode ? 'Stop drawing' : 'Draw on questions'}
+                >
+                  <Palette className="w-4 h-4" />
+                </button>
+              )}
+
+              <button
+                id="close-questions"
+                onClick={closeActivePanel}
+                className={`${iconBtn} border-white/30 bg-black/15 text-[#f2f5f0] hover:bg-[#a8492e] hover:border-[#a8492e]`}
+                title="Close"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {(() => {
-            const sourceOptions = getQuestionSourceOptions();
-            if (sourceOptions.length === 0) return null;
-            const selectedSources = getEffectiveQuestionSources();
-            return (
-              <div className="bg-slate-950/80 border-b border-slate-900 px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 shrink-0 relative z-50 pointer-events-auto" id="question-source-filter">
-                <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400 mr-1">
-                  <Filter className="w-3.5 h-3.5 text-sky-400" /> Source
-                </span>
-                {sourceOptions.map(opt => {
-                  const checked = selectedSources.includes(opt.key);
-                  return (
-                    <label
-                      key={opt.key}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer select-none transition-colors ${
-                        checked
-                          ? 'bg-sky-500/15 border-sky-500/40 text-sky-200'
-                          : 'bg-slate-900 border-slate-800 text-slate-500'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleQuestionSource(opt.key)}
-                        className="w-3.5 h-3.5 accent-sky-500 cursor-pointer"
-                      />
-                      <span>{opt.label}</span>
-                      <span className="text-[10px] font-mono opacity-70">({opt.count})</span>
-                    </label>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          <div className="p-4 md:p-8 space-y-6 flex-1 flex flex-col min-h-0 pt-6 relative z-10 pointer-events-none">
-            <div className={`flex-1 overflow-y-auto space-y-8 pr-2 pb-4 ${isListDrawingMode ? 'pointer-events-none' : 'pointer-events-auto'}`}>
-              {getLessonQuestions().length > 0 && getVisibleLessonQuestions().length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center space-y-4">
-                  <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center">
-                    <Filter className="w-8 h-8 text-sky-400 opacity-80" />
+          <div className="px-3 sm:px-6 md:px-8 flex-1 flex flex-col min-h-0 relative z-10 pointer-events-none">
+            <div className={`flex-1 overflow-y-auto space-y-4 sm:space-y-5 pr-1 pb-6 max-w-6xl w-full mx-auto ${isListDrawingMode ? 'pointer-events-none' : 'pointer-events-auto'}`}>
+              {allQs.length > 0 && visibleQs.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center">
+                    <Filter className="w-8 h-8 text-white/90" />
                   </div>
-                  <h3 className="text-xl font-bold text-slate-300">No question from the selected source</h3>
-                  <p className="text-sm text-slate-500 text-center max-w-sm">
-                    Tick one or more sources above to see their questions.
-                  </p>
+                  <h3 className="text-xl font-semibold text-white">No questions from the selected source</h3>
+                  <p className="text-sm text-[#dfe8e0] max-w-sm">Tick one or more sources at the top to see their questions.</p>
                 </div>
-              ) : getLessonQuestions().length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center space-y-4">
-                  <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                    <AlertTriangle className="w-8 h-8 text-amber-500 opacity-80" />
+              ) : allQs.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center">
+                    <AlertTriangle className="w-8 h-8 text-white/90" />
                   </div>
-                  <h3 className="text-xl font-bold text-slate-300">No question available</h3>
-                  <p className="text-sm text-slate-500 text-center max-w-sm">
-                    There are no open-ended inquiry questions saved for this lesson.
-                  </p>
+                  <h3 className="text-xl font-semibold text-white">No questions yet</h3>
+                  <p className="text-sm text-[#dfe8e0] max-w-sm">This lesson has no extra questions saved.</p>
                 </div>
               ) : (
                 <QuestionListErrorBoundary>
-                  {getVisibleLessonQuestions().map((qItem, index) => (
-                    <QuestionItem 
+                  {visibleQs.map((qItem, index) => (
+                    <QuestionItem
                       key={`${typeof qItem === 'string' ? 's' : (qItem.id || 'q')}-${index}`}
                       item={qItem}
                       isOnline={isOnline}
+                      questionNumber={index + 1}
+                      revealAll={revealAllAnswers}
                       onOpenAccountancyWorkspace={handleOpenAccountancyWorkspace}
                     />
                   ))}
@@ -1557,7 +1548,8 @@ export default function FloatingButton({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {accountancyQuestion && (
         <AccountancyQuestionModal
