@@ -52,11 +52,15 @@ export default function Sidebar({
     )
   );
   return (
-    <div className="relative h-full flex-shrink-0 z-40" style={{ width: isExpanded ? '352px' : '64px' }}>
+    <div className="relative h-full flex-shrink-0 z-20" style={{ width: isExpanded ? '352px' : '64px' }}>
       <div
-        className={`absolute top-0 left-0 h-full bg-[#0c1220] border-r border-slate-900 flex flex-col overflow-hidden text-slate-200 select-none transition-all duration-300 shadow-2xl ${
+        className={`absolute top-0 left-0 h-full border-r border-[#2d6a4f] flex flex-col overflow-hidden text-[#e3efe7] select-none transition-all duration-300 shadow-2xl ${
           isExpanded ? 'w-[352px]' : 'w-[64px]'
         }`}
+        // Same chalkboard green as the greenboard (BlackboardPanel), with its chalk grain
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3'%3E%3Ccircle cx='1.5' cy='1.5' r='0.7' fill='rgba(255,255,255,0.025)'/%3E%3C/svg%3E"), linear-gradient(160deg, #1a3d2b 0%, #14532d 30%, #0f3d24 70%, #0a2e1b 100%)`,
+        }}
         id="sidebar"
       >
 
@@ -64,7 +68,7 @@ export default function Sidebar({
       {/* Chapters / Lessons Content list container */}
       <div
         className={`flex-1 overflow-y-auto no-scrollbar space-y-3 cursor-pointer ${
-          isExpanded ? 'p-3' : 'py-3 px-1.5'
+          isExpanded ? 'px-3 pb-3 pt-[84px]' : 'pb-3 pt-[84px] px-1.5'
         }`}
         id="lessons-list"
         onClick={(e) => {
@@ -89,21 +93,21 @@ export default function Sidebar({
                     e.stopPropagation();
                     onSelectLesson(lesson.id);
                   }}
-                  className={`w-full text-left flex items-start gap-3.5 p-3.5 rounded-xl border border-slate-900/40 transition-all cursor-pointer ${
+                  className={`w-full text-left flex items-start gap-3.5 p-3 rounded-xl border transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-slate-900/60 border-amber-400/50 text-yellow-300 font-bold shadow-md ring-1 ring-amber-400/20'
-                      : 'bg-transparent border-transparent hover:bg-slate-900/30 text-slate-200 hover:text-white'
+                      ? 'bg-white/[0.07] border-[#d4b06a]/40 text-white font-semibold shadow-md'
+                      : 'bg-transparent border-transparent hover:bg-white/[0.04] text-[#cfe0d7] hover:text-white'
                   }`}
                 >
-                  <span className="font-mono text-[15px] text-amber-500 font-black mt-0.5 flex-shrink-0">
+                  <span className="font-mono text-[14px] text-[#d4b06a] font-bold mt-0.5 flex-shrink-0">
                     {stepNumber}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[18.5px] font-bold leading-snug break-words">
+                    <div className="text-[17px] font-semibold leading-snug break-words">
                       {lesson.title}
                     </div>
                     {lesson.subtitle && (
-                      <div className="text-[13.5px] text-slate-400 font-mono mt-1 leading-tight">
+                      <div className="text-[13px] text-[#a9cbb8] mt-1 leading-tight">
                         {lesson.subtitle}
                       </div>
                     )}
@@ -120,16 +124,16 @@ export default function Sidebar({
                     e.stopPropagation();
                     onSelectLesson(lesson.id);
                   }}
-                  className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center font-mono text-[13.5px] font-bold shrink-0 transition-all cursor-pointer relative overflow-visible ${
+                  className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center font-mono text-[15.5px] font-bold shrink-0 transition-all cursor-pointer relative overflow-visible ${
                     isActive
-                      ? 'bg-amber-400 text-slate-950 font-black border border-amber-300 shadow-md shadow-amber-500/10'
-                      : 'bg-slate-950 text-slate-400 hover:text-slate-100 hover:bg-slate-900/40 border border-slate-850'
+                      ? 'bg-[#b8923f] text-[#0f1f1a] font-black border border-[#a07c30] shadow-md'
+                      : 'bg-black/30 text-[#b7cfc2] hover:text-white hover:bg-black/40 border border-white/[0.1]'
                   }`}
                   title={lesson.title}
                 >
                   <span className="leading-none text-center select-none">{stepNumber}</span>
                   {isActive && (
-                    <span className="absolute -bottom-0.5 w-2 h-2 rounded-full bg-slate-950 border border-amber-300" />
+                    <span className="absolute -bottom-0.5 w-2 h-2 rounded-full bg-[#0f1f1a] border border-[#d4b06a]" />
                   )}
                 </button>
               );
@@ -145,7 +149,7 @@ export default function Sidebar({
       {/* Image Layout Toggles (Applicable for PDF books only) */}
       {isPdf && setImageViewMode && (
         isExpanded ? (
-          <div className="p-3 border-t border-slate-800/50 flex flex-col gap-2 shrink-0" id="image-layout-box">
+          <div className="p-3 border-t border-white/[0.06] flex flex-col gap-2 shrink-0" id="image-layout-box">
             <span className="text-[9px] font-mono uppercase text-slate-500 font-bold text-center block">Image Layout</span>
             <div className="flex gap-2">
               <button
@@ -179,7 +183,7 @@ export default function Sidebar({
             </div>
           </div>
         ) : (
-          <div className="py-2.5 px-1 border-t border-slate-800/50 flex flex-col items-center gap-1.5 shrink-0" id="image-layout-box-compact">
+          <div className="py-2.5 px-1 border-t border-white/[0.06] flex flex-col items-center gap-1.5 shrink-0" id="image-layout-box-compact">
             <button
               onClick={() => setImageViewMode(imageViewMode === 'single' ? 'two' : 'single')}
               className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all cursor-pointer ${

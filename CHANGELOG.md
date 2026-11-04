@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-04] - Side Nav Matches Greenboard
+
+### Changed
+- **Side nav background (`Sidebar.tsx`)**: uses the greenboard's green gradient with chalk grain so the side nav and the board read as one theme.
+- **Chapter number circles (collapsed side nav)**: numbers slightly larger (15.5px); circle backgrounds slightly darker (inactive dark tint, active deeper gold).
+- **Layering (`App.tsx`, `Sidebar.tsx`)**: floating top navbar lowered to z-30 and side nav to z-20, so an open greenboard's toolbar stays on top and the navbar's logo/title stay above the side nav.
+
+## [2026-11-04] - Content Page: Per-Container Focus, Light-Green Topic Area, No Inline Topic Video
+
+### Changed
+- **Focus per container (`Workspace.tsx`)**: the video column and the topic container each have their own Focus / Exit focus button; focusing one hides the other container and expands across the space between the side nav bar and the greenboard (both stay visible). The Focus button was removed from the top navbar. Focused video column shows a 2–3 column grid.
+- **Lighter greens for distinct visibility**: top navbar `bg-[#e3f1e8]/75` (frosted, dark text), topic container `#dfece4`, topic ribbons light per-topic green tint with a coloured left bar and dark titles; ribbon buttons dark pine when active. Opened topic pages are white paper with dark text. Side nav and video column stay deep pine.
+- **No video inside opened topics**: the topic video player under the ribbon was removed; topic videos open from the ribbon's video icon.
+- **Ribbon icons without number badges.**
+
+## [2026-11-04] - Student Content Page Redesign: Floating Navbar, Pine & Ivory Theme, Focus Mode
+
+### Changed
+- **Floating translucent top navbar (`App.tsx`)**: replaces the solid top ribbon. Floats over the content (`bg-[#0f1f1a]/60` + `backdrop-blur-xl`, rounded, shadow) so content scrolls underneath. Shows logo, book title, "by <source>", and the current "Chapter N · <title>". Right side: **Focus** toggle and quiet icon buttons (update content, class profiles, library shelf) instead of three coloured buttons.
+- **Focus mode**: hides the chapter list (side nav) and the chapter video column so the lesson fills the screen; replaces the two "Fullscreen" buttons.
+- **Video column (`Workspace.tsx`)**: shown only when the chapter has lecture videos, at **35%** width (topics 65%); otherwise the topics fill the full width.
+- **One "Pine & Ivory" theme** for the side nav (`Sidebar.tsx`), video column, topic container and PDF reader background: deep pine `#0f1f1a`/`#12241e`, soft gold `#d4b06a` accents, light text — chosen to sit naturally beside the greenboard. Removed the dark-blue / light-blue two-tone split.
+- **Topic ribbons**: solid pine with a coloured accent bar per topic and light titles; action buttons (video, flashcards, questions) are white with a gold count badge when content exists and clearly faint when empty. Opened topic pages use a lighter frame (fewer nested boxes).
+
 ## [2026-11-04] - Full-Width Toggle for Video & Chapter Topic Containers
 
 ### Added

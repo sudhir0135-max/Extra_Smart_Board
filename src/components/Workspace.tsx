@@ -217,6 +217,8 @@ function VirtualPageWrapper({ virtualRow, measureElement, pageContentHash, child
 }
 
 interface WorkspaceProps {
+  /** Called when a container's Focus button is switched on/off (App hides the chapter list while focused) */
+  onFocusChange?: (focused: boolean) => void;
   selectedBook: Book | null;
   activeLesson: Lesson | null;
   themeMode: ThemeMode;
@@ -267,6 +269,7 @@ export default function Workspace({
   initialTargetPage,
   onOpenTopicModal,
   onOpenChapterPanel,
+  onFocusChange,
 }: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
@@ -314,6 +317,7 @@ export default function Workspace({
 
   const isVideoFullscreen = fullscreenPanel === 'video';
   const isTopicsFullscreen = fullscreenPanel === 'topics';
+  useEffect(() => { onFocusChange?.(fullscreenPanel !== 'none'); }, [fullscreenPanel, onFocusChange]);
 
   // Check if current lesson/book is a PDF textbook (PDF books appear without the split-screen video library)
   const isPdfBook = Boolean(
@@ -373,6 +377,7 @@ export default function Workspace({
 
     return items;
   }, [activeLesson]);
+  const hasVideoColumn = chapterVideos.length > 0;
 
   // Fetch online YouTube metadata (real titles, authors, thumbnails)
   useEffect(() => {
@@ -787,7 +792,7 @@ export default function Workspace({
             <div
               id="content-scroll"
               ref={scrollParentRef}
-              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root w-full h-full"
+              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 pt-[84px] cursor-text content-container-root w-full h-full bg-[#12241e]"
               style={{
                 marginRight: 'max(3%, 28px)', // Reserve space for greenboard closed strip
               }}
@@ -827,36 +832,27 @@ export default function Workspace({
               <div
                 ref={videoPanelScrollRef}
                 id="video-library-scroll"
-                className={`${isTopicsFullscreen ? 'hidden' : isVideoFullscreen ? 'w-full lg:w-full' : 'w-full lg:w-[45%]'} h-full overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#1e3a5f_transparent] flex flex-col bg-[#07152b] ${isVideoFullscreen ? '' : 'border-b lg:border-b-0 lg:border-r border-blue-900/40'} p-4 sm:p-5 space-y-4 select-text transition-all duration-300`}
+                className={`${hasVideoColumn && !isTopicsFullscreen ? (isVideoFullscreen ? 'w-full' : 'w-full lg:w-[35%]') : 'hidden'} h-full overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#2c4a3f_transparent] flex flex-col bg-[#0f1f1a] border-b lg:border-b-0 lg:border-r border-white/[0.06] px-4 pb-6 pt-[84px] space-y-4 select-text transition-all duration-300`}
               >
-                {/* Header with Title and Fullscreen Toggle */}
-                <div className="flex items-center justify-between pb-1 select-none shrink-0">
-                  <div className="text-[11px] font-mono font-bold text-blue-300/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <Film className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Videos {chapterVideos.length > 0 ? `(${chapterVideos.length})` : ''}</span>
+                {/* Header */}
+                <div className="flex items-center justify-between gap-2 pb-1 select-none shrink-0">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9fb8ab]">
+                    <Film className="w-3.5 h-3.5 text-[#d4b06a]" />
+                    <span>Chapter Videos ({chapterVideos.length})</span>
                   </div>
                   <button
-                    onClick={() => setFullscreenPanel(prev => prev === 'video' ? 'none' : 'video')}
-                    className="p-1 px-2.5 rounded-lg bg-blue-900/50 hover:bg-blue-800/80 border border-blue-700/60 text-blue-200 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 text-[11px] font-mono shadow-sm active:scale-95"
-                    title={isVideoFullscreen ? 'Restore split view' : 'Maximize video library to full width'}
-                  >
-                    {isVideoFullscreen ? (
-                      <>
-                        <Minimize2 className="w-3.5 h-3.5" />
-                        <span>Restore</span>
-                      </>
-                    ) : (
-                      <>
-                        <Maximize2 className="w-3.5 h-3.5" />
-                        <span>Fullscreen</span>
-                      </>
-                    )}
-                  </button>
+                      onClick={() => setFullscreenPanel(prev => prev === 'video' ? 'none' : 'video')}
+                      className={`h-7 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold border transition-all cursor-pointer ${fullscreenPanel === 'video' ? 'bg-[#d4b06a] text-[#0f1f1a] border-[#d4b06a]' : 'text-[#dbe8e1] bg-white/[0.06] hover:bg-white/[0.12] border-white/10'}`}
+                      title={fullscreenPanel === 'video' ? 'Exit focus' : 'Focus on this container'}
+                    >
+                      {fullscreenPanel === 'video' ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                      {fullscreenPanel === 'video' ? 'Exit focus' : 'Focus'}
+                    </button>
                 </div>
 
                 {/* Video Library Listing: Video player embedded directly in each card where it is displayed */}
                 {chapterVideos.length > 0 ? (
-                  <div className={`grid ${isVideoFullscreen ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'} gap-4 pb-8 transition-all`}>
+                  <div className={`grid ${isVideoFullscreen ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'} gap-4 pb-8`}>
                     {chapterVideos.map((vid) => {
                       const onlineMeta = vid.youtubeId ? videoMetaMap[vid.youtubeId] : undefined;
                       const videoTitle = onlineMeta?.title || vid.title;
@@ -865,7 +861,7 @@ export default function Workspace({
                       return (
                         <div
                           key={vid.id}
-                          className="flex flex-col rounded-2xl p-3 bg-[#0d1e38]/90 border border-blue-900/50 hover:border-blue-600/60 shadow-lg space-y-2.5 transition-all"
+                          className="flex flex-col rounded-2xl p-3 bg-[#162b23] border border-white/[0.07] hover:border-[#d4b06a]/40 shadow-lg space-y-2.5 transition-all"
                         >
                           {/* 16:9 Video Player embedded directly where it is displayed */}
                           <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800 shadow-inner flex items-center justify-center">
@@ -877,8 +873,8 @@ export default function Workspace({
                             <h4 className="text-xs sm:text-[13px] font-semibold text-slate-100 line-clamp-2 leading-snug">
                               {videoTitle}
                             </h4>
-                            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-blue-200/70 font-sans truncate">
-                              <span className="truncate max-w-[140px] font-medium text-blue-100">{channelName}</span>
+                            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[#9fb8ab] font-sans truncate">
+                              <span className="truncate max-w-[140px] font-medium text-[#dbe8e1]">{channelName}</span>
                               <span>•</span>
                               <span>{vid.views}</span>
                               <span>•</span>
@@ -900,51 +896,42 @@ export default function Workspace({
               {/* ── RIGHT PANEL: Expandable Chapter Topics (Light Blue Background, Expandable to Full Width) ── */}
               <div
                 id="chapter-topics-panel"
-                className={`${isVideoFullscreen ? 'hidden' : isTopicsFullscreen ? 'w-full lg:w-full' : 'w-full lg:w-[55%]'} h-full overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] flex flex-col bg-[#e0f0fd] p-4 sm:p-5 select-text transition-all duration-300`}
+                className={`${isVideoFullscreen ? 'hidden' : (hasVideoColumn && !isTopicsFullscreen ? 'w-full lg:w-[65%]' : 'w-full')} h-full overflow-hidden flex flex-col bg-[#dfece4] select-text transition-all duration-300`}
               >
                 <div
                   id="content-scroll"
                   ref={scrollParentRef}
-                  className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent]"
+                  className="flex-1 overflow-y-auto relative outline-none select-text pb-20 pt-[84px] px-3 sm:px-5 cursor-text content-container-root [scrollbar-width:thin] [scrollbar-color:#9fbfae_transparent]"
                 >
-                  {/* Topic Header with Title, Expand All, and Fullscreen Toggle */}
-                  <div className="w-[95%] mx-auto pt-1 pb-3 flex items-center justify-between select-none font-sans px-1 shrink-0">
-                    <div className="flex items-center gap-1.5 text-[10.5px] font-mono font-extrabold uppercase tracking-widest text-sky-950">
-                      <BookOpen className="w-3.5 h-3.5 text-sky-800" />
-                      <span>Chapter Topics {activeLesson.topics && activeLesson.topics.length > 0 ? `(${activeLesson.topics.length})` : ''}</span>
+                  {/* Topic Header: title, Expand all, Focus */}
+                  <div className="w-full pt-1 pb-3 flex items-center justify-between select-none font-sans shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#3d6354]">
+                      <BookOpen className="w-3.5 h-3.5 text-[#9a7a2e]" />
+                      <span>{activeLesson.topics && activeLesson.topics.length > 0 ? `Topics (${activeLesson.topics.length})` : 'Lesson'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {activeLesson.topics && activeLesson.topics.length > 0 && (
-                        <button
-                          onClick={handleToggleExpandAllTopics}
-                          className="text-[10.5px] font-mono font-bold text-sky-900 hover:text-sky-950 px-2.5 py-1 rounded-lg bg-sky-200/70 hover:bg-sky-300/80 border border-sky-400/50 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm"
-                        >
-                          {activeLesson.topics.some(t => !expandedTopicIds[t.id]) ? 'Expand All' : 'Collapse All'}
-                        </button>
+                      <button
+                        onClick={handleToggleExpandAllTopics}
+                        className="h-7 text-[11px] font-semibold text-[#12302a] px-3 rounded-full bg-white/70 hover:bg-white border border-[#0f1f1a]/10 cursor-pointer transition-all"
+                      >
+                        {activeLesson.topics.some(t => !expandedTopicIds[t.id]) ? 'Expand all' : 'Collapse all'}
+                      </button>
                       )}
                       <button
-                        onClick={() => setFullscreenPanel(prev => prev === 'topics' ? 'none' : 'topics')}
-                        className="text-[10.5px] font-mono font-bold text-sky-900 hover:text-sky-950 px-2.5 py-1 rounded-lg bg-sky-200/70 hover:bg-sky-300/80 border border-sky-400/50 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center gap-1"
-                        title={isTopicsFullscreen ? 'Restore split view' : 'Maximize chapter topics to full width'}
-                      >
-                        {isTopicsFullscreen ? (
-                          <>
-                            <Minimize2 className="w-3.5 h-3.5" />
-                            <span>Restore</span>
-                          </>
-                        ) : (
-                          <>
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            <span>Fullscreen</span>
-                          </>
-                        )}
-                      </button>
+                      onClick={() => setFullscreenPanel(prev => prev === 'topics' ? 'none' : 'topics')}
+                      className={`h-7 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold border transition-all cursor-pointer ${fullscreenPanel === 'topics' ? 'bg-[#d4b06a] text-[#0f1f1a] border-[#d4b06a]' : 'text-[#12302a] bg-white/70 hover:bg-white border-[#0f1f1a]/10'}`}
+                      title={fullscreenPanel === 'topics' ? 'Exit focus' : 'Focus on this container'}
+                    >
+                      {fullscreenPanel === 'topics' ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                      {fullscreenPanel === 'topics' ? 'Exit focus' : 'Focus'}
+                    </button>
                     </div>
                   </div>
 
               {/* TOPIC CONTAINERS — 95% Width Single Row Layout per Topic with Vibrant Distinct Themes */}
               {activeLesson.topics && activeLesson.topics.length > 0 && (
-                <div className="w-[95%] mx-auto pb-3 space-y-3.5 z-20 relative font-sans">
+                <div className="w-full pb-3 space-y-3 z-20 relative font-sans">
                   <div className="flex flex-col gap-3">
                     {activeLesson.topics.map((topic, idx) => {
                       const isExpanded = Boolean(expandedTopicIds[topic.id]);
@@ -955,10 +942,11 @@ export default function Workspace({
                       const hue = Math.round((idx * 137.508 + 230) % 360);
                       const theme = {
                         ribbonStyle: {
-                          background: `linear-gradient(90deg, hsla(${hue}, 75%, 17%, 0.94) 0%, rgba(15, 23, 42, 0.95) 55%, hsla(${hue}, 70%, 34%, 0.5) 100%)`,
-                          borderColor: `hsla(${hue}, 85%, 62%, 0.5)`,
+                          background: `linear-gradient(90deg, hsla(${hue}, 45%, 93%, 1) 0%, #f2f8f4 70%)`,
+                          borderColor: 'rgba(15,31,26,0.10)',
+                          borderLeft: `5px solid hsl(${hue}, 50%, 50%)`,
                         } as React.CSSProperties,
-                        titleStyle: { color: `hsl(${hue}, 95%, 86%)` } as React.CSSProperties,
+                        titleStyle: { color: '#12302a' } as React.CSSProperties,
                       };
 
                       const renderTopicActionButtons = () => (
@@ -977,10 +965,10 @@ export default function Workspace({
                                   onOpenTopicModal?.(topic, 'video');
                                 }}
                                 disabled={!hasVideo}
-                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                className={`relative w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                                   hasVideo
-                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 ring-1 ring-sky-400/40 shadow-sky-500/20'
-                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                    ? 'bg-[#163a2e] text-white border border-[#163a2e] hover:bg-[#d4b06a] hover:text-[#0f1f1a] hover:border-[#d4b06a] active:scale-95 shadow-sm'
+                                    : 'bg-[#0f1f1a]/[0.04] border border-[#0f1f1a]/[0.08] text-[#0f1f1a]/20 cursor-not-allowed'
                                 }`}
                                 title={
                                   hasVideo
@@ -1003,10 +991,10 @@ export default function Workspace({
                               onOpenTopicModal?.(topic, 'questions');
                             }}
                             disabled={topicFlashCount === 0}
-                            className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                            className={`relative w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                               topicFlashCount > 0
-                                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950 active:scale-95'
-                                : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                ? 'bg-[#163a2e] text-white border border-[#163a2e] hover:bg-[#d4b06a] hover:text-[#0f1f1a] hover:border-[#d4b06a] active:scale-95 shadow-sm'
+                                : 'bg-[#0f1f1a]/[0.04] border border-[#0f1f1a]/[0.08] text-[#0f1f1a]/20 cursor-not-allowed'
                             }`}
                             title={
                               topicFlashCount > 0
@@ -1030,10 +1018,10 @@ export default function Workspace({
                                   onOpenTopicModal?.(topic, 'notes');
                                 }}
                                 disabled={!hasTopicQuestions}
-                                className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                                className={`relative w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                                   hasTopicQuestions
-                                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 active:scale-95'
-                                    : 'bg-slate-800/40 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40'
+                                    ? 'bg-[#163a2e] text-white border border-[#163a2e] hover:bg-[#d4b06a] hover:text-[#0f1f1a] hover:border-[#d4b06a] active:scale-95 shadow-sm'
+                                    : 'bg-[#0f1f1a]/[0.04] border border-[#0f1f1a]/[0.08] text-[#0f1f1a]/20 cursor-not-allowed'
                                 }`}
                                 title={
                                   hasTopicQuestions
@@ -1137,7 +1125,7 @@ export default function Workspace({
                                 {page.content && (
                                   <div
                                     onClick={handleContentClick}
-                                    className="reader-content prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
+                                    className="reader-content prose max-w-none text-xs sm:text-sm leading-relaxed text-[#1b2b25]"
                                     dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(page.content) }}
                                   />
                                 )}
@@ -1161,7 +1149,7 @@ export default function Workspace({
                                 <div
                                   key={topicPageKey}
                                   style={theme.ribbonStyle}
-                                  className="w-full border hover:brightness-110 rounded-2xl p-3.5 px-5 shadow-xl transition-all duration-300 backdrop-blur-md flex flex-col"
+                                  className="w-full border hover:shadow-md rounded-2xl p-3.5 px-5 shadow-sm transition-all duration-300 flex flex-col"
                                 >
                                   {/* HTML Dropdown Header Bar */}
                                   <div
@@ -1170,14 +1158,14 @@ export default function Workspace({
                                   >
                                     {/* Left Side: Chevron + Summary Title + Interactive HTML Badge */}
                                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                                      <div className="w-7 h-7 rounded-lg bg-slate-950/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
-                                        <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isTopicPageExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
+                                      <div className="w-7 h-7 rounded-lg bg-white border border-[#0f1f1a]/10 flex items-center justify-center text-[#12302a] group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
+                                        <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isTopicPageExpanded ? 'rotate-180 text-[#9a7a2e]' : 'text-[#3d6354]'}`} />
                                       </div>
                                       <span style={theme.titleStyle} className="font-serif font-medium text-xs sm:text-sm truncate tracking-tight">
                                         {(page as any).summaryContent || topic.title || 'Interactive HTML'}
                                       </span>
                                       {hasIframe && (
-                                        <span className="text-[9.5px] font-mono px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold shrink-0">
+                                        <span className="text-[9.5px] font-mono px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold shrink-0">
                                           Interactive HTML
                                         </span>
                                       )}
@@ -1189,8 +1177,7 @@ export default function Workspace({
 
                                   {/* Expanded Section: Reveals Video Lecture (if any) & HTML Iframe */}
                                   {isTopicPageExpanded && (
-                                    <div className="w-full pt-4 mt-3 border-t border-slate-800/80 space-y-6 animate-fade-in text-slate-100">
-                                      {pIdx === 0 && renderTopicVideoSection()}
+                                    <div className="w-full pt-4 mt-3 border-t border-[#0f1f1a]/10 space-y-5 animate-fade-in text-[#1b2b25]">
                                       {renderPageContent(page, pIdx)}
                                     </div>
                                   )}
@@ -1207,7 +1194,7 @@ export default function Workspace({
                         <div
                           key={topic.id}
                           style={theme.ribbonStyle}
-                          className={`w-full border hover:brightness-110 rounded-2xl p-3.5 px-5 shadow-xl transition-all duration-300 backdrop-blur-md flex flex-col`}
+                          className={`w-full border hover:shadow-md rounded-2xl p-3.5 px-5 shadow-sm transition-all duration-300 flex flex-col`}
                         >
                           {/* Header Row — Clickable to Expand / Squeeze Topic Pages */}
                           <div
@@ -1216,14 +1203,14 @@ export default function Workspace({
                           >
                             {/* Left Side: Topic Title & Toggle Chevron Indicator */}
                             <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <div className="w-7 h-7 rounded-lg bg-slate-900/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
-                                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
+                              <div className="w-7 h-7 rounded-lg bg-white border border-[#0f1f1a]/10 flex items-center justify-center text-[#12302a] group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
+                                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-[#9a7a2e]' : 'text-[#3d6354]'}`} />
                               </div>
                               <h4 style={theme.titleStyle} className="text-xs sm:text-sm font-semibold truncate tracking-tight">
                                 {topic.title}
                               </h4>
                               {topic.pages && topic.pages.length > 0 && (
-                                <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-900/80 border border-slate-700/60 text-slate-400 shrink-0">
+                                <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#0f1f1a]/[0.06] border border-[#0f1f1a]/10 text-[#3d6354] shrink-0">
                                   {topic.pages.length} {topic.pages.length === 1 ? 'page' : 'pages'}
                                 </span>
                               )}
@@ -1235,8 +1222,7 @@ export default function Workspace({
 
                           {/* Expanded Content Section: Reveals Pages assigned to this Topic directly without inner collapsible */}
                           {isExpanded && (
-                            <div className="w-full pt-4 mt-3 border-t border-slate-800/80 space-y-6 animate-fade-in text-slate-100">
-                              {renderTopicVideoSection()}
+                            <div className="w-full pt-4 mt-3 border-t border-[#0f1f1a]/10 space-y-5 animate-fade-in text-[#1b2b25]">
 
                               {(!topic.pages || topic.pages.length === 0) ? (
                                 <div className="p-6 text-center text-slate-400 font-mono text-xs border border-dashed border-slate-800 rounded-xl bg-slate-950/60">
@@ -1246,14 +1232,14 @@ export default function Workspace({
                                 topic.pages.map((page, pIdx) => {
                                   const hasIframe = Boolean((page as any).iframeUrl);
                                   return (
-                                    <div key={(page as any).id || `topic-${topic.id}-${pIdx}`} className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
-                                      <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                                    <div key={(page as any).id || `topic-${topic.id}-${pIdx}`} className="bg-white border border-[#0f1f1a]/[0.08] rounded-xl p-4 sm:p-6 space-y-4 shadow-sm">
+                                      <div className="flex items-center justify-between border-b border-[#0f1f1a]/10 pb-2">
                                         <div className="flex items-center gap-2">
-                                          <span className="text-[10.5px] font-mono uppercase text-amber-400 font-black tracking-wider">
+                                          <span className="text-[10.5px] font-mono uppercase text-[#9a7a2e] font-black tracking-wider">
                                             Page {pIdx + 1} • {topic.title}
                                           </span>
                                           {hasIframe && (
-                                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold">
+                                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold">
                                               Interactive HTML
                                             </span>
                                           )}

@@ -20,7 +20,7 @@ import QuestionEditorPage from './components/QuestionEditorPage';
 import ClassSelector, { StudyClass } from './components/ClassSelector';
 import AndroidSimulator from './components/AndroidSimulator';
 import ImageFrame from './components/ImageFrame';
-import { Wifi, WifiOff, Cloud, CheckCircle2, AlertCircle, RefreshCw, Layers, Database, X, Menu, Upload, Palette, Undo, Trash2, Circle, Home, ArrowLeft, BookOpenCheck } from 'lucide-react';
+import { Wifi, WifiOff, Cloud, CheckCircle2, AlertCircle, RefreshCw, Layers, Database, X, Menu, Upload, Palette, Undo, Trash2, Circle, Home, ArrowLeft, BookOpenCheck, Maximize2, Minimize2 } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc, writeBatch } from 'firebase/firestore';
@@ -836,6 +836,9 @@ export default function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>('parchment');
   const [fontSizeScale, setFontSizeScale] = useState<number>(1.15);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  // A container (videos or topics) is in Focus. The chapter list and greenboard stay visible.
+  const [focusMode, setFocusMode] = useState<boolean>(false);
+  const handleWorkspaceFocusChange = useCallback((focused: boolean) => setFocusMode(focused), []);
   const [snv1Expanded, setSnv1Expanded] = useState<boolean>(true);
   const [snv2Expanded, setSnv2Expanded] = useState<boolean>(false);
   const [imageViewMode, setImageViewMode] = useState<'single' | 'two'>('single');
@@ -1983,7 +1986,7 @@ export default function App() {
   };
 
   const workspacePageContent = (
-    <div className={`${isSimulatingApk ? 'h-full' : 'h-screen'} w-full flex flex-col overflow-hidden bg-[#0b0f19]`} id="app-layout">
+    <div className={`${isSimulatingApk ? 'h-full' : 'h-screen'} w-full flex flex-col overflow-hidden bg-[#0f1f1a] relative`} id="app-layout">
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -2081,73 +2084,63 @@ export default function App() {
         </div>
       )}
 
-      {/* 2. SOLID FULL-WIDTH TOP HEADER PANEL */}
-      {activeLesson && (
-        <div className={`py-2 px-4 sm:px-8 border-b ${appThemeStyles.border} ${appThemeStyles.headerBg} flex-shrink-0 z-40 flex items-center justify-between gap-4`} id="content-header">
-          {/* Top Ribbon Left: Logo -> Book Name -> Source of selected book */}
+      {/* 2. FLOATING TRANSLUCENT TOP NAVBAR (content scrolls underneath it) */}
+      {activeLesson && (() => {
+        const chapterIndex = (activeBook?.lessons || []).findIndex(l => l.id === activeLesson.id);
+        const rawSource = activeBook?.source || (activeLesson?.pdfUrl ? 'NCERT' : null);
+        const cleanSource = rawSource ? rawSource.replace(/^source:\s*/i, '').replace(/^by:\s*/i, '').trim() : '';
+        const navBtn = 'w-9 h-9 rounded-xl flex items-center justify-center text-[#163a2e] hover:text-[#0f1f1a] bg-white/60 hover:bg-white border border-[#0f1f1a]/10 transition-all cursor-pointer';
+        return (
+        <div
+          id="content-header"
+          className="absolute top-2 left-2 z-30 h-14 px-3 sm:px-4 rounded-2xl flex items-center justify-between gap-4 bg-[#e3f1e8]/75 backdrop-blur-xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.25)] text-[#12302a]"
+          style={{ right: 'calc(max(3%, 28px) + 8px)' }}
+        >
+          {/* Left: logo, book, source, current chapter */}
           <div className="min-w-0 flex-1 flex items-center gap-3">
             {globalLogo && (
-              <img src={globalLogo} alt="Logo" className="w-9 h-9 object-contain inline-block flex-shrink-0" />
+              <img src={globalLogo} alt="Logo" className="w-8 h-8 object-contain flex-shrink-0" />
             )}
             <div
               onClick={() => setSnv2Expanded(!snv2Expanded)}
-              className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer hover:opacity-85 active:scale-98 transition-all"
+              className="min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
               id="content-lesson-title"
-              title="Click to expand/squeeze chapter navigation list"
+              title="Click to expand/squeeze the chapter list"
             >
-              <h1 className={`font-sans text-lg lg:text-xl font-black tracking-tight truncate ${appThemeStyles.titleColor}`}>
-                {activeBook?.title || 'Extrapadhai.com'}
-              </h1>
-              {(() => {
-                const rawSource = activeBook?.source || (activeLesson?.pdfUrl ? 'NCERT' : null);
-                if (!rawSource) return null;
-                const cleanSource = rawSource.replace(/^source:\s*/i, '').replace(/^by:\s*/i, '').trim();
-                if (!cleanSource) return null;
-                return (
-                  <span className="text-xs sm:text-sm text-[#b22222] font-normal leading-none shrink-0 drop-shadow-sm">
-                    by: <span className="font-normal uppercase">{cleanSource}</span>
-                  </span>
-                );
-              })()}
+              <div className="flex items-baseline gap-2 min-w-0">
+                <h1 className="font-sans text-base lg:text-lg font-bold tracking-tight truncate text-[#0f2a22]">
+                  {activeBook?.title || 'Extrapadhai.com'}
+                </h1>
+                {cleanSource && (
+                  <span className="text-[11px] text-[#9a7a2e] font-semibold uppercase tracking-wider shrink-0">by {cleanSource}</span>
+                )}
+              </div>
+              <div className="text-[12px] text-[#3d6354] truncate leading-tight">
+                {chapterIndex >= 0 ? `Chapter ${chapterIndex + 1} · ` : ''}{activeLesson.title}
+              </div>
             </div>
           </div>
 
-          {/* Top Ribbon Right: Sync, Class Profiles, Library Shelf buttons */}
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Sync Button for Students (always shown; content also refreshes automatically in the background) */}
+          {/* Right: quiet icon buttons */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={handleTriggerSync}
               disabled={isSyncing}
-              className={`p-2 border flex items-center justify-center transition-all rounded-lg ${
-                isSyncing
-                  ? 'bg-amber-500/20 text-amber-500 border-amber-500/30 cursor-not-allowed'
-                  : 'bg-[#10b981] hover:bg-[#059669] text-white border-[#10b981] shadow-sm cursor-pointer'
-              }`}
-              title="Synchronize local changes to Firebase cloud"
+              className={`${navBtn} ${isSyncing ? 'cursor-not-allowed' : ''}`}
+              title={isSyncing ? 'Updating content…' : 'Update content now (also updates automatically)'}
             >
-              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#9a7a2e]' : ''}`} />
             </button>
-
-            <button
-              onClick={() => setActiveScreen('class-selector')}
-              className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-all cursor-pointer rounded-lg gap-1.5 px-3 text-xs font-extrabold uppercase font-sans tracking-wide shadow-md active:scale-95"
-              title="Return to class selection"
-            >
-              <Home className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Class Profiles</span>
+            <button onClick={() => setActiveScreen('class-selector')} className={navBtn} title="Class profiles">
+              <Home className="w-4 h-4" />
             </button>
-
-            <button
-              onClick={() => setActiveScreen('grade-selector')}
-              className="p-2 bg-amber-500 hover:bg-amber-600 text-slate-950 flex items-center justify-center transition-all cursor-pointer rounded-lg gap-1.5 px-3 text-xs font-extrabold uppercase font-sans tracking-wide shadow-md active:scale-95"
-              title="Return to book selection"
-            >
-              <BookOpenCheck className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Library Shelf</span>
+            <button onClick={() => setActiveScreen('grade-selector')} className={navBtn} title="Library shelf">
+              <BookOpenCheck className="w-4 h-4" />
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Hidden file upload input triggered by full-width header */}
       <input
@@ -2256,6 +2249,7 @@ export default function App() {
 
         {/* Center Canvas display for gap-free continuous reading experience */}
         <Workspace
+          onFocusChange={handleWorkspaceFocusChange}
           selectedBook={activeBook}
           activeLesson={activeLesson}
           themeMode={themeMode}
