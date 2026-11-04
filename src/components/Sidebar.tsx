@@ -6,6 +6,7 @@
 import React from 'react';
 import { Book, Lesson, ThemeMode, OfflineAction } from '../types';
 import { ChevronsLeft, ChevronsRight, FileText, BookOpen, Columns2 } from 'lucide-react';
+import { getChapterContentType } from '../lib/chapterContent';
 
 interface SidebarProps {
   selectedBook: Book | null;
@@ -24,6 +25,7 @@ interface SidebarProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   isLessonContentLess?: boolean;
+  isPdfBook?: boolean;
   imageViewMode?: 'single' | 'two';
   setImageViewMode?: (mode: 'single' | 'two') => void;
 }
@@ -36,14 +38,24 @@ export default function Sidebar({
   isExpanded,
   onToggleExpand,
   isLessonContentLess,
+  isPdfBook,
   imageViewMode,
   setImageViewMode,
 }: SidebarProps) {
+  // Image layout toggle is applicable ONLY for PDF books
+  const isPdf = Boolean(
+    isPdfBook ?? (
+      selectedBook?.bookType === 'pdf' ||
+      getChapterContentType(activeLesson) === 'pdf' ||
+      (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) ||
+      (selectedBook?.lessons && selectedBook.lessons.some(l => (l.pdfUrl && l.pdfUrl.trim().length > 0) || l.contentType === 'pdf'))
+    )
+  );
   return (
-    <div className="relative h-full flex-shrink-0 z-40" style={{ width: isExpanded ? '320px' : '58px' }}>
+    <div className="relative h-full flex-shrink-0 z-40" style={{ width: isExpanded ? '352px' : '64px' }}>
       <div
         className={`absolute top-0 left-0 h-full bg-[#0c1220] border-r border-slate-900 flex flex-col overflow-hidden text-slate-200 select-none transition-all duration-300 shadow-2xl ${
-          isExpanded ? 'w-[320px]' : 'w-[58px]'
+          isExpanded ? 'w-[352px]' : 'w-[64px]'
         }`}
         id="sidebar"
       >
@@ -108,14 +120,14 @@ export default function Sidebar({
                     e.stopPropagation();
                     onSelectLesson(lesson.id);
                   }}
-                  className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center font-mono text-[15px] shrink-0 transition-all cursor-pointer relative ${
+                  className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center font-mono text-[13.5px] font-bold shrink-0 transition-all cursor-pointer relative overflow-visible ${
                     isActive
                       ? 'bg-amber-400 text-slate-950 font-black border border-amber-300 shadow-md shadow-amber-500/10'
                       : 'bg-slate-950 text-slate-400 hover:text-slate-100 hover:bg-slate-900/40 border border-slate-850'
                   }`}
                   title={lesson.title}
                 >
-                  {stepNumber}
+                  <span className="leading-none text-center select-none">{stepNumber}</span>
                   {isActive && (
                     <span className="absolute -bottom-0.5 w-2 h-2 rounded-full bg-slate-950 border border-amber-300" />
                   )}
@@ -130,41 +142,67 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Conditional Layout Toggles for Content-less lessons */}
-      {isLessonContentLess && isExpanded && setImageViewMode && (
-        <div className="p-3 border-t border-slate-800/50 flex flex-col gap-2 shrink-0">
-          <span className="text-[9px] font-mono uppercase text-slate-500 font-bold text-center block">Image Layout</span>
-          <div className="flex gap-2">
+      {/* Image Layout Toggles (Applicable for PDF books only) */}
+      {isPdf && setImageViewMode && (
+        isExpanded ? (
+          <div className="p-3 border-t border-slate-800/50 flex flex-col gap-2 shrink-0" id="image-layout-box">
+            <span className="text-[9px] font-mono uppercase text-slate-500 font-bold text-center block">Image Layout</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setImageViewMode('single')}
+                className={`flex-1 p-2 flex justify-center items-center rounded-lg border transition-all cursor-pointer ${
+                  imageViewMode === 'single'
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-md shadow-amber-900/20'
+                    : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-white'
+                }`}
+                title="Single Page View (Stacked)"
+              >
+                <div className="flex flex-col gap-1 w-4">
+                  <div className="w-full h-2 bg-current rounded-sm"></div>
+                  <div className="w-full h-2 bg-current rounded-sm"></div>
+                </div>
+              </button>
+              <button
+                onClick={() => setImageViewMode('two')}
+                className={`flex-1 p-2 flex justify-center items-center rounded-lg border transition-all cursor-pointer ${
+                  imageViewMode === 'two'
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-md shadow-amber-900/20'
+                    : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-white'
+                }`}
+                title="Two Page View (Side-by-side)"
+              >
+                <div className="flex gap-1 h-5 w-5">
+                  <div className="w-1/2 h-full bg-current rounded-sm"></div>
+                  <div className="w-1/2 h-full bg-current rounded-sm"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="py-2.5 px-1 border-t border-slate-800/50 flex flex-col items-center gap-1.5 shrink-0" id="image-layout-box-compact">
             <button
-              onClick={() => setImageViewMode('single')}
-              className={`flex-1 p-2 flex justify-center items-center rounded-lg border transition-all ${
-                imageViewMode === 'single'
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-md shadow-amber-900/20'
-                  : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-white'
-              }`}
-              title="Single Page View (Stacked)"
-            >
-              <div className="flex flex-col gap-1 w-4">
-                <div className="w-full h-2 bg-current rounded-sm"></div>
-                <div className="w-full h-2 bg-current rounded-sm"></div>
-              </div>
-            </button>
-            <button
-              onClick={() => setImageViewMode('two')}
-              className={`flex-1 p-2 flex justify-center items-center rounded-lg border transition-all ${
+              onClick={() => setImageViewMode(imageViewMode === 'single' ? 'two' : 'single')}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all cursor-pointer ${
                 imageViewMode === 'two'
                   ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-md shadow-amber-900/20'
                   : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-white'
               }`}
-              title="Two Page View (Side-by-side)"
+              title={imageViewMode === 'single' ? 'Switch to Two Page View (Side-by-side)' : 'Switch to Single Page View (Stacked)'}
             >
-              <div className="flex gap-1 h-5 w-5">
-                <div className="w-1/2 h-full bg-current rounded-sm"></div>
-                <div className="w-1/2 h-full bg-current rounded-sm"></div>
-              </div>
+              {imageViewMode === 'two' ? (
+                <div className="flex gap-1 h-4 w-4">
+                  <div className="w-1/2 h-full bg-current rounded-sm"></div>
+                  <div className="w-1/2 h-full bg-current rounded-sm"></div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1 w-3.5">
+                  <div className="w-full h-1.5 bg-current rounded-sm"></div>
+                  <div className="w-full h-1.5 bg-current rounded-sm"></div>
+                </div>
+              )}
             </button>
           </div>
-        </div>
+        )
       )}
 
     </div>

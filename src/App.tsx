@@ -891,7 +891,13 @@ export default function App() {
     () => (rawActiveLesson ? getStudentViewLesson(rawActiveLesson) : null),
     [rawActiveLesson]
   );
-  const isLessonContentLess = activeLesson?.pages.every(p => !hasTextContent(p.content)) ?? false;
+  const isPdfBook = Boolean(
+    activeBook?.bookType === 'pdf' ||
+    getChapterContentType(activeLesson) === 'pdf' ||
+    (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0) ||
+    (activeBook?.lessons && activeBook.lessons.some(l => (l.pdfUrl && l.pdfUrl.trim().length > 0) || l.contentType === 'pdf'))
+  );
+  const isLessonContentLess = isPdfBook || (activeLesson?.pages.every(p => !hasTextContent(p.content)) ?? false);
 
   // Connectivity and queue variables
   const [isOnline, setIsOnline] = useState<boolean>(true);
@@ -2078,48 +2084,49 @@ export default function App() {
       {/* 2. SOLID FULL-WIDTH TOP HEADER PANEL */}
       {activeLesson && (
         <div className={`py-2 px-4 sm:px-8 border-b ${appThemeStyles.border} ${appThemeStyles.headerBg} flex-shrink-0 z-40 flex items-center justify-between gap-4`} id="content-header">
-          <div className="min-w-0 flex-1">
-            <h1
+          {/* Top Ribbon Left: Logo -> Book Name -> Source of selected book */}
+          <div className="min-w-0 flex-1 flex items-center gap-3">
+            {globalLogo && (
+              <img src={globalLogo} alt="Logo" className="w-9 h-9 object-contain inline-block flex-shrink-0" />
+            )}
+            <div
               onClick={() => setSnv2Expanded(!snv2Expanded)}
-              className={`font-sans text-lg lg:text-xl font-black tracking-tighter cursor-pointer hover:opacity-80 active:scale-98 transition-all flex items-center gap-2 truncate ${appThemeStyles.titleColor}`}
+              className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer hover:opacity-85 active:scale-98 transition-all"
               id="content-lesson-title"
               title="Click to expand/squeeze chapter navigation list"
             >
-              {globalLogo && (
-                <img src={globalLogo} alt="Logo" className="w-9 h-9 object-contain inline-block flex-shrink-0 ml-2" />
-              )}
-              <span className="truncate">Extrapadhai.com <span className="opacity-50 font-normal select-none">/</span> <span className="text-amber-500 font-bold">{activeLesson.title}</span></span>
-            </h1>
+              <h1 className={`font-sans text-lg lg:text-xl font-black tracking-tight truncate ${appThemeStyles.titleColor}`}>
+                {activeBook?.title || 'Extrapadhai.com'}
+              </h1>
+              {(() => {
+                const rawSource = activeBook?.source || (activeLesson?.pdfUrl ? 'NCERT' : null);
+                if (!rawSource) return null;
+                const cleanSource = rawSource.replace(/^source:\s*/i, '').replace(/^by:\s*/i, '').trim();
+                if (!cleanSource) return null;
+                return (
+                  <span className="text-xs sm:text-sm text-[#b22222] font-normal leading-none shrink-0 drop-shadow-sm">
+                    by: <span className="font-normal uppercase">{cleanSource}</span>
+                  </span>
+                );
+              })()}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {activeBook?.source && (
-              <span className="text-sm font-black text-[#b22222] uppercase tracking-wider leading-none drop-shadow-sm">
-                Source: {activeBook.source}
-              </span>
-            )}
-            <div className="flex items-center gap-2">
-            {/* NCERT label — shown only when lesson has a PDF attached */}
-            {activeLesson?.pdfUrl && (
-              <span className="text-base sm:text-lg font-black tracking-tight text-[#b22222] uppercase select-none drop-shadow-sm mr-1">
-                NCERT Text Book
-              </span>
-            )}
+          {/* Top Ribbon Right: Sync, Class Profiles, Library Shelf buttons */}
+          <div className="flex items-center gap-2 shrink-0">
             {/* Sync Button for Students (always shown; content also refreshes automatically in the background) */}
-            {(
-              <button
-                onClick={handleTriggerSync}
-                disabled={isSyncing}
-                className={`p-2 border flex items-center justify-center transition-all rounded-lg ${
-                  isSyncing
-                    ? 'bg-amber-500/20 text-amber-500 border-amber-500/30 cursor-not-allowed'
-                    : 'bg-[#10b981] hover:bg-[#059669] text-white border-[#10b981] shadow-sm cursor-pointer'
-                }`}
-                title="Synchronize local changes to Firebase cloud"
-              >
-                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-              </button>
-            )}
+            <button
+              onClick={handleTriggerSync}
+              disabled={isSyncing}
+              className={`p-2 border flex items-center justify-center transition-all rounded-lg ${
+                isSyncing
+                  ? 'bg-amber-500/20 text-amber-500 border-amber-500/30 cursor-not-allowed'
+                  : 'bg-[#10b981] hover:bg-[#059669] text-white border-[#10b981] shadow-sm cursor-pointer'
+              }`}
+              title="Synchronize local changes to Firebase cloud"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            </button>
 
             <button
               onClick={() => setActiveScreen('class-selector')}
@@ -2138,7 +2145,6 @@ export default function App() {
               <BookOpenCheck className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Library Shelf</span>
             </button>
-          </div>
           </div>
         </div>
       )}
@@ -2241,6 +2247,7 @@ export default function App() {
               isExpanded={snv2Expanded}
               onToggleExpand={() => setSnv2Expanded(!snv2Expanded)}
               isLessonContentLess={isLessonContentLess}
+              isPdfBook={isPdfBook}
               imageViewMode={imageViewMode}
               setImageViewMode={setImageViewMode}
             />

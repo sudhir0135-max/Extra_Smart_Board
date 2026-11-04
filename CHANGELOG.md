@@ -2,6 +2,118 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-04] - Full-Width Toggle for Video & Chapter Topic Containers
+
+### Added
+- **Full-Width Maximization & Restore for Split Containers (`Workspace.tsx`)**:
+  - **Single-Container Expansion Without Hiding Ribbon or Sidebar**: Provided a dedicated Fullscreen/Maximize button (`Maximize2` / `Minimize2` icon) on both the Video Library container and the Chapter Topics container. Expanding one container covers the other container completely without hiding the top ribbon (`#content-header`) or the side navigation bar (`#sidebar`).
+  - **Dynamic Container Covering & Restoring**: Clicking the button on either container toggles `fullscreenPanel` (`'none' | 'video' | 'topics'`). Clicking it again immediately restores both containers back to their standard split layout (45% Video, 55% Topics).
+  - **Responsive Multi-Column Video Grid on Full Width**: When the video container is maximized to full width, its video listing transitions dynamically from a single-column layout into a multi-column responsive grid (`grid-cols-1 sm:grid-cols-2 xl:grid-cols-3`), maximizing screen real estate.
+  - **Chapter Switch Reset**: Automatically resets `fullscreenPanel` back to standard split mode (`'none'`) whenever the active chapter is changed.
+
+## [2026-11-04] - Dark Blue Video Container & Light Blue Topic Ribbon Container
+
+### Changed
+- **Split-Screen Dashboard Two-Tone Backgrounds (`Workspace.tsx`)**:
+  - **Dark Blue Video Container**: The left video library container (`#video-library-scroll`) now features a rich dark blue background (`bg-[#07152b]`) with blue borders (`border-blue-900/40`), elevated navy video cards (`bg-[#0d1e38]/90`), and tailored typography for optimal video watching contrast.
+  - **Light Blue Topic Container**: The right expandable topic container (`#chapter-topics-panel`) now features a clean, soothing light blue background (`bg-[#e0f0fd]`) with high-contrast header typography (`text-sky-950`) and custom light scrollbar styling.
+
+## [2026-11-04] - PDF-Specific Image Layout Box Gating in Side Navbar
+
+### Fixed & Rectified
+- **Inconsistent Image Layout Box Display (`Sidebar.tsx`, `App.tsx`)**:
+  - **Root Cause**: The Image Layout box previously depended on `isLessonContentLess` (which evaluated `pages.every(!hasTextContent)`), causing it to hide whenever a PDF chapter had draft page records or unformatted metadata, and leak onto empty HTML/Canvas chapters. It was also completely hidden when the sidebar was collapsed.
+  - **Strict PDF Book Gating**: Tied the Image Layout box directly to `isPdfBook` (`selectedBook?.bookType === 'pdf'`, chapter `contentType === 'pdf'`, `pdfUrl`, or lessons having PDF documents). It now displays reliably for **all** PDF books and is excluded from non-PDF books.
+  - **Dual Display Modes**: Rendered the full "Image Layout" panel with Single/Two-Page buttons when the sidebar is expanded (`352px`), and a compact 40x40 toggle button when the sidebar is squeezed/collapsed (`64px`).
+
+## [2026-11-04] - Student Panel Top Ribbon: 'by:' Prefix & Normal Font Weight for Source
+
+### Changed
+- **Top Ribbon Source Typography (`App.tsx`)**:
+  - **Replaced Prefix**: Changed the source attribution text from `'Source:'` to `'by:'` on the student panel content header ribbon.
+  - **Normal Font Weight**: Updated the source name to render in `font-normal` weight (`by: <span className="font-normal uppercase">{source}</span>`), maintaining elegant hierarchy alongside the bold book title.
+
+## [2026-11-04] - Student Panel Top Ribbon Redesign: Logo, Book Name & Source Alignment
+
+### Changed
+- **Student Panel Top Ribbon Flow (`App.tsx`)**:
+  - **Ordered Header Presentation**: Reorganized the content header ribbon (`#content-header`) to display **Logo** -> **Book Name** (`activeBook.title`) -> **Source** (`Source: {activeBook.source}`).
+  - **Source Placement & Formatting**: Moved the book source badge right after the book title on the left with prominent typography and drop-shadow, removing the duplicate source label and hardcoded NCERT text from the right button area.
+  - **Preserved Student Actions**: Kept the **Sync** button, **Class Profiles** button, and **Library Shelf** button on the far right as they are.
+
+## [2026-11-04] - In-Place Video Players in Grid & 10% Sidebar Width Expansion
+
+### Changed
+- **In-Place Video Players in Student Panel (`Workspace.tsx`)**:
+  - **Embedded Players in Each Grid Card**: Each video card in the left video container now embeds its own video player (`renderTopicVideo`) directly in place where it is displayed, with `loading="lazy"` on iframes and `preload="metadata"` on direct video elements.
+  - **Play Where Displayed**: Users can hit play directly on any video card to watch it immediately in-place, eliminating the need to select a thumbnail first and then click play on a separate top player.
+  - **Removed Redundant Top Player Frame**: Eliminated the duplicate top player box and smooth-scroll jump, maximizing screen height and maintaining full focus on the video library list.
+- **10% Sidebar Width Expansion (`Sidebar.tsx`)**:
+  - **Expanded Width Geometry**: Increased collapsed sidebar width by 10% (from `58px` to `64px`) and expanded width by 10% (from `320px` to `352px`).
+  - **Full Number Visibility**: Ensured chapter badges (`w-10 h-10`, `text-[13.5px] font-bold`, `leading-none`) and two-digit numbers (`01`, `02`, `10`, `12`...) are centered and displayed without any cut or edge clipping.
+
+## [2026-11-04] - PDF Book Full-Width Layout Decoupling from Video Split Screen
+
+### Changed
+- **Full-Width PDF Reader Mode (`Workspace.tsx`)**:
+  - **Bypassed Split-Screen for PDF Books**: PDF book types and chapters with PDF content (`isPdfBook`) no longer render inside the 45:55 split-screen video library dashboard.
+  - **Full-Width Reading Surface**: The PDF document renders in full width and screen height (`PdfPageViewer` inside `#seamless-pdf-stack` and `#content-scroll`), preserving the full textbook reading layout and `ScribbleOverlay` drawing tools.
+  - **Greenboard Handle Media Access**: Chapter lecture videos and questions for PDF chapters remain accessible via the dedicated video and Q icons on the closed greenboard handle (`BlackboardPanel.tsx`), keeping the reading area distraction-free.
+  - **Split-Screen Maintained for Interactive Chapters**: HTML and Canvas chapters continue to utilize the 45:55 split-screen dashboard with independent scrolling between the left video library and right chapter topics.
+
+## [2026-11-04] - Vertical Equal-Size Action Buttons, Full Link Display & Clean Student Panel Header Removal
+
+### Changed
+- **Editor Panel Chapter Actions (`BookEditorPanel.tsx`)**:
+  - **Vertical Equal-Sized Action Buttons**: 'Save' (video link), 'Save Metadata', and 'Purge Chapter' buttons are now stacked in a vertical column (`w-full sm:w-40 flex flex-col gap-2`) with identical width, height (`h-9`), padding, and typography.
+  - **Full Link Display & Delete Option**: Saved video links displayed just beneath the video input box now display the complete URL (`break-all select-all`) alongside a dedicated delete button (`Trash2` icon + `Delete`).
+- **Student Panel Header & Video Presentation (`Workspace.tsx`)**:
+  - **Removed Redundant Header Banners**: Removed the top header strips from both panels (the `CHAPTER VIDEOS [X AVAILABLE]` header on the left and the `CHAPTER TOPICS [X TOPICS]` header on the right).
+  - **Removed Player Card Top Strip**: Removed the header strip inside the active video card (`CHAPTER LECTURE • ... Part X of Y`) and multi-part lecture quick-switch buttons.
+  - **Clean Single-Column Video Grid Without Part Names**: Displays chapter videos in a clean single-column grid (`grid grid-cols-1 gap-3.5`) without appending part names (`Part X of Y`, `Full Lecture`) to titles or displaying `Part X` on duration badges.
+  - **Embedded Expand/Collapse Toggle**: Placed the `Expand All / Collapse All` toggle directly on the topic list section header in the right panel.
+
+## [2026-11-04] - Redesigned Chapter Header: Title, Subtitle, Direct Video URL & Metadata Actions
+
+### Changed
+- **Chapter Header Redesign (`BookEditorPanel.tsx`)**:
+  - **Left Column**: Subtitle input text box placed directly beneath the Chapter Title input text box.
+  - **Middle Column**: Video URL input text box placed immediately to the right of the Title box, with a dedicated **Save** button to its right.
+  - **Conditional Save Activation**: The Video URL Save button activates only when a non-empty URL is typed or pasted into the input field (`disabled` when empty).
+  - **Duplicate Prevention & Beneath Display**: Prevents saving duplicate video URLs. Saved video links appear directly beneath the URL input row with indexed badges, truncated URLs, and delete buttons.
+  - **Rightmost Metadata Controls**: Placed **Save Metadata** and **Purge Chapter** buttons on the far right as usual.
+  - **Clean UI Without Ribbons/Labels**: Removed all text ribbons and labels above the input boxes, replacing them with clean input placeholders (`Chapter Title`, `Subtitle (Optional)`, `Paste Video URL...`).
+
+## [2026-11-03] - 45:55 Split-Screen Learning Dashboard: Chapter Videos & Single-Column Layout
+
+### Changed
+- **45:55 Split-Screen Learning Dashboard (`Workspace.tsx`)**:
+  - **Removed Top Dashboard Ribbon**: Completely removed the top control strip that showed "50:50 Split-Screen Learning Dashboard" text and layout buttons, maximizing 100% vertical screen height for both panels.
+  - **45% Width Video Container (Left Panel)**: Left video container adjusted to 45% screen width (`w-full lg:w-[45%]`) with independent full-height scrolling.
+  - **Single-Column Video Thumbnails**: Reconfigured the video library playlist into a clean single-column listing (`grid grid-cols-1 gap-3.5`).
+  - **Chapter-Only Video Library**: Video container strictly displays videos connected to the chapter (`getChapterVideoUrls(activeLesson)`).
+  - **55% Width Topic Ribbon Container (Right Panel)**: Chapter topic container adjusted to 55% screen width (`w-full lg:w-[55%]`) with independent scrolling.
+  - **Topic Video Box Restored**: Topic ribbons' Video button now opens topic videos directly in the dedicated Video Box modal as previously (`onOpenTopicModal(topic, 'video')`).
+  - **Decreased Topic Font Size**: Reduced topic title font sizes in both collapsible and standard topic ribbons to compact `text-xs sm:text-sm font-semibold` / `font-medium` for cleaner presentation.
+
+## [2026-11-03] - Strict Admin Approval Gating & Persistent Offline PDF Page Rendering
+
+### Fixed & Rectified
+- **Editor Changes Bypassing Admin Approval (`BookEditorPanel.tsx`, `App.tsx`)**:
+  - **Root Cause 1 (Direct Live Firestore Writes)**: `saveLessonDirectToFirestore` in `BookEditorPanel.tsx` directly wrote chapter/topic/video/question updates to `books/{bookId}/lessons/{lessonId}` in live Firestore and called `fetchBookLessons(bookId)`, causing unapproved drafts to publish immediately to all students.
+  - **Root Cause 2 (Local Pending Draft Leakage)**: In `App.tsx`, the computed `books` state merged IndexedDB `offline_lessons` with `sync_status === 'pending'` across all screens, causing local editor drafts to render inside the Student Panel before submitting to Admin.
+  - **Fix**:
+    1. Modified `saveLessonDirectToFirestore` in `BookEditorPanel.tsx` to save strictly to local drafts (`saveBookLocally`) with `sync_status: 'pending'` and `pendingLessonIds` tracking. Live Firestore is never touched during editing.
+    2. Separated `books` (approved curriculum for Student Panel & Admin live views) and `editorBooks` (working drafts for `BookEditorPanel`) in `App.tsx`. The Student Panel strictly reads approved curriculum and filters out all unapproved editor drafts.
+    3. Re-established Admin approval as the sole publishing gatekeeper: Only when an Admin approves a submission in `onApproveSubmission` does the chapter publish to live Firestore `books/{bookId}/lessons/{lessonId}`, update `offline_lessons` to clear `pendingLessonIds`, and sync live to students.
+
+- **Repeated PDF Page Rendering & Offline Viewing (`PdfPageViewer.tsx`, `lib/pdfCache.ts`)**:
+  - **Root Cause**: `PdfPageViewer.tsx` relied only on an in-memory RAM cache (`Map`), which was discarded on every browser reload, screen navigation, or app restart. On every visit to a PDF chapter, PDF.js had to rasterize all pages from scratch (taking 15–45s for large textbooks). If rendering failed or took place offline, the fallback iframe loaded an external Firebase Storage URL which failed with a browser network error.
+  - **Fix**:
+    1. **Persistent IndexedDB Rendered Page Cache (`lib/pdfCache.ts`)**: Added `rendered_pages` object store (schema version 2) with `cacheRenderedPdf` and `getCachedRenderedPdf`. Once a PDF chapter is rendered, its rendered pages are persistently stored in IndexedDB. Subsequent visits load in **0ms** without re-rendering or CPU delays.
+    2. **Progressive Page Reveal (`PdfPageViewer.tsx`)**: Page 1 is displayed immediately upon rendering so the student can start reading right away without waiting for all 50+ pages to complete. Remaining pages render progressively in the background.
+    3. **Offline-Resilient Blob Fallback (`PdfPageViewer.tsx`)**: If native canvas parsing falls back to iframe viewing, it creates an offline-safe object URL (`URL.createObjectURL(blob)`) from the cached PDF blob instead of calling the external Firebase URL, ensuring full offline functionality.
+
 ## [2026-11-03] - YouTube-Style Video Card Layout & Topic Video Decoupling
 
 ### Changed

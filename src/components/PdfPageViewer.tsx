@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { getCachedPdf, downloadAndCachePdf } from '../lib/pdfCache';
+import { getCachedPdf, downloadAndCachePdf, getCachedRenderedPdf, cacheRenderedPdf, RenderedPageData } from '../lib/pdfCache';
 import { RefreshCw, FileText, AlertCircle, Eye, WifiOff } from 'lucide-react';
 import { ThemeMode } from '../types';
 
@@ -43,12 +43,14 @@ export default function PdfPageViewer({
   const [error, setError] = useState<string | null>(null);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [renderProgress, setRenderProgress] = useState<string>('');
+  const [fallbackBlobUrl, setFallbackBlobUrl] = useState<string | null>(null);
 
   const [useNativeEngine, setUseNativeEngine] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let isCancelled = false;
+    let localBlobUrl: string | null = null;
 
     async function loadAndRenderPdf() {
       if (!pdfUrl) {
@@ -57,7 +59,7 @@ export default function PdfPageViewer({
         return;
       }
 
-      // 0. Check in-memory cache for instant (0ms) display without re-rendering
+      // 0a. Check in-memory cache for instant (0ms) display without re-rendering
       if (pdfRenderMemoryCache.has(pdfUrl)) {
         const cachedPages = pdfRenderMemoryCache.get(pdfUrl)!;
         if (!isCancelled) {
@@ -67,6 +69,21 @@ export default function PdfPageViewer({
           setLoading(false);
         }
         return;
+      }
+
+      // 0b. Check persistent IndexedDB cache for instant display across reloads & offline!
+      try {
+        const persistentPages = await getCachedRenderedPdf(pdfUrl);
+        if (persistentPages && persistentPages.length > 0 && !isCancelled) {
+          pdfRenderMemoryCache.set(pdfUrl, persistentPages);
+          setRenderedPages(persistentPages);
+          setTotalPages(persistentPages.length);
+          onTotalPagesLoaded?.(persistentPages.length);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('PdfPageViewer: persistent cache read warning:', e);
       }
 
       setLoading(true);
@@ -92,6 +109,12 @@ export default function PdfPageViewer({
           setLoading(false);
           return;
         }
+
+        // Prepare offline-safe fallback URL
+        try {
+          localBlobUrl = URL.createObjectURL(blob);
+          if (!isCancelled) setFallbackBlobUrl(localBlobUrl);
+        } catch {}
 
         // 2. Read array buffer
         const arrayBuffer = await blob.arrayBuffer();
@@ -167,12 +190,28 @@ export default function PdfPageViewer({
             };
             await page.render(renderContext).promise;
 
+            let dataUrl = '';
+            try {
+              dataUrl = canvas.toDataURL('image/webp', 0.9);
+            } catch {}
+            if (!dataUrl || !dataUrl.startsWith('data:image/webp')) {
+              dataUrl = canvas.toDataURL('image/png');
+            }
+
             pages.push({
               pageNumber: pageNum,
-              dataUrl: canvas.toDataURL('image/png'),
+              dataUrl,
               width: viewport.width,
               height: viewport.height,
             });
+
+            // Progressive reveal: Show page 1 immediately so user doesn't wait for entire document!
+            if (pageNum === 1 && !isCancelled) {
+              setRenderedPages([...pages]);
+              setLoading(false);
+            } else if (pageNum % 3 === 0 && !isCancelled) {
+              setRenderedPages([...pages]);
+            }
           }
         }
 
@@ -180,6 +219,8 @@ export default function PdfPageViewer({
           pdfRenderMemoryCache.set(pdfUrl, pages);
           setRenderedPages(pages);
           setLoading(false);
+          // Persist rendered pages to IndexedDB for 0ms load next time and full offline availability
+          cacheRenderedPdf(pdfUrl, pages).catch(e => console.warn('Failed to cache rendered PDF:', e));
         }
       } catch (err: any) {
         console.error('PdfPageViewer load error:', err);
@@ -194,6 +235,9 @@ export default function PdfPageViewer({
 
     return () => {
       isCancelled = true;
+      if (localBlobUrl) {
+        URL.revokeObjectURL(localBlobUrl);
+      }
     };
   }, [pdfUrl]);
 
@@ -230,7 +274,7 @@ export default function PdfPageViewer({
             </a>
           </div>
           <iframe
-            src={pdfUrl}
+            src={fallbackBlobUrl || pdfUrl}
             title="PDF Chapter Viewer"
             className="w-full min-h-[85vh] rounded-2xl border border-slate-700/60 shadow-2xl bg-white"
           />
@@ -263,7 +307,7 @@ export default function PdfPageViewer({
       {useNativeEngine ? (
         <div className="w-full min-h-[85vh] flex flex-col items-center gap-3">
           <iframe
-            src={pdfUrl}
+            src={fallbackBlobUrl || pdfUrl}
             title="Native PDF Chapter Viewer"
             className="w-full min-h-[85vh] rounded-2xl border border-slate-700/60 shadow-2xl bg-white"
           />

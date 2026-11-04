@@ -192,6 +192,7 @@ export default function BookEditorPanel({
   const [activeLessonTitleDraft, setActiveLessonTitleDraft] = useState('');
   const [activeLessonSubtitleDraft, setActiveLessonSubtitleDraft] = useState('');
   const [activeLessonVideoDrafts, setActiveLessonVideoDrafts] = useState<string[]>([]);
+  const [chapterHeaderVideoUrlDraft, setChapterHeaderVideoUrlDraft] = useState('');
   const [topicVideoDrafts, setTopicVideoDrafts] = useState<string[]>([]);
 
   // Topic Management State
@@ -231,69 +232,13 @@ export default function BookEditorPanel({
   };
 
   /**
-   * Directly saves questions/lesson updates to Firestore books/{bookId}/lessons/{lessonId}
-   * and IndexedDB so questions are immediately live on Firebase and localhost without needing
-   * "Submit this Chapter" or Admin review.
+   * Saves the modified book strictly to the editor's local draft (IndexedDB)
+   * with pending status. Live Firestore curriculum is NOT updated until
+   * the editor submits the chapter and an Admin approves it.
    */
-  const saveLessonDirectToFirestore = async (modifiedBook: Book, updatedLesson: Lesson) => {
-    // 1. Save locally to IndexedDB immediately (<5ms)
+  const saveLessonDirectToFirestore = async (modifiedBook: Book, _updatedLesson?: Lesson) => {
+    // Save locally to IndexedDB immediately (<5ms)
     await saveBookLocally(modifiedBook);
-
-    if (isPreviewMode) return;
-
-    // 2. Direct save to live Firestore curriculum
-    try {
-      const bookIdStr = modifiedBook.id.toString();
-      const lessonOrder = modifiedBook.lessons.findIndex(l => l.id === updatedLesson.id);
-      const lessonWithOrder = { ...updatedLesson, order: lessonOrder >= 0 ? lessonOrder : 0 };
-
-      let docToWrite: any = lessonWithOrder;
-      const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
-      if (jsonLength > 750000) {
-        const storagePath = `books/${bookIdStr}/lessons/${updatedLesson.id}`;
-        const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
-        docToWrite = pointerLesson;
-      } else {
-        // If it fits directly in Firestore, clean up any stale payloadUrl so resolveLessonPayload doesn't fetch old Storage JSON
-        if ('payloadUrl' in docToWrite) {
-          const oldUrl = docToWrite.payloadUrl;
-          delete docToWrite.payloadUrl;
-          if (oldUrl) {
-            deleteFileFromStorage(oldUrl).catch(e => console.warn('Could not delete old payload.json:', e));
-          }
-        }
-      }
-
-      // Sanitize docToWrite to strip any undefined fields (preventing Firestore unsupported field crashes)
-      docToWrite = JSON.parse(JSON.stringify(docToWrite));
-
-      const lessonRef = doc(db, 'books', bookIdStr, 'lessons', updatedLesson.id);
-      await setDoc(lessonRef, docToWrite);
-
-      // This chapter is now saved on the server: it no longer needs the local version
-      try {
-        const rec = await dbLocal.offline_lessons.get(modifiedBook.id);
-        if (rec) {
-          const remaining = (rec.pendingLessonIds || []).filter(id => id !== updatedLesson.id);
-          await (dbLocal.offline_lessons as any).update(modifiedBook.id, {
-            pendingLessonIds: remaining,
-            sync_status: remaining.length > 0 ? 'pending' : 'synced'
-          });
-        }
-      } catch { /* ignore */ }
-
-      // Refresh in-memory subLessonsCache, firebaseBooks, and offline_lessons so all screens immediately see the update
-      if (fetchBookLessons) {
-        await fetchBookLessons(modifiedBook.id);
-      }
-    } catch (err: any) {
-      console.error("Direct Firestore lesson save error:", err);
-      if (!navigator.onLine || err?.code === 'unavailable') {
-        console.warn('Saved locally (offline mode). Cloud sync will happen when online.');
-      } else {
-        throw err;
-      }
-    }
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -347,6 +292,7 @@ export default function BookEditorPanel({
     if (activeLesson) {
       setActiveLessonTitleDraft(activeLesson.title);
       setActiveLessonSubtitleDraft(activeLesson.subtitle || '');
+      setChapterHeaderVideoUrlDraft('');
       
       // Migrate legacy videoUrl to videoUrls if needed
       if (activeLesson.videoUrls && activeLesson.videoUrls.length > 0) {
@@ -1024,6 +970,26 @@ export default function BookEditorPanel({
     }
   };
 
+  const handleAddChapterHeaderVideo = async () => {
+    const trimmed = chapterHeaderVideoUrlDraft.trim();
+    if (!trimmed || !assignedBook || !activeLesson) return;
+    if (activeLessonVideoDrafts.some(u => u.trim() === trimmed)) {
+      alert('This video link is already added.');
+      return;
+    }
+    const next = [...activeLessonVideoDrafts.filter(u => u.trim()), trimmed];
+    setActiveLessonVideoDrafts(next);
+    setChapterHeaderVideoUrlDraft('');
+    await saveChapterVideos(next);
+  };
+
+  const handleRemoveChapterHeaderVideo = async (idxToRemove: number) => {
+    if (!assignedBook || !activeLesson) return;
+    const next = activeLessonVideoDrafts.filter((_, i) => i !== idxToRemove);
+    setActiveLessonVideoDrafts(next);
+    await saveChapterVideos(next);
+  };
+
   const [newVideoLinkDraft, setNewVideoLinkDraft] = useState('');
   const renderChapterVideoEditor = () => {
     const isEditingTopicVideos = Boolean(isTopicWise && selectedTopic);
@@ -1648,36 +1614,102 @@ export default function BookEditorPanel({
           <div className="flex-1 bg-[#05070e] overflow-y-auto p-6">
             {activeLesson ? (
               <div className="w-full max-w-7xl mx-auto space-y-6">
-                {/* Compact chapter header: title, subtitle, save and purge in one row */}
-                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-3">
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div className="flex-1 min-w-[200px]">
-                      <span className="text-[8.5px] uppercase font-mono text-slate-500 block mb-1">Chapter Title</span>
+                {/* Chapter header: Title, Subtitle, Video URL with Save, and Metadata Actions */}
+                <div className="bg-[#0b0e1b] border border-slate-800 rounded-xl p-3.5">
+                  <div className="flex flex-col md:flex-row items-start gap-4">
+                    
+                    {/* Left Column: Chapter Title & Subtitle just beneath */}
+                    <div className="flex-1 min-w-[200px] w-full flex flex-col gap-2">
                       <input
                         type="text"
                         value={activeLessonTitleDraft}
                         onChange={e => setActiveLessonTitleDraft(e.target.value)}
-                        className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white focus:outline-none"
+                        placeholder="Chapter Title"
+                        className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none"
                       />
-                    </div>
-                    <div className="flex-1 min-w-[200px]">
-                      <span className="text-[8.5px] uppercase font-mono text-slate-500 block mb-1">Subtitle</span>
                       <input
                         type="text"
                         value={activeLessonSubtitleDraft}
                         onChange={e => setActiveLessonSubtitleDraft(e.target.value)}
-                        className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded p-2 text-xs text-white focus:outline-none"
+                        placeholder="Subtitle (Optional)"
+                        className="w-full bg-[#03060c] border border-slate-800 focus:border-indigo-500 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none"
                       />
                     </div>
-                    <div className="flex gap-2 shrink-0 pb-0.5">
+
+                    {/* Middle Column: Video URL input box (top) & Saved video links displaying full link with delete option (just beneath) */}
+                    <div className="flex-[1.3] min-w-[240px] w-full flex flex-col gap-2">
+                      <input
+                        type="text"
+                        value={chapterHeaderVideoUrlDraft}
+                        disabled={isPreviewMode}
+                        onChange={e => setChapterHeaderVideoUrlDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && chapterHeaderVideoUrlDraft.trim()) {
+                            e.preventDefault();
+                            handleAddChapterHeaderVideo();
+                          }
+                        }}
+                        placeholder="Paste Video URL (YouTube, MP4...)"
+                        className="w-full bg-[#03060c] border border-slate-800 focus:border-emerald-500 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none"
+                      />
+
+                      {/* Saved Video Links appearing just beneath displaying full link and delete option */}
+                      <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1 [scrollbar-width:thin]">
+                        {activeLessonVideoDrafts.length > 0 ? (
+                          activeLessonVideoDrafts.map((url, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between gap-2 bg-[#03060c] border border-slate-800 rounded-lg p-2 text-xs hover:border-slate-700 transition-colors"
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="text-[10px] font-mono text-emerald-400 font-bold shrink-0">#{idx + 1}</span>
+                                <span className="font-mono text-[11px] text-sky-300 break-all select-all">{url}</span>
+                              </div>
+                              {!isPreviewMode && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveChapterHeaderVideo(idx)}
+                                  className="flex items-center gap-1 text-[11px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2 py-1 rounded transition-colors cursor-pointer shrink-0 font-medium"
+                                  title="Delete this video link"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete</span>
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-[10.5px] text-slate-600 font-mono italic py-1">No chapter videos saved yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Column: 'Save', 'Save Metadata' and 'Purge Chapter' buttons (Equal Size & Vertical) */}
+                    <div className="w-full sm:w-40 flex flex-col gap-2 shrink-0">
                       <button
-                        onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts })}
-                        className="p-1 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
+                        type="button"
+                        disabled={isPreviewMode || !chapterHeaderVideoUrlDraft.trim()}
+                        onClick={handleAddChapterHeaderVideo}
+                        className="w-full h-9 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800/60 disabled:text-slate-600 disabled:border disabled:border-slate-800 text-white font-bold rounded-lg text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed transition-all shadow-sm"
+                        title="Save pasted video link"
                       >
-                        <Save className="w-3.5 h-3.5" /> Save Meta
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Save</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLessonMeta({ title: activeLessonTitleDraft, subtitle: activeLessonSubtitleDraft, videoUrls: activeLessonVideoDrafts })}
+                        className="w-full h-9 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+                        title="Save chapter metadata"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Save Metadata</span>
+                      </button>
+
                       {!isPreviewMode && (
                         <button
+                          type="button"
                           onClick={async () => {
                             if (!assignedBook || !currentUser || !activeLesson) return;
                             const choice = window.prompt(
@@ -1726,13 +1758,15 @@ export default function BookEditorPanel({
                               }
                             }
                           }}
-                          className="p-1 px-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded text-[9.5px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
+                          className="w-full h-9 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-sm"
                           title="Purge chapter locally or submit deletion request to Admin"
                         >
-                          <Trash2 className="w-3.5 h-3.5" /> Purge Chapter
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Purge Chapter</span>
                         </button>
                       )}
                     </div>
+
                   </div>
                 </div>
 

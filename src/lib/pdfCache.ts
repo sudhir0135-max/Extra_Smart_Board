@@ -210,13 +210,28 @@ interface PdfCacheEntry {
   byteLength: number;
 }
 
+export interface RenderedPageData {
+  pageNumber: number;
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+interface RenderedPdfCacheEntry {
+  pages: RenderedPageData[];
+  cachedAt: number;
+  totalPages: number;
+}
+
 interface PdfCacheSchema extends DBSchema {
   pdfs: { key: string; value: PdfCacheEntry };
+  rendered_pages: { key: string; value: RenderedPdfCacheEntry };
 }
 
 const DB_NAME = 'extrapadhai-pdf-cache';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'pdfs';
+const RENDERED_STORE_NAME = 'rendered_pages';
 let dbPromise: Promise<IDBPDatabase<PdfCacheSchema>> | null = null;
 
 function getDb(): Promise<IDBPDatabase<PdfCacheSchema>> {
@@ -224,6 +239,7 @@ function getDb(): Promise<IDBPDatabase<PdfCacheSchema>> {
     dbPromise = openDB<PdfCacheSchema>(DB_NAME, DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+        if (!db.objectStoreNames.contains(RENDERED_STORE_NAME)) db.createObjectStore(RENDERED_STORE_NAME);
       },
     });
   }
@@ -279,6 +295,50 @@ export async function cachePdf(url: string, blob: Blob): Promise<void> {
 export async function isPdfCached(url: string): Promise<boolean> {
   if (isNative()) return nativeIsPdfCached(url);
   return webIsPdfCached(url);
+}
+
+/** Store rendered page image data for a PDF in IndexedDB */
+export async function cacheRenderedPdf(url: string, pages: RenderedPageData[]): Promise<void> {
+  if (!url || !pages || pages.length === 0) return;
+  try {
+    const db = await getDb();
+    await db.put(RENDERED_STORE_NAME, {
+      pages,
+      cachedAt: Date.now(),
+      totalPages: pages.length,
+    }, url);
+    console.log(`[pdfCache] Cached ${pages.length} rendered pages in IndexedDB for ${url}`);
+  } catch (e) {
+    console.warn('[pdfCache] cacheRenderedPdf error:', e);
+  }
+}
+
+/** Retrieve pre-rendered pages for a PDF from IndexedDB. Returns null if not cached. */
+export async function getCachedRenderedPdf(url: string): Promise<RenderedPageData[] | null> {
+  if (!url) return null;
+  try {
+    const db = await getDb();
+    const entry = await db.get(RENDERED_STORE_NAME, url);
+    if (entry && Array.isArray(entry.pages) && entry.pages.length > 0) {
+      console.log(`[pdfCache] Loaded ${entry.pages.length} rendered pages from IndexedDB for ${url}`);
+      return entry.pages;
+    }
+    return null;
+  } catch (e) {
+    console.warn('[pdfCache] getCachedRenderedPdf error:', e);
+    return null;
+  }
+}
+
+/** Invalidate/clear rendered page cache for a specific URL */
+export async function clearCachedRenderedPdf(url: string): Promise<void> {
+  if (!url) return;
+  try {
+    const db = await getDb();
+    await db.delete(RENDERED_STORE_NAME, url);
+  } catch (e) {
+    console.warn('[pdfCache] clearCachedRenderedPdf error:', e);
+  }
 }
 
 // ─── Background pre-cache queue ───────────────────────────────────────────────

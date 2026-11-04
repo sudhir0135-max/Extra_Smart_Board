@@ -9,7 +9,7 @@ import { Book, Lesson, Topic, ThemeMode, AcademicSubject, BookEditor, Interactiv
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
-import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle, Maximize2 } from 'lucide-react';
+import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle, Maximize2, Minimize2, Tv, Film, Play, ChevronRight, Columns, Filter, CheckCircle2 } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import { BlockMath } from 'react-katex';
@@ -35,6 +35,29 @@ import HtmlPageFrame from './HtmlPageFrame';
  * so the virtual DOM and real DOM are both clean from the start — no CSS
  * specificity fight, no post-render DOM manipulation timing window.
  */
+// Helper to generate consistent YouTube-style metadata (views, date, duration)
+const getYouTubeStyleMeta = (id: string, partNumber: number = 1, customDuration?: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash << 5) - hash + id.charCodeAt(i);
+  const h = Math.abs(hash);
+
+  const viewsList = ['9.7M views', '2.4M views', '1.1M views', '840K views', '320K views', '180K views', '85K views', '42K views'];
+  const datesList = ['5 days ago', '2 weeks ago', '1 month ago', '3 months ago', '6 months ago', '1 year ago'];
+
+  let duration = customDuration;
+  if (!duration || !duration.includes(':')) {
+    const mins = 8 + (h % 22);
+    const secs = (h % 60).toString().padStart(2, '0');
+    duration = `${mins}:${secs}`;
+  }
+
+  return {
+    views: viewsList[(h + partNumber) % viewsList.length],
+    date: datesList[((h >> 2) + partNumber) % datesList.length],
+    duration
+  };
+};
+
 function renderTopicVideo(url: string, title: string) {
   if (!url) return null;
   const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
@@ -46,6 +69,7 @@ function renderTopicVideo(url: string, title: string) {
         src={`https://www.youtube.com/embed/${ytMatch[1]}`}
         title={`Video lecture: ${title}`}
         className="w-full h-full"
+        loading="lazy"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />
@@ -57,6 +81,8 @@ function renderTopicVideo(url: string, title: string) {
       <video
         src={url}
         controls
+        playsInline
+        preload="metadata"
         className="w-full h-full object-contain bg-black"
       />
     );
@@ -67,6 +93,7 @@ function renderTopicVideo(url: string, title: string) {
       src={url}
       title={`Video lecture: ${title}`}
       className="w-full h-full"
+      loading="lazy"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
       allowFullScreen
     />
@@ -272,6 +299,113 @@ export default function Workspace({
       ...prev,
       [topicId]: !prev[topicId]
     }));
+  };
+
+  // ── Video Library States ──
+  const [videoMetaMap, setVideoMetaMap] = useState<Record<string, { title?: string; author?: string; thumbnail?: string }>>({});
+  const [fullscreenPanel, setFullscreenPanel] = useState<'none' | 'video' | 'topics'>('none');
+
+  const videoPanelScrollRef = useRef<HTMLDivElement>(null);
+
+  // Reset fullscreen container mode when switching chapters
+  useEffect(() => {
+    setFullscreenPanel('none');
+  }, [activeLesson?.id]);
+
+  const isVideoFullscreen = fullscreenPanel === 'video';
+  const isTopicsFullscreen = fullscreenPanel === 'topics';
+
+  // Check if current lesson/book is a PDF textbook (PDF books appear without the split-screen video library)
+  const isPdfBook = Boolean(
+    selectedBook?.bookType === 'pdf' ||
+    getChapterContentType(activeLesson) === 'pdf' ||
+    (activeLesson?.pdfUrl && activeLesson.pdfUrl.trim().length > 0)
+  );
+
+  // Extract chapter lecture videos only (only videos connected to chapter appear in left panel)
+  const chapterVideos = useMemo(() => {
+    if (!activeLesson) return [];
+
+    const items: Array<{
+      id: string;
+      url: string;
+      title: string;
+      partNumber: number;
+      totalParts: number;
+      youtubeId?: string;
+      isDirectVideo: boolean;
+      fileName?: string;
+      duration: string;
+      views: string;
+      uploadDate: string;
+      channel: string;
+    }> = [];
+
+    const chapterUrls = getChapterVideoUrls(activeLesson);
+    chapterUrls.forEach((url, idx) => {
+      const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+      const ytId = ytMatch ? ytMatch[1] : undefined;
+      const isDirect = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url) || url.includes('/videos%2F') || url.includes('/videos/');
+      let fileName = '';
+      try {
+        const decoded = decodeURIComponent(url);
+        const m = decoded.match(/([^\/?#]+)\.(mp4|webm|ogg|mov)/i);
+        if (m) fileName = m[1].replace(/^\d+[-_]/, '').replace(/[-_]/g, ' ');
+      } catch {}
+
+      const meta = getYouTubeStyleMeta(`chap-${activeLesson.id}-${idx}`, idx + 1);
+
+      items.push({
+        id: `chap-vid-${idx}`,
+        url,
+        title: activeLesson.title,
+        partNumber: idx + 1,
+        totalParts: chapterUrls.length,
+        youtubeId: ytId,
+        isDirectVideo: isDirect,
+        fileName,
+        channel: 'Chapter Lecture',
+        duration: meta.duration,
+        views: meta.views,
+        uploadDate: meta.date
+      });
+    });
+
+    return items;
+  }, [activeLesson]);
+
+  // Fetch online YouTube metadata (real titles, authors, thumbnails)
+  useEffect(() => {
+    if (!isOnline || chapterVideos.length === 0) return;
+    chapterVideos.forEach(vid => {
+      if (vid.youtubeId && !videoMetaMap[vid.youtubeId]) {
+        fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${vid.youtubeId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && (data.title || data.author_name)) {
+              setVideoMetaMap(prev => ({
+                ...prev,
+                [vid.youtubeId!]: {
+                  title: data.title,
+                  author: data.author_name,
+                  thumbnail: data.thumbnail_url
+                }
+              }));
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, [chapterVideos, isOnline, videoMetaMap]);
+
+  const handleToggleExpandAllTopics = () => {
+    if (!activeLesson?.topics) return;
+    const anyClosed = activeLesson.topics.some(t => !expandedTopicIds[t.id]);
+    const newMap: Record<string, boolean> = {};
+    activeLesson.topics.forEach(t => {
+      newMap[t.id] = anyClosed;
+    });
+    setExpandedTopicIds(newMap);
   };
 
   /**
@@ -648,22 +782,169 @@ export default function Workspace({
             onOpenChapterQuestions={onOpenChapterPanel && getChapterContentType(activeLesson) === 'pdf' ? () => onOpenChapterPanel('notes') : undefined}
           />
 
-            {/* ── PAGE MODE: render lesson pages as before ── */}
+          {isPdfBook ? (
+            /* ── FULL-WIDTH PDF BOOK READER (Bypasses split-screen video library) ── */
             <div
               id="content-scroll"
               ref={scrollParentRef}
-              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root"
+              className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root w-full h-full"
               style={{
-                marginRight: 'max(3%, 28px)', // Always keep strip space only, allowing expanded board to overlay
+                marginRight: 'max(3%, 28px)', // Reserve space for greenboard closed strip
               }}
             >
+              <div
+                className={`w-full flex flex-col items-stretch px-[2%] ${themeStyles.paperBg} ${themeStyles.color} rounded-xl relative`}
+                style={{ fontSize: `${fontSizeScale}rem`, height: 'auto' }}
+                id="seamless-pdf-stack"
+              >
+                <ScribbleOverlay
+                  lessonId={activeLesson.id}
+                  isDrawingMode={isDrawingEnabled}
+                  onStrokeSaved={onStrokeSaved}
+                  onCloseDrawing={onCloseDrawing}
+                  selectedColor={selectedColor}
+                  lineWidth={lineWidth}
+                  isHighlighter={isHighlighter}
+                />
+                <PdfPageViewer
+                  pdfUrl={activeLesson?.pdfUrl || ''}
+                  imageViewMode={imageViewMode}
+                  themeMode={themeMode}
+                  fontSizeScale={fontSizeScale}
+                />
+              </div>
+            </div>
+          ) : (
+            /* ── 45:55 Split-Screen Learning Dashboard (Non-PDF Chapters) ── */
+            <div
+              className="flex-1 flex flex-col lg:flex-row h-full overflow-hidden relative w-full"
+              id="split-learning-body"
+              style={{
+                marginRight: 'max(3%, 28px)', // Reserve space for greenboard closed strip
+              }}
+            >
+              {/* ── LEFT PANEL: Video Library (Dark Blue Background, Expandable to Full Width) ── */}
+              <div
+                ref={videoPanelScrollRef}
+                id="video-library-scroll"
+                className={`${isTopicsFullscreen ? 'hidden' : isVideoFullscreen ? 'w-full lg:w-full' : 'w-full lg:w-[45%]'} h-full overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#1e3a5f_transparent] flex flex-col bg-[#07152b] ${isVideoFullscreen ? '' : 'border-b lg:border-b-0 lg:border-r border-blue-900/40'} p-4 sm:p-5 space-y-4 select-text transition-all duration-300`}
+              >
+                {/* Header with Title and Fullscreen Toggle */}
+                <div className="flex items-center justify-between pb-1 select-none shrink-0">
+                  <div className="text-[11px] font-mono font-bold text-blue-300/80 uppercase tracking-wider flex items-center gap-1.5">
+                    <Film className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Videos {chapterVideos.length > 0 ? `(${chapterVideos.length})` : ''}</span>
+                  </div>
+                  <button
+                    onClick={() => setFullscreenPanel(prev => prev === 'video' ? 'none' : 'video')}
+                    className="p-1 px-2.5 rounded-lg bg-blue-900/50 hover:bg-blue-800/80 border border-blue-700/60 text-blue-200 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 text-[11px] font-mono shadow-sm active:scale-95"
+                    title={isVideoFullscreen ? 'Restore split view' : 'Maximize video library to full width'}
+                  >
+                    {isVideoFullscreen ? (
+                      <>
+                        <Minimize2 className="w-3.5 h-3.5" />
+                        <span>Restore</span>
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 className="w-3.5 h-3.5" />
+                        <span>Fullscreen</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Video Library Listing: Video player embedded directly in each card where it is displayed */}
+                {chapterVideos.length > 0 ? (
+                  <div className={`grid ${isVideoFullscreen ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'} gap-4 pb-8 transition-all`}>
+                    {chapterVideos.map((vid) => {
+                      const onlineMeta = vid.youtubeId ? videoMetaMap[vid.youtubeId] : undefined;
+                      const videoTitle = onlineMeta?.title || vid.title;
+                      const channelName = onlineMeta?.author || vid.channel;
+
+                      return (
+                        <div
+                          key={vid.id}
+                          className="flex flex-col rounded-2xl p-3 bg-[#0d1e38]/90 border border-blue-900/50 hover:border-blue-600/60 shadow-lg space-y-2.5 transition-all"
+                        >
+                          {/* 16:9 Video Player embedded directly where it is displayed */}
+                          <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800 shadow-inner flex items-center justify-center">
+                            {renderTopicVideo(vid.url, videoTitle)}
+                          </div>
+
+                          {/* Video Title & Metadata */}
+                          <div className="px-0.5">
+                            <h4 className="text-xs sm:text-[13px] font-semibold text-slate-100 line-clamp-2 leading-snug">
+                              {videoTitle}
+                            </h4>
+                            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-blue-200/70 font-sans truncate">
+                              <span className="truncate max-w-[140px] font-medium text-blue-100">{channelName}</span>
+                              <span>•</span>
+                              <span>{vid.views}</span>
+                              <span>•</span>
+                              <span>{vid.uploadDate}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="bg-[#0d1e38]/60 border border-dashed border-blue-900/60 rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3">
+                    <Film className="w-10 h-10 text-blue-400 animate-pulse" />
+                    <p className="text-xs text-blue-200/70 font-mono">No chapter lecture videos attached to this chapter.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── RIGHT PANEL: Expandable Chapter Topics (Light Blue Background, Expandable to Full Width) ── */}
+              <div
+                id="chapter-topics-panel"
+                className={`${isVideoFullscreen ? 'hidden' : isTopicsFullscreen ? 'w-full lg:w-full' : 'w-full lg:w-[55%]'} h-full overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] flex flex-col bg-[#e0f0fd] p-4 sm:p-5 select-text transition-all duration-300`}
+              >
+                <div
+                  id="content-scroll"
+                  ref={scrollParentRef}
+                  className="flex-1 overflow-y-auto relative outline-none select-text pb-20 cursor-text content-container-root [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent]"
+                >
+                  {/* Topic Header with Title, Expand All, and Fullscreen Toggle */}
+                  <div className="w-[95%] mx-auto pt-1 pb-3 flex items-center justify-between select-none font-sans px-1 shrink-0">
+                    <div className="flex items-center gap-1.5 text-[10.5px] font-mono font-extrabold uppercase tracking-widest text-sky-950">
+                      <BookOpen className="w-3.5 h-3.5 text-sky-800" />
+                      <span>Chapter Topics {activeLesson.topics && activeLesson.topics.length > 0 ? `(${activeLesson.topics.length})` : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {activeLesson.topics && activeLesson.topics.length > 0 && (
+                        <button
+                          onClick={handleToggleExpandAllTopics}
+                          className="text-[10.5px] font-mono font-bold text-sky-900 hover:text-sky-950 px-2.5 py-1 rounded-lg bg-sky-200/70 hover:bg-sky-300/80 border border-sky-400/50 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm"
+                        >
+                          {activeLesson.topics.some(t => !expandedTopicIds[t.id]) ? 'Expand All' : 'Collapse All'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setFullscreenPanel(prev => prev === 'topics' ? 'none' : 'topics')}
+                        className="text-[10.5px] font-mono font-bold text-sky-900 hover:text-sky-950 px-2.5 py-1 rounded-lg bg-sky-200/70 hover:bg-sky-300/80 border border-sky-400/50 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center gap-1"
+                        title={isTopicsFullscreen ? 'Restore split view' : 'Maximize chapter topics to full width'}
+                      >
+                        {isTopicsFullscreen ? (
+                          <>
+                            <Minimize2 className="w-3.5 h-3.5" />
+                            <span>Restore</span>
+                          </>
+                        ) : (
+                          <>
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            <span>Fullscreen</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
               {/* TOPIC CONTAINERS — 95% Width Single Row Layout per Topic with Vibrant Distinct Themes */}
               {activeLesson.topics && activeLesson.topics.length > 0 && (
-                <div className="w-[95%] mx-auto pt-4 pb-3 space-y-3.5 z-20 relative font-sans">
-                  <div className="text-[10.5px] font-mono font-extrabold uppercase tracking-widest text-amber-400 flex items-center gap-1.5 select-none px-1">
-                    <BookOpen className="w-3.5 h-3.5" />
-                    <span>Chapter Topics ({activeLesson.topics.length})</span>
-                  </div>
+                <div className="w-[95%] mx-auto pb-3 space-y-3.5 z-20 relative font-sans">
                   <div className="flex flex-col gap-3">
                     {activeLesson.topics.map((topic, idx) => {
                       const isExpanded = Boolean(expandedTopicIds[topic.id]);
@@ -892,7 +1173,7 @@ export default function Workspace({
                                       <div className="w-7 h-7 rounded-lg bg-slate-950/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
                                         <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isTopicPageExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
                                       </div>
-                                      <span style={theme.titleStyle} className="font-serif font-medium text-base sm:text-lg truncate tracking-tight">
+                                      <span style={theme.titleStyle} className="font-serif font-medium text-xs sm:text-sm truncate tracking-tight">
                                         {(page as any).summaryContent || topic.title || 'Interactive HTML'}
                                       </span>
                                       {hasIframe && (
@@ -938,7 +1219,7 @@ export default function Workspace({
                               <div className="w-7 h-7 rounded-lg bg-slate-900/80 border border-slate-700/80 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:border-amber-400 transition-all shrink-0">
                                 <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-amber-400' : 'text-slate-400'}`} />
                               </div>
-                              <h4 style={theme.titleStyle} className="text-sm sm:text-base font-bold truncate tracking-tight">
+                              <h4 style={theme.titleStyle} className="text-xs sm:text-sm font-semibold truncate tracking-tight">
                                 {topic.title}
                               </h4>
                               {topic.pages && topic.pages.length > 0 && (
@@ -1196,7 +1477,10 @@ export default function Workspace({
                 )}
               </div>
             </div>
-        </>
+          </div>
+        </div>
+      )}
+      </>
       ) : (
         /* Empty Welcome state showing only the global logo */
         <div
