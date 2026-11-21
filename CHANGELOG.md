@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-21] - New Landing Page
+
+### Changed
+- **Landing page redesigned** (`LandingPage.tsx`) in a professional education style: a full-width hero with four rotating classroom photos (crossfade and slow zoom, 7 seconds each, pauses on hover; arrows and dots), a headline and description of the app per slide, yellow **Start Learning** and **Download App** buttons, a transparent header (Features, Contact, Sign In, Sign Up), an overlapping navy panel with coloured feature tiles (Digital Textbooks, Greenboard, Video Lessons, Practice Questions, Works Offline, PDF and HTML Chapters), three short feature descriptions, and a navy footer with WhatsApp, email and the Reset cache button.
+- **Photos come from the `branding` folder in Firebase Storage**: every file named `slide1`, `slide2`, … (.webp, .jpg, .png, any case) is shown in number order, so slides can be added, removed or replaced there without a code change. The four headline texts rotate across however many photos there are. The photo list is remembered on each device, all photos download at once, and the carousel only moves to a photo once it has loaded. The web service worker keeps them for offline use; without them a navy background shows. Reduced-motion settings turn the animations off.
+- **Storage rules**: `branding/**` is now publicly readable (the logo and landing slides); writing still needs sign-in.
+
 ## [2026-11-21] - Offline Reliability Fixes (Student Panel)
 
 ### Fixed
