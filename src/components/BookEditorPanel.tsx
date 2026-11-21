@@ -8,6 +8,7 @@ import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { uploadImageToStorage, uploadHtmlToStorage, uploadPdfToStorage, deletePdfFromStorage, uploadLargeLessonPayload, deleteFileFromStorage } from '../lib/firebaseHelper';
 import { dbLocal } from '../lib/db';
+import { aggregateFlash, aggregateInquiry, diffQuestions, diffContent, hasNestedArrays } from '../lib/submissionPatch';
 import { hasTextContent, getEffectiveTopicInquiryQuestions, getEffectiveTopicVideos } from '../lib/contentUtils';
 import { getChapterContentType, getChapterTopicMode, hasExplicitChapterType, ChapterContentType, ChapterTopicMode } from '../lib/chapterContent';
 import {
@@ -216,18 +217,22 @@ export default function BookEditorPanel({
     
     // Remember exactly which chapters were changed here, so only those keep the local version
     // (all other chapters keep following the server copy). Compared with the chapters currently loaded.
-    const existing = await dbLocal.offline_lessons.get(modifiedBook.id).catch(() => undefined);
     const before = new Map((assignedBook?.id === modifiedBook.id ? assignedBook.lessons : []).map(l => [l.id, JSON.stringify(l)]));
     const changedIds = modifiedBook.lessons.filter(l => before.get(l.id) !== JSON.stringify(l)).map(l => l.id);
-    const pendingLessonIds = Array.from(new Set([...(existing?.pendingLessonIds || []), ...changedIds]));
 
-    // Instant local save to IndexedDB (<5ms)
-    await dbLocal.offline_lessons.put({
-      bookId: modifiedBook.id,
-      lessons: modifiedBook.lessons,
-      sync_status: pendingLessonIds.length > 0 ? 'pending' : 'synced',
-      updated_at: new Date().toISOString(),
-      pendingLessonIds
+    // Instant local save to IndexedDB (<5ms). Read + write in one transaction so a background
+    // refresh running at the same moment can never overwrite this save (or drop its pending mark).
+    await (dbLocal as any).transaction('rw', (dbLocal as any).offline_lessons, async () => {
+      const existing: any = await (dbLocal.offline_lessons as any).get(modifiedBook.id).catch(() => undefined);
+      const pendingLessonIds = Array.from(new Set([...(existing?.pendingLessonIds || []), ...changedIds]));
+      await (dbLocal.offline_lessons as any).put({
+        bookId: modifiedBook.id,
+        ...(existing?.bookTitle ? { bookTitle: existing.bookTitle } : {}),
+        lessons: modifiedBook.lessons,
+        sync_status: pendingLessonIds.length > 0 ? 'pending' : 'synced',
+        updated_at: new Date().toISOString(),
+        pendingLessonIds
+      });
     });
   };
 
@@ -245,6 +250,182 @@ export default function BookEditorPanel({
   const assignedBook = books.find(b => b.id === assignedBookId) || null;
   const activeLesson = assignedBook ? assignedBook.lessons.find(l => l.id === selectedLessonId) || null : null;
   const selectedTopic = activeLesson?.topics?.find(t => t.id === selectedTopicId) || null;
+
+  // ── Change-only submissions to Admin ─────────────────────────────────────────
+  // "Submit content" sends only changed chapter details + added/edited/deleted topics.
+  // "Submit questions" sends only added/edited/deleted flash and inquiry questions.
+  // Questions are also sent automatically a few seconds after they are saved.
+  const [previewVideo, setPreviewVideo] = useState<{ label: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!previewVideo) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewVideo(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewVideo]);
+  const [submitStatus, setSubmitStatus] = useState<{ kind: 'ok' | 'wait' | 'err' | 'info'; text: string } | null>(null);
+  const autoSubmitTimerRef = React.useRef<number | null>(null);
+  const autoSubmitWaitingRef = React.useRef<string | null>(null); // chapter waiting for internet
+
+  const loadFullLesson = async (l: any) => {
+    if (!l || !l.payloadUrl) return l;
+    const url = l.payloadUrl + (l.payloadUrl.includes('?') ? '&' : '?') + `_cb=${Date.now()}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`could not load the full chapter (HTTP ${r.status})`);
+    return { ...(await r.json()), id: l.id, order: l.order };
+  };
+
+  const submitChapterPart = async (part: 'content' | 'questions', opts: { silent?: boolean; lessonId?: string } = {}) => {
+    const lessonId = opts.lessonId || selectedLessonId;
+    const label = part === 'questions' ? 'Questions' : 'Content';
+    if (isPreviewMode || !assignedBook || !currentUser) return;
+    if (!lessonId) { if (!opts.silent) alert('Please select a chapter from the list on the left to submit.'); return; }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (part === 'questions') autoSubmitWaitingRef.current = lessonId;
+      setSubmitStatus({ kind: 'wait', text: `${label}: waiting for internet…` });
+      return;
+    }
+    const time = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    try {
+      if (!opts.silent) setIsSaving(true);
+      setSubmitStatus({ kind: 'info', text: `Sending ${label.toLowerCase()} to admin…` });
+      const { doc, setDoc, getDoc, deleteDoc } = await import('firebase/firestore');
+      const offlineBook: any = await (dbLocal.offline_lessons as any).get(assignedBook.id);
+      const rawLesson = (offlineBook?.lessons ?? []).find((l: any) => l.id === lessonId);
+      if (!rawLesson) throw new Error('chapter not found in local storage');
+
+      // Patch in-flight text drafts of the open chapter
+      const draft = lessonId === selectedLessonId ? {
+        ...rawLesson,
+        title: activeLessonTitleDraft || rawLesson.title,
+        subtitle: activeLessonSubtitleDraft !== undefined ? activeLessonSubtitleDraft : rawLesson.subtitle,
+        videoUrls: activeLessonVideoDrafts !== undefined ? activeLessonVideoDrafts : rawLesson.videoUrls,
+      } : rawLesson;
+
+      const { externalizeLessonImages } = await import('../lib/imageExternalizer');
+      const cleanDraft = JSON.parse(JSON.stringify(await externalizeLessonImages(draft, assignedBook.id)));
+      const bookIdStr = assignedBook.id.toString();
+      const subRef = doc(db, 'editor_submissions', bookIdStr, 'lessons', lessonId);
+      const storagePath = `editor_submissions/${bookIdStr}/lessons/${lessonId}`;
+
+      const liveSnap = await getDoc(doc(db, 'books', bookIdStr, 'lessons', lessonId));
+      const existingSnap = await getDoc(subRef);
+      const existing: any = existingSnap.exists() ? await loadFullLesson({ ...existingSnap.data(), id: lessonId }) : null;
+
+      let docToWrite: any;
+      if (!liveSnap.exists()) {
+        // Brand-new chapter (not live yet): the admin needs the whole chapter
+        if (opts.silent) {
+          setSubmitStatus({ kind: 'info', text: 'New chapter: use "Submit content" to send it to admin first.' });
+          return;
+        }
+        const lessonOrder = assignedBook.lessons.findIndex(l => l.id === lessonId);
+        docToWrite = { ...cleanDraft, order: lessonOrder >= 0 ? lessonOrder : 0, kind: 'full', kinds: ['content', 'questions'], submittedAt: Date.now() };
+      } else {
+        const live = await loadFullLesson({ ...liveSnap.data(), id: lessonId });
+        const isPatch = existing && existing.kind === 'patch';
+        const legacyFull = existing && !isPatch; // older whole-chapter submission still pending
+        const makeQuestions = () => {
+          const flash = diffQuestions(aggregateFlash(live), aggregateFlash(cleanDraft));
+          const inquiry = diffQuestions(aggregateInquiry(live), aggregateInquiry(cleanDraft));
+          return flash || inquiry ? { flash, inquiry } : null;
+        };
+        let questions = isPatch ? existing.questions ?? null : null;
+        let content = isPatch ? existing.content ?? null : null;
+        if (part === 'questions' || legacyFull) questions = makeQuestions();
+        if (part === 'content' || legacyFull) content = diffContent(live, cleanDraft);
+
+        if (!questions && !content) {
+          if (existingSnap.exists()) {
+            // Everything matches the live chapter again: withdraw the submission
+            await deleteDoc(subRef);
+            const metaRef = doc(db, 'editor_submissions', bookIdStr);
+            const metaSnap = await getDoc(metaRef);
+            const pending: string[] = (metaSnap.exists() ? metaSnap.data().pendingLessonIds : []) || [];
+            const nextPending = pending.filter(id => id !== lessonId);
+            await setDoc(metaRef, { pendingLessonIds: nextPending, lessonCount: nextPending.length, timestamp: Date.now() }, { merge: true });
+            setEditorPendingLessonIds(nextPending);
+          }
+          setSubmitStatus({ kind: 'info', text: `No ${label.toLowerCase()} changes to send (same as live) · ${time()}` });
+          return;
+        }
+        docToWrite = {
+          id: lessonId,
+          title: cleanDraft.title || live.title || '',
+          kind: 'patch',
+          kinds: [...(questions ? ['questions'] : []), ...(content ? ['content'] : [])],
+          questions,
+          content,
+          editorEmail: currentUser.email || null,
+          submittedAt: Date.now(),
+        };
+      }
+
+      docToWrite = JSON.parse(JSON.stringify(docToWrite));
+      // Very large submissions go to Storage with a small pointer in Firestore
+      if (new Blob([JSON.stringify(docToWrite)]).size > 750000 || hasNestedArrays(docToWrite)) {
+        const { pointerLesson, payloadUrl } = await uploadLargeLessonPayload(docToWrite, storagePath);
+        docToWrite = docToWrite.kind === 'patch'
+          ? { id: lessonId, title: docToWrite.title, kind: 'patch', kinds: docToWrite.kinds, submittedAt: docToWrite.submittedAt, payloadUrl }
+          : pointerLesson;
+        docToWrite = JSON.parse(JSON.stringify(docToWrite));
+      } else if (existing?.payloadUrl) {
+        deleteFileFromStorage(existing.payloadUrl).catch(() => {});
+      }
+      await setDoc(subRef, docToWrite);
+
+      // Parent metadata doc (pending chapter list for the Admin panel)
+      const metaRef = doc(db, 'editor_submissions', bookIdStr);
+      const currentMetaSnap = await getDoc(metaRef);
+      const existingMeta = currentMetaSnap.exists() ? currentMetaSnap.data() : null;
+      const updatedPending = Array.from(new Set([...(existingMeta?.pendingLessonIds || []), lessonId]));
+      const updatedDeleted: string[] = (existingMeta?.deletedLessonIds || []).filter((id: string) => id !== lessonId);
+      await setDoc(metaRef, {
+        bookId: assignedBook.id,
+        editorId: currentUser.uid || currentUser.id,
+        editorEmail: currentUser.email,
+        lessonCount: updatedPending.length,
+        pendingLessonIds: updatedPending,
+        deletedLessonIds: updatedDeleted,
+        timestamp: Date.now()
+      }, { merge: true });
+      setEditorPendingLessonIds(updatedPending);
+      setEditorDeletedLessonIds(updatedDeleted);
+
+      if (part === 'questions' && autoSubmitWaitingRef.current === lessonId) autoSubmitWaitingRef.current = null;
+      setSubmitStatus({ kind: 'ok', text: `${docToWrite.kind === 'full' ? 'New chapter' : label} sent to admin ✓ ${time()}` });
+      if (!opts.silent) flashMessage(`${docToWrite.kind === 'full' ? 'Chapter' : label} of "${cleanDraft.title}" submitted to Admin for review.`);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      setSubmitStatus({ kind: 'err', text: `${label} not sent: ${msg}` });
+      if (!opts.silent) alert(`Failed to submit ${label.toLowerCase()} to Admin: ` + msg);
+    } finally {
+      if (!opts.silent) setIsSaving(false);
+    }
+  };
+
+  /** Called after questions are saved: sends them to admin a few seconds later (no click needed). */
+  const scheduleQuestionAutoSubmit = (lessonId: string) => {
+    if (isPreviewMode || !lessonId) return;
+    if (autoSubmitTimerRef.current) window.clearTimeout(autoSubmitTimerRef.current);
+    setSubmitStatus({ kind: 'info', text: 'Questions saved · sending to admin shortly…' });
+    autoSubmitTimerRef.current = window.setTimeout(() => {
+      autoSubmitTimerRef.current = null;
+      submitChapterPart('questions', { silent: true, lessonId });
+    }, 4000);
+  };
+  const submitPartRef = React.useRef(submitChapterPart);
+  submitPartRef.current = submitChapterPart;
+  useEffect(() => {
+    const onOnline = () => {
+      const waiting = autoSubmitWaitingRef.current;
+      if (waiting) submitPartRef.current('questions', { silent: true, lessonId: waiting });
+    };
+    window.addEventListener('online', onOnline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      if (autoSubmitTimerRef.current) window.clearTimeout(autoSubmitTimerRef.current);
+    };
+  }, []);
 
   // Chapter content type (PDF / HTML / Canvas) and topic mode drive which input screens are shown
   const chapterType: ChapterContentType = getChapterContentType(activeLesson);
@@ -1104,6 +1285,16 @@ export default function BookEditorPanel({
                 className="flex-1 min-w-0 bg-[#03060c] border border-slate-800 rounded p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
               />
               <button
+                  type="button"
+                  disabled={!vidUrl.trim()}
+                  onClick={() => setPreviewVideo({ label: `Video ${idx + 1}`, url: vidUrl.trim() })}
+                  className="flex items-center gap-1 bg-sky-600/20 text-sky-300 hover:bg-sky-600/40 px-2 py-1.5 rounded text-[11px] font-semibold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                  title="Preview this video"
+                  aria-label="Preview this video"
+                >
+                  <Play className="w-3.5 h-3.5" /> Preview
+                </button>
+              <button
                 type="button"
                 disabled={isPreviewMode}
                 onClick={() => {
@@ -1246,106 +1437,37 @@ export default function BookEditorPanel({
               </>
             ) : (
               <>
+                {submitStatus && (
+                  <span
+                    className={`hidden md:inline-block max-w-[260px] truncate text-[11px] font-medium mr-1 ${
+                      submitStatus.kind === 'ok' ? 'text-emerald-400' : submitStatus.kind === 'err' ? 'text-rose-400' : submitStatus.kind === 'wait' ? 'text-amber-400' : 'text-slate-400'
+                    }`}
+                    title={submitStatus.text}
+                  >
+                    {submitStatus.text}
+                  </span>
+                )}
                 <button
-                  onClick={async () => {
-                    if (!assignedBook || !currentUser) return;
-                    if (!selectedLessonId || !activeLesson) {
-                      alert("Please select a chapter from the list on the left to submit.");
-                      return;
-                    }
-
-                    try {
-                      const { doc, setDoc, getDoc } = await import('firebase/firestore');
-                      const offlineBook = await dbLocal.offline_lessons.get(assignedBook.id);
-                      if (!offlineBook) {
-                        alert("No local data found for this book.");
-                        return;
-                      }
-
-                      // Find the selected lesson in offline storage
-                      const rawLesson = (offlineBook.lessons ?? []).find((l: any) => l.id === selectedLessonId);
-                      if (!rawLesson) {
-                        alert("Selected chapter not found in local offline storage.");
-                        return;
-                      }
-
-                      // Patch in-flight text drafts for the active chapter
-                      const patchedLesson = {
-                        ...rawLesson,
-                        title: activeLessonTitleDraft || rawLesson.title,
-                        subtitle: activeLessonSubtitleDraft !== undefined ? activeLessonSubtitleDraft : rawLesson.subtitle,
-                        videoUrls: activeLessonVideoDrafts !== undefined ? activeLessonVideoDrafts : rawLesson.videoUrls,
-                      };
-
-                      setIsSaving(true);
-
-                      // Externalize any base64 images in this lesson to Firebase Storage
-                      const { externalizeLessonImages } = await import('../lib/imageExternalizer');
-                      const cleanLesson = JSON.parse(JSON.stringify(
-                        await externalizeLessonImages(patchedLesson, assignedBook.id)
-                      ));
-
-                      const bookIdStr = assignedBook.id.toString();
-                      const lessonOrder = assignedBook.lessons.findIndex(l => l.id === selectedLessonId);
-                      const lessonWithOrder = { ...cleanLesson, order: lessonOrder >= 0 ? lessonOrder : 0 };
-
-                      // Check serialized byte length. Firestore max doc size is 1,048,576 bytes.
-                      // If JSON is > 750,000 bytes, offload the full lesson payload to Firebase Storage
-                      // and store a pointer doc in Firestore to guarantee we never hit the 1MB limit.
-                      let docToWrite = lessonWithOrder;
-                      const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
-                      if (jsonLength > 750000) {
-                        const { uploadLargeLessonPayload } = await import('../lib/firebaseHelper');
-                        const storagePath = `editor_submissions/${bookIdStr}/lessons/${selectedLessonId}`;
-                        const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
-                        docToWrite = pointerLesson;
-                      }
-
-                      // Write this chapter to editor_submissions/{bookId}/lessons/{lessonId}
-                      const lessonRef = doc(db, 'editor_submissions', bookIdStr, 'lessons', selectedLessonId);
-                      await setDoc(lessonRef, docToWrite);
-
-                      // Update parent metadata doc
-                      const metaRef = doc(db, 'editor_submissions', bookIdStr);
-                      const currentMetaSnap = await getDoc(metaRef);
-                      const existingMeta = currentMetaSnap.exists() ? currentMetaSnap.data() : null;
-                      const existingPending: string[] = existingMeta?.pendingLessonIds || [];
-                      const updatedPending = Array.from(new Set([...existingPending, selectedLessonId]));
-                      const updatedDeleted: string[] = (existingMeta?.deletedLessonIds || []).filter((id: string) => id !== selectedLessonId);
-
-                      await setDoc(metaRef, {
-                        bookId: assignedBook.id,
-                        editorId: currentUser.uid || currentUser.id,
-                        editorEmail: currentUser.email,
-                        lessonCount: updatedPending.length,
-                        pendingLessonIds: updatedPending,
-                        deletedLessonIds: updatedDeleted,
-                        timestamp: Date.now()
-                      }, { merge: true });
-
-                      setEditorPendingLessonIds(updatedPending);
-                      setEditorDeletedLessonIds(updatedDeleted);
-
-                      setIsSaving(false);
-                      flashMessage(`Chapter "${cleanLesson.title}" submitted to Admin for review!`);
-                      alert(`Chapter "${cleanLesson.title}" successfully submitted to Admin for review!`);
-                    } catch (err: any) {
-                      setIsSaving(false);
-                      alert("Failed to submit chapter to Admin: " + err.message);
-                    }
-                  }}
+                  onClick={() => submitChapterPart('content')}
                   disabled={isSaving || !selectedLessonId}
                   className={`flex items-center gap-1.5 ${
-                    isSaving 
-                      ? 'bg-indigo-400 cursor-wait' 
-                      : !selectedLessonId
-                      ? 'bg-indigo-600/50 cursor-not-allowed opacity-60'
-                      : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'
-                  } text-white p-2 rounded-lg select-none transition-all shadow-lg shadow-indigo-900/50 justify-center`}
-                  title={isSaving ? 'Submitting…' : selectedLessonId ? `Submit "${activeLesson?.title || 'Chapter'}" to Admin` : "Select a chapter to submit"}
-                  aria-label={isSaving ? 'Submitting chapter' : 'Submit this chapter to Admin'}
+                    isSaving ? 'bg-indigo-400 cursor-wait' : !selectedLessonId ? 'bg-indigo-600/50 cursor-not-allowed opacity-60' : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'
+                  } text-white py-2 px-2.5 rounded-lg select-none transition-all shadow-lg shadow-indigo-900/50 text-[11px] font-bold uppercase tracking-wide`}
+                  title={selectedLessonId ? `Send only the changed chapter details, topics and videos of "${activeLesson?.title || 'Chapter'}" to Admin` : 'Select a chapter to submit'}
+                  aria-label="Submit content to Admin"
                 >
-                  <Cloud className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
+                  <Cloud className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} /> Content
+                </button>
+                <button
+                  onClick={() => submitChapterPart('questions')}
+                  disabled={isSaving || !selectedLessonId}
+                  className={`flex items-center gap-1.5 ${
+                    isSaving ? 'bg-teal-400 cursor-wait' : !selectedLessonId ? 'bg-teal-600/50 cursor-not-allowed opacity-60' : 'bg-teal-600 hover:bg-teal-500 cursor-pointer'
+                  } text-white py-2 px-2.5 rounded-lg select-none transition-all shadow-lg shadow-teal-900/50 text-[11px] font-bold uppercase tracking-wide`}
+                  title={selectedLessonId ? `Send only the new, edited or deleted questions of "${activeLesson?.title || 'Chapter'}" to Admin (also sent automatically after saving)` : 'Select a chapter to submit'}
+                  aria-label="Submit questions to Admin"
+                >
+                  <Cloud className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} /> Questions
                 </button>
                 <button
                   onClick={async () => {
@@ -1385,6 +1507,52 @@ export default function BookEditorPanel({
           ⚠️ Admin Preview Mode: Viewing unapproved Editor Submission. Saving locally is disabled. ⚠️
         </div>
       )}
+
+      {/* Small centred video player (opened by the Preview button next to a video link) */}
+      {previewVideo && (() => {
+        const id = (previewVideo.url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|shorts\/|live\/|watch\?(?:.*&)?v=))([\w-]{11})/) || [])[1];
+        return (
+          <div
+            className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4"
+            onClick={() => setPreviewVideo(null)}
+          >
+            <div
+              className="w-full max-w-[640px] bg-slate-950 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+              role="dialog"
+              aria-label={`Video preview: ${previewVideo.label}`}
+            >
+              <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-slate-100 truncate">{previewVideo.label}</div>
+                  <a href={previewVideo.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-sky-400 hover:underline truncate block">{previewVideo.url}</a>
+                </div>
+                <button
+                  onClick={() => setPreviewVideo(null)}
+                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white flex items-center justify-center cursor-pointer shrink-0"
+                  title="Close"
+                  aria-label="Close video preview"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="aspect-video bg-black">
+                {id ? (
+                  <iframe
+                    src={`https://www.youtube.com/embed/${id}?autoplay=1`}
+                    title={previewVideo.label}
+                    className="w-full h-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video src={previewVideo.url} controls autoPlay className="w-full h-full" />
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* CORE TWO-PANE LAYOUT */}
       <div className="flex-1 flex overflow-hidden">
@@ -1544,6 +1712,11 @@ export default function BookEditorPanel({
                                 {isPreviewMode ? 'Submitted' : 'Pending'}
                               </span>
                             )}
+                            {isPreviewMode && isPending && ((les as any)._submissionKinds || []).map((k: string) => (
+                              <span key={k} className={`inline-flex items-center rounded px-1 text-[8px] font-mono font-bold uppercase tracking-wider border ${k === 'questions' ? 'bg-teal-500/20 text-teal-300 border-teal-500/30' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'}`}>
+                                {k === 'questions' ? 'Questions' : 'Content'}
+                              </span>
+                            ))}
                             {isMarkedDeleted && (
                               <span className="inline-flex items-center gap-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded px-1 text-[8px] font-mono font-bold uppercase tracking-wider">
                                 <Trash2 className="w-2.5 h-2.5" />
@@ -1665,6 +1838,16 @@ export default function BookEditorPanel({
                                 <span className="text-[10px] font-mono text-emerald-400 font-bold shrink-0">#{idx + 1}</span>
                                 <span className="font-mono text-[11px] text-sky-300 break-all select-all">{url}</span>
                               </div>
+                              <button
+                                type="button"
+                                disabled={!url.trim()}
+                                onClick={() => setPreviewVideo({ label: `Chapter video ${idx + 1}`, url: url.trim() })}
+                                className="flex items-center gap-1 bg-sky-600/20 text-sky-300 hover:bg-sky-600/40 px-2 py-1.5 rounded text-[11px] font-semibold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                                title="Preview this video"
+                                aria-label="Preview this video"
+                              >
+                                <Play className="w-3.5 h-3.5" /> Preview
+                              </button>
                               {!isPreviewMode && (
                                 <button
                                   type="button"
@@ -2682,7 +2865,8 @@ export default function BookEditorPanel({
                                 lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
                               };
                               await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
-                              flashMessage('Interactive quizzes saved to Firebase & local storage.');
+                              flashMessage('Flash questions saved.');
+                              scheduleQuestionAutoSubmit(activeLesson.id);
                             } catch (err) {
                               alert('Failed to save quizzes.');
                             }
@@ -2744,7 +2928,8 @@ export default function BookEditorPanel({
                                 lessons: assignedBook.lessons.map(l => l.id === activeLesson.id ? updatedLesson : l)
                               };
                               await saveLessonDirectToFirestore(modifiedBook, updatedLesson);
-                              flashMessage('Inquiry questions saved to Firebase & local storage.');
+                              flashMessage('Inquiry questions saved.');
+                              scheduleQuestionAutoSubmit(activeLesson.id);
                             } catch (err: any) {
                               alert('Failed to save inquiry questions: ' + (err?.message || 'Error'));
                             }

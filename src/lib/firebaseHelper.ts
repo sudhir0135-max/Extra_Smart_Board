@@ -255,6 +255,8 @@ export async function resolveLessonPayload(lesson: any): Promise<any> {
   } catch (err) {
     console.error("Failed to fetch large lesson payload from Storage:", err);
   }
-  return lesson;
+  // The full chapter could not be downloaded: this is only a cut-down placeholder (no questions,
+  // no topic pages). Mark it so a good saved copy on the device is never replaced by it.
+  return { ...lesson, _payloadMissing: true };
 }
 

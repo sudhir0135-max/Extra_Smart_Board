@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { useOfflineHtml } from '../lib/useOfflineHtml';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { InquiryQuestionObj, AccountancyTabConfig, AccountancyTableType, AccountancyColumn } from '../types';
 import { 
@@ -748,6 +749,8 @@ export default function AccountancyQuestionModal({
   }, [question]);
 
   const qId = qObj?.id || 'temp-q';
+  const qTextHtml = useOfflineHtml(useMemo(() => renderMathInRawHtml(qObj?.text || ''), [qObj?.text]));
+  const answerTextHtml = useOfflineHtml(useMemo(() => renderMathInRawHtml(qObj?.answerText || ''), [qObj?.answerText]));
 
   // Tab State (loaded from local storage if available)
   const [tabs, setTabs] = useState<AccountancyTabConfig[]>(() => {
@@ -1224,7 +1227,7 @@ export default function AccountancyQuestionModal({
             <div className="space-y-6">
               <div className="text-[#e8f0fe] text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] font-medium leading-relaxed font-serif tracking-wide bg-[#181e2a] p-6 md:p-8 rounded-2xl border border-slate-800/40 shadow-lg">
                 <div 
-                  dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qObj.text) }} 
+                  dangerouslySetInnerHTML={{ __html: qTextHtml }} 
                   className="prose prose-invert max-w-none text-inherit font-inherit"
                 />
               </div>
@@ -1268,7 +1271,7 @@ export default function AccountancyQuestionModal({
 
                 {qObj.answerText && (
                   <div
-                    dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qObj.answerText) }}
+                    dangerouslySetInnerHTML={{ __html: answerTextHtml }}
                     className="text-[#e8f0fe] text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed font-serif"
                   />
                 )}

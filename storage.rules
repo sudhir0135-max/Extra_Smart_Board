@@ -31,6 +31,12 @@ service firebase.storage {
     }
 
 
+    // Large chapters (>750KB) submitted by editors for admin review: payload.json files.
+    // Any signed-in editor/admin may write and read them (admin reads them to approve).
+    match /editor_submissions/{allSubmissions=**} {
+      allow read, write: if request.auth != null;
+    }
+
     // Deny everything else by default
     match /{allPaths=**} {
       allow read: if request.auth != null;

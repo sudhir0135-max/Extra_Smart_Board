@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-21] - Offline Reliability Fixes (Student Panel)
+
+### Fixed
+- **Large chapters lost their questions and topic pages offline.** If downloading a large chapter (stored in Firebase Storage) failed, the app replaced the complete copy saved on the device with a cut-down placeholder (no inquiry questions, no topic pages), and showed that placeholder too. `resolveLessonPayload` now marks failed downloads (`_payloadMissing`), and `persistServerLessons` keeps the complete saved copy for those chapters, both on screen and on the device. This also explains missing accountancy questions on some devices.
+- **Question pictures offline in the Android app**: pictures inside inquiry questions, answers (including the separate answer image), accountancy questions and flash cards now use the copy saved on the device (`src/lib/useOfflineHtml.ts`).
+- **Flash-card pictures are now saved for offline use** (`extractImagesFromLesson` includes chapter and topic flash cards).
+- **Video thumbnails offline**: YouTube thumbnails (`i.ytimg.com`, one fixed size per video, `src/lib/videoThumbs.ts`) are saved with the chapter (Android: file cache; web: service-worker cache) for all chapters, including PDF chapters. Videos still need internet.
+- **Videos offline**: the video box no longer replaces everything with a message. Thumbnails stay visible, and tapping one offline shows "No internet. Connect the device to the internet to play this video." The chapter-page video column shows a thumbnail with a play button (the player loads on tap, online) and the same notice offline.
+- **Accountancy tables could not be saved to Firestore** (lists inside lists aren't allowed). Submissions, approvals and admin saves that contain them now always go to Storage (`hasNestedArrays`).
+
+## [2026-11-21] - Change-Only Submissions (Content / Questions) and Admin Video Preview
+
+### Added
+- **Two submit buttons in the Editor panel**: **Content** sends only the changed chapter details (title, videos, PDF and so on) plus added, edited or deleted topics and the topic order. **Questions** sends only new, edited or deleted flash and inquiry questions (matched by ID, deletions included). A brand-new chapter that isn't live yet is still sent whole.
+- **Automatic question submit**: about 4 seconds after flash or inquiry questions are saved, they're sent to the admin. A status line in the header shows "Questions sent to admin ✓", "waiting for internet…" (sent automatically when back online) or the error.
+- **Admin review**: submitted chapters are labelled **Content** and/or **Questions**. Every saved video link in the editor (the chapter video list under the paste box, and the chapter/topic video lists) has a **Preview** button next to it. It opens a small centred player box (YouTube embed, or a player for uploaded videos) with a close button; Esc or clicking outside also closes it. Admins use it while reviewing, and editors can use it too.
+- `src/lib/submissionPatch.ts`: diff and apply logic (unit-tested).
+
+### Changed
+- **Approval applies only the submitted changes to the current live chapter**, so two editors working on the same chapter (one on content, one on questions) no longer overwrite each other. Older whole-chapter submissions still approve as before.
+- Change-only submissions are small, so most no longer need Firebase Storage (the 750 KB offload remains for very large ones).
+
+## [2026-11-07] - Fix: Editor's Uploaded Questions Disappearing
+
+### Fixed
+- **Flash/inquiry questions vanished a few seconds after an editor uploaded them.** An editor's changes live only in the local draft until the chapter is submitted, but three server refreshes overwrote that draft with the server copy: the "Update content now" button (`handleTriggerSync`), the library listener for books with inline chapters, and a narrow race in the chapter refresh (`fetchBookLessons`).
+- New `src/lib/offlineDraft.ts` → `persistServerLessons()`: all three refreshes now use it. Chapters listed in `pendingLessonIds` (and chapters created on the device but not yet on the server) keep the local version; all other chapters still follow the server. Read and write happen in one Dexie transaction.
+- `BookEditorPanel.saveBookLocally` also reads and writes in one transaction, so a refresh running at the same moment can't drop an editor's save.
+
+## [2026-11-06] - APK v5.1 (versionCode 6)
+
+### Changed
+- Bumped the app to version 5.1 (versionCode 6).
+- `build_apk.bat` now runs Android's `apksigner verify` and `aapt dump badging` on every build and writes the results to `apk.log`; the release copy is named `ExtraPadhai_v5.1.apk`.
+
+## [2026-11-05] - Fixed APK Signing Key
+
+### Fixed
+- **"App not installed as package conflicts with an existing package"**: older APKs (July 2026) were signed with a different debug key than current builds, so Android refused to update phones that had the old app. `build_apk.bat` now pins the signing key at `android/app/extrapadhai-signing.keystore` (copied once from this PC's debug key), and `android/app/build.gradle` always signs with it. Every future APK carries the same signature. The keystore is git-ignored; keep a private backup.
+
 ## [2026-11-04] - Extra Questions Box Redesign (Sage and Terracotta)
 
 ### Changed

@@ -125,6 +125,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // --- YouTube video thumbnails (shown offline; the videos themselves need internet) ---
+  if (url.hostname === 'i.ytimg.com' || url.hostname === 'img.youtube.com') {
+    event.respondWith((async () => {
+      const cache = await caches.open(MEDIA_CACHE);
+      const hit = await cache.match(req.url);
+      if (hit) return hit;
+      try {
+        const res = await fetch(new Request(req.url, { mode: 'cors', credentials: 'omit' }));
+        if (res && res.ok) cache.put(req.url, res.clone()).catch(() => {});
+        return res;
+      } catch {
+        return new Response('', { status: 504 });
+      }
+    })());
+    return;
+  }
+
   // --- Web fonts ---
   if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     event.respondWith((async () => {

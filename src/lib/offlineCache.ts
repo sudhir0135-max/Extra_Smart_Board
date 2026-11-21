@@ -7,6 +7,7 @@ import { Lesson } from '../types';
 import { dbLocal } from './db';
 import { extractImagesFromLesson, downloadAndCacheImage } from './imageCache';
 import { waitForBackgroundTurn } from './networkPriority';
+import { lessonVideoThumbs } from './videoThumbs';
 
 const isNative = () =>
   typeof (window as any).Capacitor !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
@@ -69,7 +70,10 @@ export async function precacheLessonsForOffline(lessons: Lesson[]): Promise<void
   if (!navigator.onLine) return;
 
   const htmlUrls = Array.from(new Set(lessons.flatMap(extractHtmlUrlsFromLesson)));
-  const imageUrls = Array.from(new Set(lessons.flatMap(l => extractImagesFromLesson(l))));
+  const imageUrls = Array.from(new Set([
+    ...lessons.flatMap(l => extractImagesFromLesson(l)),
+    ...lessons.flatMap(l => lessonVideoThumbs(l)), // video thumbnails show offline too
+  ]));
 
   const BATCH = 3;
   for (let i = 0; i < htmlUrls.length; i += BATCH) {

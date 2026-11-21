@@ -57,6 +57,16 @@ if %ERRORLEVEL% neq 0 (
 :: Prevent recursive APK bloat inside assets
 if exist "android\app\src\main\assets\public\*.apk" del /q "android\app\src\main\assets\public\*.apk"
 
+:: Pin the signing key inside the project so every build (on any machine) is signed the same way
+if not exist "android\app\extrapadhai-signing.keystore" (
+  if exist "%USERPROFILE%\.android\debug.keystore" (
+    copy /y "%USERPROFILE%\.android\debug.keystore" "android\app\extrapadhai-signing.keystore" >nul
+    echo Pinned signing key copied to android\app\extrapadhai-signing.keystore
+  ) else (
+    echo WARNING: no debug keystore found to pin - APK will use a fresh key
+  )
+)
+
 echo [3/4] Assembling Android Debug APK via Gradle...
 cd /d "%ROOT%\android"
 set "JAVA_FWD=%JAVA_HOME:\=/%"
@@ -68,10 +78,24 @@ if %ERRORLEVEL% neq 0 (
 )
 
 cd /d "%ROOT%"
+:: ---- Verify the APK with Android's own tools (results go to apk.log) ----
+set "BT="
+for /d %%D in ("%ANDROID_SDK_ROOT%\build-tools\*") do set "BT=%%D"
+if defined BT (
+  echo ---- apksigner verify ----
+  call "%BT%\apksigner.bat" verify --verbose --print-certs "android\app\build\outputs\apk\debug\app-debug.apk"
+  echo APKSIGNER_EXIT=%ERRORLEVEL%
+  echo ---- aapt badging ----
+  "%BT%\aapt.exe" dump badging "android\app\build\outputs\apk\debug\app-debug.apk" | findstr /b /c:"package:" /c:"sdkVersion:" /c:"targetSdkVersion:" /c:"application-label:" /c:"launchable-activity:" /c:"native-code:"
+  echo ---- end verify ----
+) else (
+  echo WARNING: Android build-tools not found, skipped APK verification
+)
+
 echo [4/4] Copying output APK to release targets...
 if not exist "releases" mkdir "releases"
 copy /y "android\app\build\outputs\apk\debug\app-debug.apk" "ExtraPadhai.apk"
-copy /y "android\app\build\outputs\apk\debug\app-debug.apk" "releases\ExtraPadhai_v5.0.apk"
+copy /y "android\app\build\outputs\apk\debug\app-debug.apk" "releases\ExtraPadhai_v5.1.apk"
 copy /y "android\app\build\outputs\apk\debug\app-debug.apk" "dist\ExtraPadhai.apk"
 copy /y "android\app\build\outputs\apk\debug\app-debug.apk" "public\ExtraPadhai.apk"
 
@@ -80,7 +104,7 @@ echo ========================================
 echo   APK Build Finished Successfully!
 echo   Outputs:
 echo   - %ROOT%\ExtraPadhai.apk
-echo   - %ROOT%\releases\ExtraPadhai_v5.0.apk
+echo   - %ROOT%\releases\ExtraPadhai_v5.1.apk
 echo   - %ROOT%\dist\ExtraPadhai.apk
 echo   - %ROOT%\public\ExtraPadhai.apk
 echo ========================================

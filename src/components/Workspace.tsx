@@ -9,12 +9,13 @@ import { Book, Lesson, Topic, ThemeMode, AcademicSubject, BookEditor, Interactiv
 import DynamicFigure from './DynamicFigure';
 import ScribbleOverlay from './ScribbleOverlay';
 import BlackboardPanel from './BlackboardPanel';
-import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle, Maximize2, Minimize2, Tv, Film, Play, ChevronRight, Columns, Filter, CheckCircle2 } from 'lucide-react';
+import { Plus, Info, Check, Upload, BookOpen, AlertCircle, FileText, X, ChevronDown, Video, HelpCircle, Maximize2, Minimize2, Tv, Film, Play, ChevronRight, Columns, Filter, CheckCircle2, WifiOff } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import { BlockMath } from 'react-katex';
 import ImageFrame from './ImageFrame';
 import CachedImage from './CachedImage';
+import { youtubeThumbUrl } from '../lib/videoThumbs';
 import { getLocalImageSrc } from '../lib/imageCache';
 import { renderMathInRawHtml } from '../lib/mathPreprocessor';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
@@ -58,7 +59,7 @@ const getYouTubeStyleMeta = (id: string, partNumber: number = 1, customDuration?
   };
 };
 
-function renderTopicVideo(url: string, title: string) {
+function renderTopicVideo(url: string, title: string, autoplay = false) {
   if (!url) return null;
   const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
   const isDirectVideo = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url) || url.includes('/videos%2F') || url.includes('/videos/');
@@ -66,7 +67,7 @@ function renderTopicVideo(url: string, title: string) {
   if (ytMatch && ytMatch[1]) {
     return (
       <iframe
-        src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+        src={`https://www.youtube.com/embed/${ytMatch[1]}${autoplay ? '?autoplay=1' : ''}`}
         title={`Video lecture: ${title}`}
         className="w-full h-full"
         loading="lazy"
@@ -82,6 +83,7 @@ function renderTopicVideo(url: string, title: string) {
         src={url}
         controls
         playsInline
+        autoPlay={autoplay}
         preload="metadata"
         className="w-full h-full object-contain bg-black"
       />
@@ -305,6 +307,8 @@ export default function Workspace({
   };
 
   // ── Video Library States ──
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+  const [offlineVideoNoticeId, setOfflineVideoNoticeId] = useState<string | null>(null);
   const [videoMetaMap, setVideoMetaMap] = useState<Record<string, { title?: string; author?: string; thumbnail?: string }>>({});
   const [fullscreenPanel, setFullscreenPanel] = useState<'none' | 'video' | 'topics'>('none');
 
@@ -865,7 +869,43 @@ export default function Workspace({
                         >
                           {/* 16:9 Video Player embedded directly where it is displayed */}
                           <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800 shadow-inner flex items-center justify-center">
-                            {renderTopicVideo(vid.url, videoTitle)}
+                            {playingVideoId === vid.id && isOnline !== false ? (
+                              renderTopicVideo(vid.url, videoTitle, true)
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isOnline === false || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+                                    setOfflineVideoNoticeId(vid.id);
+                                    window.setTimeout(() => setOfflineVideoNoticeId(cur => (cur === vid.id ? null : cur)), 3000);
+                                    return;
+                                  }
+                                  setPlayingVideoId(vid.id);
+                                }}
+                                className="group absolute inset-0 w-full h-full cursor-pointer"
+                                title={`Play: ${videoTitle}`}
+                                aria-label={`Play video: ${videoTitle}`}
+                              >
+                                {vid.youtubeId ? (
+                                  <CachedImage src={youtubeThumbUrl(vid.youtubeId)} alt={videoTitle} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-gradient-to-br from-[#1d3a30] to-[#0f1f1a] flex items-center justify-center">
+                                    <Film className="w-10 h-10 text-[#9fb8ab]/60" />
+                                  </div>
+                                )}
+                                <span className="absolute inset-0 flex items-center justify-center">
+                                  <span className="w-14 h-14 rounded-full bg-black/60 group-hover:bg-[#d4b06a] flex items-center justify-center transition-colors">
+                                    <Play className="w-7 h-7 text-white group-hover:text-[#0f1f1a] ml-1" />
+                                  </span>
+                                </span>
+                                {offlineVideoNoticeId === vid.id && (
+                                  <span className="absolute inset-x-3 bottom-3 flex items-center gap-2 bg-slate-950/90 border border-amber-500/40 text-amber-100 text-xs rounded-lg px-3 py-2 text-left">
+                                    <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+                                    No internet. Connect to the internet to play this video.
+                                  </span>
+                                )}
+                              </button>
+                            )}
                           </div>
 
                           {/* Video Title & Metadata */}

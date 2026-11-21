@@ -188,6 +188,15 @@ export function extractImagesFromLesson(lesson: Lesson): string[] {
     });
   });
 
+  // Flash cards (chapter and topic copies): pictures inside the question and answer
+  const addFlash = (list?: any[]) => (list || []).forEach((fq: any) => {
+    if (!fq) return;
+    extractFromHtml(fq.question);
+    extractFromHtml(fq.answer);
+  });
+  addFlash((lesson as any).flashQuestions);
+  (lesson.topics || []).forEach(t => addFlash((t as any).flashQuestions));
+
   if (lesson.inquiryQuestions) {
     lesson.inquiryQuestions.forEach(q => {
       if (typeof q === 'string') return;

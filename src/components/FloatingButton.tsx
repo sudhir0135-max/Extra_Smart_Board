@@ -15,6 +15,8 @@ import { getEffectiveTopicInquiryQuestions, getEffectiveTopicFlashQuestions, get
 import { getChapterVideoUrls, getPdfChapterQuestions, sourceKey } from '../lib/chapterMedia';
 import { getChapterContentType } from '../lib/chapterContent';
 import { getLocalImageSrc } from '../lib/imageCache';
+import { useOfflineHtml } from '../lib/useOfflineHtml';
+import { youtubeThumbUrl } from '../lib/videoThumbs';
 
 /** Question image that uses the copy saved on the device when there is no internet. Hidden if it cannot load. */
 const SavedImage: React.FC<{ src: string; className: string }> = ({ src, className }) => {
@@ -123,12 +125,13 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
     const adv = item as any;
     qText = adv.text || adv.question || adv.questionText || adv.title || adv.content || (typeof adv === 'object' ? String(adv.id || '') : '');
   }
+  const qHtml = useOfflineHtml(React.useMemo(() => renderMathInRawHtml(qText), [qText]));
 
 
   if (!image) {
     return (
       <div className="w-full text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-        <div dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+        <div dangerouslySetInnerHTML={{ __html: qHtml }} />
       </div>
     );
   }
@@ -137,7 +140,7 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
     return (
       <div className="w-full flex flex-col items-center gap-6 text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
         <SavedImage src={image} className="w-[80%] rounded-xl object-contain border border-[#3f5a48]/20" />
-        <div className="w-full" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+        <div className="w-full" dangerouslySetInnerHTML={{ __html: qHtml }} />
       </div>
     );
   }
@@ -146,25 +149,26 @@ const QuestionContent = React.memo(({ item, isOnline }: { item: string | Inquiry
     return (
       <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
         <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-[#3f5a48]/20" />
-        <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+        <div className="flex-1" dangerouslySetInnerHTML={{ __html: qHtml }} />
       </div>
     );
   }
 
   return (
     <div className="w-full flex flex-col md:flex-row items-start gap-6 text-[#2c3a31] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed">
-      <div className="flex-1" dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(qText) }} />
+      <div className="flex-1" dangerouslySetInnerHTML={{ __html: qHtml }} />
       <SavedImage src={image} className="w-[30%] shrink-0 rounded-xl object-contain border border-[#3f5a48]/20" />
     </div>
   );
 });
 
 const FlashcardContent = React.memo(({ contentText, isFlipped }: { contentText: string; isFlipped: boolean }) => {
+  const html = useOfflineHtml(React.useMemo(() => renderMathInRawHtml(contentText), [contentText]));
   return (
     <div
       className={`reader-content prose max-w-none prose-p:my-2 prose-headings:my-3 prose-img:rounded-xl prose-img:mx-auto ${isFlipped ? 'text-[#2a1f08] prose-p:text-[#2a1f08] prose-headings:text-[#2a1f08] prose-strong:text-[#2a1f08] prose-li:text-[#2a1f08] text-left' : 'text-[#1b2b25] prose-p:text-[#1b2b25] prose-headings:text-[#1b2b25] prose-strong:text-[#1b2b25] prose-li:text-[#1b2b25]'}`}
       style={{ fontSize: 'inherit', lineHeight: 'inherit' }}
-      dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(contentText) }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 });
@@ -219,6 +223,8 @@ const QuestionItem = React.memo(({
 
   const isAccountancyMode = Boolean(item) && typeof item !== 'string' && ((item as InquiryQuestionObj).displayMode === 'accountancy_tabs' || Boolean((item as InquiryQuestionObj).tabs && (item as InquiryQuestionObj).tabs!.length > 0));
   const hasAnswer = Boolean(item) && typeof item !== 'string' && Boolean((item as InquiryQuestionObj).answerText || (item as InquiryQuestionObj).answerImage);
+  const answerText = typeof item !== 'string' && item ? ((item as InquiryQuestionObj).answerText || '') : '';
+  const answerHtml = useOfflineHtml(React.useMemo(() => renderMathInRawHtml(answerText), [answerText]));
 
   return (
     <div
@@ -281,13 +287,13 @@ const QuestionItem = React.memo(({
                 <div className="text-[11px] sm:text-xs font-semibold tracking-[0.14em] text-[#a8492e]">ANSWER</div>
                 {item.answerText && (
                   <div
-                    dangerouslySetInnerHTML={{ __html: renderMathInRawHtml(item.answerText) }}
+                    dangerouslySetInnerHTML={{ __html: answerHtml }}
                     className="text-[#4A1B0C] font-serif text-[15px] md:text-[18px] lg:text-[21px] xl:text-[25px] 2xl:text-[30px] min-[3840px]:text-[40px] leading-relaxed"
                   />
                 )}
                 {item.answerImage && (
                   <div className={`flex ${item.answerImagePosition === 'left' ? 'justify-start' : item.answerImagePosition === 'right' ? 'justify-end' : 'justify-center'} mt-2`}>
-                    <img src={item.answerImage} alt="Solution Illustration" className="max-h-80 rounded-xl border border-[#a8492e]/30 shadow object-contain" />
+                    <SavedImage src={item.answerImage} className="max-h-80 rounded-xl border border-[#a8492e]/30 shadow object-contain" />
                   </div>
                 )}
               </div>
@@ -411,6 +417,13 @@ export default function FloatingButton({
   
   // Internet connection state
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [videoOfflineNotice, setVideoOfflineNotice] = useState(false);
+  const videoNoticeTimer = useRef<number | null>(null);
+  const showVideoOfflineNotice = () => {
+    setVideoOfflineNotice(true);
+    if (videoNoticeTimer.current) window.clearTimeout(videoNoticeTimer.current);
+    videoNoticeTimer.current = window.setTimeout(() => setVideoOfflineNotice(false), 3000);
+  };
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -960,15 +973,16 @@ export default function FloatingButton({
               border: `${borderWidth}px solid rgba(30, 41, 59, 0.65)`, 
             }}
           >
-            {/* ── OFFLINE GATE: replaces entire panel when no internet ── */}
-            {!isOnline ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 select-none text-center">
-                <Video className="w-12 h-12 text-slate-600" />
-                <p className="text-slate-400 text-sm max-w-xs leading-relaxed">
-                  Videos will play when the device is connected to the internet.
-                </p>
+            {/* Offline: thumbnails stay visible; tapping a video shows a "needs internet" notice */}
+            {videoOfflineNotice && (
+              <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none p-6">
+                <div className="flex items-center gap-3 bg-slate-900/95 border border-amber-500/40 text-amber-100 rounded-2xl px-5 py-4 shadow-2xl max-w-sm animate-fade-in">
+                  <WifiOff className="w-6 h-6 text-amber-400 shrink-0" />
+                  <p className="text-sm leading-snug">No internet. Connect the device to the internet to play this video.</p>
+                </div>
               </div>
-            ) : maximizedVideoId ? (
+            )}
+            {maximizedVideoId ? (
               (() => {
                 const activeVid = activeVideos.find(v => v.id === maximizedVideoId);
                 if (!activeVid) return null;
@@ -1129,22 +1143,19 @@ export default function FloatingButton({
                       return (
                         <div
                           key={vid.id}
-                          onClick={() => setMaximizedVideoId(vid.id)}
+                          onClick={() => {
+                            if (!isOnline) { showVideoOfflineNotice(); return; }
+                            setMaximizedVideoId(vid.id);
+                          }}
                           className="group flex flex-col cursor-pointer select-none"
                         >
                           {/* 1. Video Thumbnail: 16:9 aspect ratio, rounded corners, duration badge */}
                           <div className="relative aspect-video w-full bg-slate-900 rounded-xl overflow-hidden">
                             {isYouTube ? (
-                              <img
-                                src={meta?.thumbnail || `https://img.youtube.com/vi/${vid.youtubeId}/mqdefault.jpg`}
+                              <CachedImage
+                                src={youtubeThumbUrl(vid.youtubeId)}
                                 alt={displayTitle}
                                 className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
-                                onError={(e) => {
-                                  const img = e.target as HTMLImageElement;
-                                  if (!img.src.includes('mqdefault')) {
-                                    img.src = `https://img.youtube.com/vi/${vid.youtubeId}/mqdefault.jpg`;
-                                  }
-                                }}
                               />
                             ) : vid.isDirectVideo ? (
                               <video

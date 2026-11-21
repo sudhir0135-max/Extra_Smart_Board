@@ -28,6 +28,8 @@ import { externalizeBookImages } from './lib/imageExternalizer';
 import AuthModal from './components/AuthModal';
 import { Capacitor } from '@capacitor/core';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { persistServerLessons } from './lib/offlineDraft';
+import { hasNestedArrays } from './lib/submissionPatch';
 import { dbLocal } from './lib/db';
 import { queuePdfPrecache } from './lib/pdfCache';
 import { waitForBackgroundTurn } from './lib/networkPriority';
@@ -155,13 +157,7 @@ export default function App() {
 
           // Auto-persist book and lessons into local disk storage (IndexedDB)
           if (sanitizedLessons.length > 0) {
-            dbLocal.offline_lessons.put({
-              bookId: bookObj.id,
-              bookTitle: bookObj.title,
-              lessons: sanitizedLessons,
-              sync_status: 'synced',
-              updated_at: new Date().toISOString()
-            }).catch(console.error);
+            persistServerLessons(bookObj.id, sanitizedLessons, bookObj.title).catch(console.error);
 
             // Pre-cache chapter PDFs in background (only for chapters whose content type is PDF)
             sanitizedLessons.forEach(l => {
@@ -262,7 +258,7 @@ export default function App() {
           // If serialized lesson exceeds 750KB, offload full data to Storage and store pointer doc
           let docToWrite: any = lessonWithOrder;
           const jsonLength = new Blob([JSON.stringify(lessonWithOrder)]).size;
-          if (jsonLength > 750000) {
+          if (jsonLength > 750000 || hasNestedArrays(lessonWithOrder)) {
             const storagePath = `books/${firestoreBook.id}/lessons/${lesson.id}`;
             const { pointerLesson } = await uploadLargeLessonPayload(lessonWithOrder, storagePath);
             docToWrite = pointerLesson;
@@ -387,71 +383,21 @@ export default function App() {
             })).filter((t: any) => t !== null && t !== undefined) : undefined
           }));
 
-        // 1. Immediately cache in React state so UI has it regardless of firebaseBooks loading state
+        // 1. Persist subcollection lessons to local disk storage (IndexedDB), keeping any chapter
+        //    the editor has changed but not yet submitted (atomic: never races an editor save).
+        //    Large chapters that failed to download keep their complete saved copy.
+        const persisted = await persistServerLessons(bookId, sanitizedLessons).catch(err => { console.error(err); return null; });
+        const shownLessons = (persisted?.serverLessons || sanitizedLessons) as typeof sanitizedLessons;
+
+        // 2. Cache in React state so the UI has it regardless of firebaseBooks loading state
         setSubLessonsCache(prev => ({
           ...prev,
-          [bookId]: sanitizedLessons
+          [bookId]: shownLessons
         }));
-
-        // 2. Persist subcollection lessons to local disk storage (IndexedDB)
-        const existingOffline = await dbLocal.offline_lessons.get(bookId).catch(() => null);
-        let lessonsToPersist = sanitizedLessons;
-        let finalSyncStatus: 'synced' | 'pending' = 'synced';
-
-        // A "pending" copy holds editor changes not yet on the server (page edits wait for "Submit").
-        // Only the chapters listed in pendingLessonIds keep the local version; all others follow the
-        // server. Older copies without the list: chapters identical to the server are released,
-        // chapters that differ are kept (never discard an editor's unsaved work).
-        let pendingIds: string[] = [];
-        if (existingOffline && existingOffline.sync_status === 'pending' && existingOffline.lessons) {
-          if (Array.isArray(existingOffline.pendingLessonIds)) {
-            pendingIds = existingOffline.pendingLessonIds;
-          } else {
-            const strip = (l: any) => { const { order, payloadUrl, ...rest } = l || {}; return JSON.stringify(rest); };
-            pendingIds = (existingOffline.lessons || [])
-              .filter((ol: any) => {
-                const live = sanitizedLessons.find(l => l.id === ol.id);
-                return !live || strip(live) !== strip(ol);
-              })
-              .map((ol: any) => ol.id);
-          }
-        }
-        if (pendingIds.length > 0) {
-          finalSyncStatus = 'pending';
-          // Preserve local pending edits/topics so network refresh doesn't overwrite unsaved work
-          lessonsToPersist = sanitizedLessons.map(liveL => {
-            const pendingL = pendingIds.includes(liveL.id) ? (existingOffline!.lessons || []).find((ol: any) => ol.id === liveL.id) : null;
-            if (!pendingL) return liveL;
-            return {
-              ...liveL,
-              ...pendingL,
-              topics: pendingL.topics || liveL.topics,
-              pages: pendingL.pages || liveL.pages,
-              inquiryQuestions: pendingL.inquiryQuestions || liveL.inquiryQuestions,
-              flashQuestions: pendingL.flashQuestions || liveL.flashQuestions
-            };
-          });
-        }
-
-        // Chapters created on this device that the server does not have yet stay too
-        if (pendingIds.length > 0) {
-          for (const ol of existingOffline!.lessons || []) {
-            if (pendingIds.includes(ol.id) && !lessonsToPersist.some(l => l.id === ol.id)) lessonsToPersist.push(ol);
-          }
-        }
-
-        dbLocal.offline_lessons.put({
-          bookId: bookId,
-          bookTitle: 'Textbook',
-          lessons: lessonsToPersist,
-          sync_status: finalSyncStatus,
-          updated_at: new Date().toISOString(),
-          pendingLessonIds: pendingIds
-        }).catch(console.error);
 
         // 3. Pre-cache chapter PDFs locally in background (only for chapters whose content type is PDF)
         // (skips PDFs already saved, downloads one at a time, pauses during sign-in)
-        sanitizedLessons.forEach(l => {
+        shownLessons.forEach(l => {
           if (l.pdfUrl && l.pdfUrl.trim().length > 0 && getChapterContentType(l) === 'pdf') {
             queuePdfPrecache(l.pdfUrl);
           }
@@ -459,7 +405,7 @@ export default function App() {
 
         // 3b. Save uploaded HTML pages and images of this book for offline reading (background)
         precacheLessonsForOffline(
-          sanitizedLessons.filter(l => getChapterContentType(l) !== 'pdf').map(l => getStudentViewLesson(l))
+          shownLessons.map(l => getStudentViewLesson(l))
         ).catch(err => console.warn('Offline pre-cache error:', err));
 
         // 4. Update firebaseBooks state if book already exists in array
@@ -469,7 +415,7 @@ export default function App() {
           
           const book = prev[bookIndex];
           const newBooks = [...prev];
-          newBooks[bookIndex] = { ...book, lessons: sanitizedLessons };
+          newBooks[bookIndex] = { ...book, lessons: shownLessons };
           return newBooks;
         });
 
@@ -1191,7 +1137,7 @@ export default function App() {
         // Use subcollection lessons as source of truth for live lessons if available
         const liveLessonsList = !lessonsSnap.empty ? subLessons : (targetBook.lessons || []);
         
-        const sanitizedFirestoreLessons = liveLessonsList
+        let sanitizedFirestoreLessons = liveLessonsList
           .filter((l: any) => l !== null && l !== undefined)
           .map((l: any) => ({
             ...l,
@@ -1208,7 +1154,10 @@ export default function App() {
 
         totalSyncedLessons += sanitizedFirestoreLessons.length;
 
-        // Immediately update in-memory cache
+        // Save for offline use first (keeps an editor's unsubmitted chapters, and the complete
+        // saved copy of any large chapter that failed to download), then show that
+        const persistedSync = await persistServerLessons(bookId, sanitizedFirestoreLessons).catch(err => { console.error(err); return null; });
+        if (persistedSync) sanitizedFirestoreLessons = persistedSync.serverLessons as typeof sanitizedFirestoreLessons;
         setSubLessonsCache(prev => ({
           ...prev,
           [bookId]: sanitizedFirestoreLessons
@@ -1241,19 +1190,11 @@ export default function App() {
           return newBooks;
         });
 
-        // Update persistent IndexedDB storage for full offline availability
-        await dbLocal.offline_lessons.put({
-          bookId: bookId,
-          lessons: sanitizedFirestoreLessons,
-          sync_status: 'synced',
-          updated_at: new Date().toISOString()
-        });
 
         // Save uploaded HTML pages and images (web + Android) for offline reading
         try {
           await precacheLessonsForOffline(
             (sanitizedFirestoreLessons as Lesson[])
-              .filter(l => getChapterContentType(l) !== 'pdf')
               .map(l => getStudentViewLesson(l))
           );
         } catch (e) {
@@ -1556,9 +1497,30 @@ export default function App() {
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
             // Resolve any chapters whose full payload was offloaded to Firebase Storage (>750KB)
-            const loadedLessons: Lesson[] = await Promise.all(
+            const resolvedSubs: any[] = await Promise.all(
               rawLoaded.map(l => resolveLessonPayload(l))
             );
+
+            // Change-only submissions ("patch"): show the live chapter WITH the submitted changes
+            const { applyPatch } = await import('./lib/submissionPatch');
+            const needsLive = resolvedSubs.some(l => l && l.kind === 'patch');
+            const liveDocs = needsLive ? await getDocs(collection(db, 'books', bookIdStr, 'lessons')) : null;
+            const liveMap = new Map<string, any>((liveDocs?.docs || []).map(d => [d.id, { ...d.data(), id: d.id }]));
+            const loadedLessons: Lesson[] = await Promise.all(resolvedSubs.map(async (sub: any) => {
+              if (!sub || sub.kind !== 'patch') {
+                return { ...sub, _submissionKinds: sub?.kinds || ['content', 'questions'] } as Lesson;
+              }
+              const liveRaw = liveMap.get(sub.id);
+              const live = liveRaw ? await resolveLessonPayload(liveRaw) : { id: sub.id, title: sub.title };
+              const patch = { questions: sub.questions || null, content: sub.content || null };
+              return {
+                ...applyPatch(live, patch),
+                id: sub.id,
+                order: liveRaw?.order,
+                _patch: patch,
+                _submissionKinds: sub.kinds || [],
+              } as Lesson;
+            }));
 
             // If pendingLessonIds was not recorded explicitly, infer from all subcollection docs
             const effectivePendingIds = pendingIds.length > 0 
@@ -1695,6 +1657,28 @@ export default function App() {
                 continue;
               }
 
+              // Change-only submission: apply just the submitted changes to the CURRENT live chapter
+              // (so another editor's approved content/questions in the same chapter are kept)
+              if (submitted._patch) {
+                const liveRaw = liveById.get(id);
+                if (!liveRaw) { failed.push(submitted.title || id); continue; }
+                let liveFull: any = liveRaw;
+                if (liveRaw.payloadUrl) {
+                  try {
+                    const url = liveRaw.payloadUrl + (liveRaw.payloadUrl.includes('?') ? '&' : '?') + `_cb=${Date.now()}`;
+                    const r = await fetch(url, { cache: 'no-store' });
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    liveFull = { ...(await r.json()), id };
+                  } catch (e: any) {
+                    console.error(`[approve] Could not load live chapter ${id}:`, e);
+                    failed.push(submitted.title || id);
+                    continue;
+                  }
+                }
+                const { applyPatch } = await import('./lib/submissionPatch');
+                submitted = { ...applyPatch(liveFull, submitted._patch), id };
+              }
+
               // Large submissions are stored in Storage with a cut-down placeholder in Firestore.
               // Always load the FULL copy; if it can't be loaded, skip (keep it pending) rather than
               // publishing a chapter without its questions and topic pages.
@@ -1719,8 +1703,10 @@ export default function App() {
               const cleaned = (await externalizeBookImages({ id: bookId, lessons: [submitted] } as any)).lessons[0];
               let docToWrite: any = JSON.parse(JSON.stringify({ ...cleaned, order }));
               delete docToWrite.payloadUrl;
+              ['_patch', '_submissionKinds', 'kind', 'kinds', 'submittedAt', 'editorEmail', 'questions', 'content']
+                .forEach(k => { if (k !== 'content' || typeof docToWrite.content !== 'string') delete docToWrite[k]; });
               const size = new Blob([JSON.stringify(docToWrite)]).size;
-              if (size > 750000) {
+              if (size > 750000 || hasNestedArrays(docToWrite)) {
                 const { pointerLesson } = await uploadLargeLessonPayload(docToWrite, `books/${bookIdStr}/lessons/${id}`);
                 docToWrite = JSON.parse(JSON.stringify(pointerLesson));
               } else if (live?.payloadUrl) {
